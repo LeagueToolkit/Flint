@@ -296,6 +296,86 @@ pub async fn read_bin_info(input_path: String) -> Result<BinInfo, String> {
     })
 }
 
+/// Converts binary BIN data (in-memory bytes) to Python-like text format
+///
+/// # Arguments
+/// * `bin_data` - Raw binary data as a vector of bytes
+/// * `state` - The managed HashtableState for hash resolution
+///
+/// # Returns
+/// * `Result<String, String>` - Python-like text format or error message
+#[tauri::command]
+pub async fn convert_bin_bytes_to_text(
+    bin_data: Vec<u8>,
+    state: State<'_, HashtableState>,
+) -> Result<String, String> {
+    tracing::debug!("Converting {} bytes of BIN data to text", bin_data.len());
+
+    // Parse the bin file
+    let bin = read_bin(&bin_data)
+        .map_err(|e| {
+            tracing::error!("Failed to parse bin data: {}", e);
+            format!("Failed to parse bin data: {}", e)
+        })?;
+
+    tracing::debug!("Parsed bin data with {} objects", bin.objects.len());
+
+    // Get hashtable for resolution (lazy loaded on first use)
+    let hashtable = state.get_hashtable();
+    let hashtable_ref = hashtable.as_ref().map(|h| h.as_ref());
+
+    // Convert to text format
+    let text = bin_to_text(&bin, hashtable_ref)
+        .map_err(|e| {
+            tracing::error!("Failed to convert to text: {}", e);
+            format!("Failed to convert to text: {}", e)
+        })?;
+
+    tracing::debug!("Successfully converted bin data to text ({} chars)", text.len());
+
+    Ok(text)
+}
+
+/// Converts binary BIN data (in-memory bytes) to JSON format
+///
+/// # Arguments
+/// * `bin_data` - Raw binary data as a vector of bytes
+/// * `state` - The managed HashtableState for hash resolution
+///
+/// # Returns
+/// * `Result<String, String>` - JSON string representation or error message
+#[tauri::command]
+pub async fn convert_bin_bytes_to_json(
+    bin_data: Vec<u8>,
+    state: State<'_, HashtableState>,
+) -> Result<String, String> {
+    tracing::debug!("Converting {} bytes of BIN data to JSON", bin_data.len());
+
+    // Parse the bin file
+    let bin = read_bin(&bin_data)
+        .map_err(|e| {
+            tracing::error!("Failed to parse bin data: {}", e);
+            format!("Failed to parse bin data: {}", e)
+        })?;
+
+    tracing::debug!("Parsed bin data with {} objects", bin.objects.len());
+
+    // Get hashtable for resolution (lazy loaded on first use)
+    let hashtable = state.get_hashtable();
+    let hashtable_ref = hashtable.as_ref().map(|h| h.as_ref());
+
+    // Convert to JSON format
+    let json = bin_to_json(&bin, hashtable_ref)
+        .map_err(|e| {
+            tracing::error!("Failed to convert to JSON: {}", e);
+            format!("Failed to convert to JSON: {}", e)
+        })?;
+
+    tracing::debug!("Successfully converted bin data to JSON");
+
+    Ok(json)
+}
+
 /// Parses a BIN file and returns Python-like text format for the editor
 ///
 /// # Arguments

@@ -45,8 +45,12 @@ impl HashtableState {
         Some(Arc::clone(ht))
     }
 
-    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         LAZY_HASHTABLE.get().map_or(0, |h| h.len())
+    }
+
+    #[allow(dead_code)]
+    pub fn is_empty(&self) -> bool {
+        LAZY_HASHTABLE.get().is_none_or(|h| h.is_empty())
     }
 }

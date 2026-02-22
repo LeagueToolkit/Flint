@@ -3,6 +3,8 @@ use crate::core::wad::reader::WadReader;
 use crate::state::HashtableState;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::Path;
 use tauri::State;
 use walkdir::WalkDir;
 
@@ -71,10 +73,11 @@ pub async fn get_wad_chunks(
     let hashtable = state.get_hashtable();
     
     let mut chunk_infos = Vec::new();
-    
-    for (path_hash, chunk) in chunks.iter() {
+
+    for chunk in chunks.iter() {
+        let path_hash = chunk.path_hash();
         let resolved_path = if let Some(ref ht) = hashtable {
-            let resolved = ht.resolve(*path_hash);
+            let resolved = ht.resolve(path_hash);
             // Only include as resolved if it's not a hex fallback
             if !resolved.starts_with(|c: char| c.is_ascii_hexdigit()) || resolved.len() != 16 {
                 Some(resolved.to_string())
@@ -84,7 +87,7 @@ pub async fn get_wad_chunks(
         } else {
             None
         };
-        
+
         chunk_infos.push(ChunkInfo {
             hash: format!("{:016x}", path_hash),
             path: resolved_path,
@@ -127,9 +130,10 @@ pub async fn load_all_wad_chunks(
                 let reader = WadReader::open(wad_path).map_err(|e| e.to_string())?;
                 let chunks = reader.chunks();
                 let mut chunk_infos = Vec::with_capacity(chunks.len());
-                for (path_hash, chunk) in chunks.iter() {
+                for chunk in chunks.iter() {
+                    let path_hash = chunk.path_hash();
                     let resolved = hashtable.as_ref().and_then(|ht| {
-                        let r = ht.resolve(*path_hash);
+                        let r = ht.resolve(path_hash);
                         // Hex-only 16-char strings are unknown hashes — treat as None
                         if r.len() == 16 && r.bytes().all(|b| b.is_ascii_hexdigit()) {
                             None
@@ -152,6 +156,26 @@ pub async fn load_all_wad_chunks(
             }
         })
         .collect();
+
+    // Aggregate summary: group by parent directory (category)
+    let mut category_stats: HashMap<String, (usize, usize)> = HashMap::new();
+    for batch in &batches {
+        if batch.error.is_some() {
+            continue;
+        }
+        let category = Path::new(&batch.path)
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .unwrap_or("Other")
+            .to_string();
+        let entry = category_stats.entry(category).or_insert((0, 0));
+        entry.0 += 1;                // wad count
+        entry.1 += batch.chunks.len(); // chunk count
+    }
+    for (cat, (wads, chunks)) in &category_stats {
+        tracing::info!("Loaded \"{}\" folder: {} wads, {} chunks", cat, wads, chunks);
+    }
 
     Ok(batches)
 }
@@ -268,8 +292,8 @@ pub async fn read_wad_chunk_data(
         .get_chunk(path_hash)
         .ok_or_else(|| format!("Chunk {:016x} not found in WAD", path_hash))?;
 
-    let (mut decoder, _) = reader.wad_mut().decode();
-    decoder
+    reader
+        .wad_mut()
         .load_chunk_decompressed(&chunk)
         .map(|b| b.into())
         .map_err(|e| format!("Failed to decompress chunk {:016x}: {}", path_hash, e))

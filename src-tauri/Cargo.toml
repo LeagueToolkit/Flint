@@ -1,6 +1,6 @@
 [package]
 name = "flint"
-version = "1.1.3"
+version = "1.1.4"
 edition = "2021"
 default-run = "flint"
 
@@ -20,7 +20,7 @@ path = "src/bin/bin_roundtrip_test.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["protocol-asset"] }
+tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2.0"
 tauri-plugin-updater = "2.0"
 tauri-plugin-process = "2.0"
@@ -60,7 +60,8 @@ ddsfile = "0.5"
 base64 = "0.21"
 
 # League toolkit for WAD operations (from crates.io)
-league-toolkit = { version = "0.2", features = ["serde"] }
+# Updated to 0.2.18+ for WAD 3.3 support
+league-toolkit = { version = "0.2.18", features = ["serde"] }
 
 # ltk_mesh from crates.io (0.3.0 for ltk_primitives 0.3.x compatibility)
 ltk_mesh = "0.3.0"
@@ -87,10 +88,11 @@ zip = { version = "2.4", features = ["deflate"] }
 regex = "1.12.2"
 
 # League Mod - Project system & export (from crates.io)
-ltk_mod_project = "0.1"
-ltk_mod_core = "0.1"
-ltk_fantome = "0.1"
-ltk_modpkg = { version = "0.1", features = ["project"] }
+# Updated to 0.2.x for compatibility with league-toolkit 0.2.18+
+ltk_mod_project = "0.2"
+ltk_mod_core = "0.1"  # Still at 0.1.0
+ltk_fantome = "0.2"
+ltk_modpkg = { version = "0.2", features = ["project"] }
 
 # Additional dependencies required by ltk crates
 eyre = "0.6"

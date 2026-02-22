@@ -73,6 +73,10 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
         }
     }, [dispatch, activeTab]);
 
+    const handleDeepToggle = useCallback((paths: string[], expand: boolean) => {
+        dispatch({ type: 'BULK_SET_FOLDERS', payload: { paths, expand } });
+    }, [dispatch]);
+
     const filteredTree = useMemo(() => {
         if (!fileTree || !searchQuery) return fileTree;
         return filterTreeByQuery(fileTree, searchQuery.toLowerCase());
@@ -94,6 +98,7 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
                 selectedFile={selectedFile}
                 expandedFolders={expandedFolders}
                 onItemClick={handleItemClick}
+                onDeepToggle={handleDeepToggle}
             />
         </div>
     );
@@ -105,6 +110,32 @@ interface TreeNodeProps {
     selectedFile: string | null;
     expandedFolders: Set<string>;
     onItemClick: (path: string, isFolder: boolean) => void;
+    onDeepToggle: (paths: string[], expand: boolean) => void;
+}
+
+// Compact folders: merge single-child directory chains into one label
+function compactNode(node: FileTreeNode): { displayPath: string; effectiveNode: FileTreeNode } {
+    let current = node;
+    const parts = [current.name];
+    while (
+        current.isDirectory &&
+        current.children?.length === 1 &&
+        current.children[0].isDirectory
+    ) {
+        current = current.children[0];
+        parts.push(current.name);
+    }
+    return { displayPath: parts.join('/'), effectiveNode: current };
+}
+
+// Collect all descendant folder paths for deep expand/collapse
+function collectAllFolderPaths(node: FileTreeNode): string[] {
+    if (!node.isDirectory) return [];
+    const result = [node.path];
+    for (const child of node.children ?? []) {
+        result.push(...collectAllFolderPaths(child));
+    }
+    return result;
 }
 
 const TreeNode: React.FC<TreeNodeProps> = React.memo(({
@@ -113,32 +144,42 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
     selectedFile,
     expandedFolders,
     onItemClick,
+    onDeepToggle,
 }) => {
     const { openModal, openContextMenu } = useAppState();
-    const isExpanded = expandedFolders.has(node.path);
-    const isSelected = selectedFile === node.path;
+
+    // Apply compact-folder merging
+    const { displayPath, effectiveNode } = node.isDirectory ? compactNode(node) : { displayPath: node.name, effectiveNode: node };
+    const isExpanded = expandedFolders.has(effectiveNode.path);
+    const isSelected = selectedFile === effectiveNode.path;
 
     const handleClick = (e: React.MouseEvent) => {
         e.stopPropagation();
-        onItemClick(node.path, node.isDirectory);
+        if (e.shiftKey && effectiveNode.isDirectory) {
+            // Deep expand/collapse
+            const allPaths = collectAllFolderPaths(effectiveNode);
+            onDeepToggle(allPaths, !isExpanded);
+        } else {
+            onItemClick(effectiveNode.path, effectiveNode.isDirectory);
+        }
     };
 
     const handleContextMenu = (e: React.MouseEvent) => {
         e.preventDefault();
         e.stopPropagation();
 
-        if (node.isDirectory) {
+        if (effectiveNode.isDirectory) {
             openContextMenu(e.clientX, e.clientY, [
                 {
                     label: 'Batch Recolor',
                     icon: getIcon('texture'),
-                    onClick: () => openModal('recolor', { filePath: node.path, isFolder: true })
+                    onClick: () => openModal('recolor', { filePath: effectiveNode.path, isFolder: true })
                 }
             ]);
         }
     };
 
-    const icon = getFileIcon(node.name, node.isDirectory, isExpanded);
+    const icon = getFileIcon(effectiveNode.name, effectiveNode.isDirectory, isExpanded);
     const expanderIcon = getExpanderIcon(isExpanded);
 
     return (
@@ -149,7 +190,7 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
                 onClick={handleClick}
                 onContextMenu={handleContextMenu}
             >
-                {node.isDirectory ? (
+                {effectiveNode.isDirectory ? (
                     <span
                         className="file-tree__expander"
                         dangerouslySetInnerHTML={{ __html: expanderIcon }}
@@ -161,11 +202,22 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
                     className="file-tree__icon"
                     dangerouslySetInnerHTML={{ __html: icon }}
                 />
-                <span className="file-tree__name">{node.name}</span>
+                <span className="file-tree__name">
+                    {displayPath.includes('/') ? (
+                        displayPath.split('/').map((segment, idx, arr) => (
+                            <React.Fragment key={idx}>
+                                <span className="file-tree__compact-segment">{segment}</span>
+                                {idx < arr.length - 1 && <span className="file-tree__compact-separator">/</span>}
+                            </React.Fragment>
+                        ))
+                    ) : (
+                        displayPath
+                    )}
+                </span>
             </div>
-            {node.isDirectory && isExpanded && node.children && (
+            {effectiveNode.isDirectory && isExpanded && effectiveNode.children && (
                 <div className="file-tree__children">
-                    {node.children.map((child) => (
+                    {effectiveNode.children.map((child) => (
                         <TreeNode
                             key={child.path}
                             node={child}
@@ -173,6 +225,7 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
                             selectedFile={selectedFile}
                             expandedFolders={expandedFolders}
                             onItemClick={onItemClick}
+                            onDeepToggle={onDeepToggle}
                         />
                     ))}
                 </div>

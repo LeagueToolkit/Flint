@@ -23,7 +23,7 @@ export default defineConfig({
                     'react-vendor': ['react', 'react-dom'],
 
                     // Monaco Editor - lazy loaded
-                    'monaco': ['@monaco-editor/react'],
+                    'monaco': ['@monaco-editor/react', 'monaco-editor'],
 
                     // Three.js 3D rendering - lazy loaded
                     'three': ['three', '@react-three/fiber', '@react-three/drei'],
@@ -45,6 +45,6 @@ export default defineConfig({
 
     // Optimize dependency pre-bundling
     optimizeDeps: {
-        include: ['react', 'react-dom'],
+        include: ['react', 'react-dom', 'monaco-editor'],
     },
 });

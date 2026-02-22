@@ -688,6 +688,22 @@ input.search-box__input {
   font-weight: 400;
 }
 
+/* Compact folder styling (VSCode-like) */
+.file-tree__compact-segment {
+  color: var(--text-primary);
+}
+
+.file-tree__compact-segment:not(:first-child) {
+  color: var(--text-muted);
+  opacity: 0.8;
+}
+
+.file-tree__compact-separator {
+  color: var(--text-muted);
+  opacity: 0.5;
+  padding: 0 1px;
+}
+
 .file-tree__count {
   color: var(--text-muted);
   font-size: 11px;

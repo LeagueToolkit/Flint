@@ -93,6 +93,7 @@ type Action =
     | { type: 'SET_PROJECT'; payload: { project: Project | null; path: string | null } }
     | { type: 'SET_FILE_TREE'; payload: FileTreeNode | null }
     | { type: 'TOGGLE_FOLDER'; payload: string }
+    | { type: 'BULK_SET_FOLDERS'; payload: { paths: string[]; expand: boolean } }
     | { type: 'SET_RECENT_PROJECTS'; payload: RecentProject[] }
     | { type: 'SET_CHAMPIONS'; payload: Champion[] }
     | { type: 'ADD_LOG'; payload: LogEntry }
@@ -109,6 +110,7 @@ type Action =
     | { type: 'SET_WAD_EXPLORER_SELECTED'; payload: { wadPath: string; hash: string } | null }
     | { type: 'TOGGLE_WAD_EXPLORER_WAD'; payload: string }
     | { type: 'TOGGLE_WAD_EXPLORER_FOLDER'; payload: string }
+    | { type: 'BULK_SET_WAD_EXPLORER_FOLDERS'; payload: { keys: string[]; expand: boolean } }
     | { type: 'SET_WAD_EXPLORER_SEARCH'; payload: string }
     // Extract session actions
     | { type: 'OPEN_EXTRACT_SESSION'; payload: { id: string; wadPath: string } }
@@ -341,6 +343,23 @@ function appReducer(state: AppState, action: Action): AppState {
             });
         }
 
+        case 'BULK_SET_FOLDERS': {
+            const activeTab = getActiveTab(state);
+            if (!activeTab) return state;
+            const { paths, expand } = action.payload;
+            const newExpanded = new Set(activeTab.expandedFolders);
+            for (const p of paths) {
+                if (expand) newExpanded.add(p);
+                else newExpanded.delete(p);
+            }
+            return {
+                ...state,
+                openTabs: state.openTabs.map(t =>
+                    t.id === activeTab.id ? { ...t, expandedFolders: newExpanded } : t
+                ),
+            };
+        }
+
         case 'SET_RECENT_PROJECTS':
             return {
                 ...state,
@@ -401,10 +420,10 @@ function appReducer(state: AppState, action: Action): AppState {
             const fallbackView = state.activeTabId && state.openTabs.find(t => t.id === state.activeTabId)
                 ? 'preview'
                 : state.activeExtractId && state.extractSessions.find(s => s.id === state.activeExtractId)
-                ? 'extract'
-                : state.openTabs.length > 0 ? 'preview'
-                : state.extractSessions.length > 0 ? 'extract'
-                : 'welcome';
+                    ? 'extract'
+                    : state.openTabs.length > 0 ? 'preview'
+                        : state.extractSessions.length > 0 ? 'extract'
+                            : 'welcome';
             const fallbackTabId = fallbackView === 'preview'
                 ? (state.activeTabId ?? state.openTabs[state.openTabs.length - 1]?.id ?? null)
                 : state.activeTabId;
@@ -492,6 +511,19 @@ function appReducer(state: AppState, action: Action): AppState {
                 newExpanded.delete(key);
             } else {
                 newExpanded.add(key);
+            }
+            return {
+                ...state,
+                wadExplorer: { ...state.wadExplorer, expandedFolders: newExpanded },
+            };
+        }
+
+        case 'BULK_SET_WAD_EXPLORER_FOLDERS': {
+            const { keys, expand } = action.payload;
+            const newExpanded = new Set(state.wadExplorer.expandedFolders);
+            for (const k of keys) {
+                if (expand) newExpanded.add(k);
+                else newExpanded.delete(k);
             }
             return {
                 ...state,

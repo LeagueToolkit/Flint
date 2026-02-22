@@ -36,14 +36,11 @@ pub fn extract_chunk(
     _hashtable: Option<&Hashtable>,
 ) -> Result<()> {
     let output_path = output_path.as_ref();
-    
-    tracing::debug!("Extracting chunk to: {}", output_path.display());
-    
-    // Create the decoder
-    let (mut decoder, _) = wad.decode();
-    
+
+    tracing::trace!("Extracting chunk to: {}", output_path.display());
+
     // Decompress the chunk data
-    let chunk_data = decoder
+    let chunk_data = wad
         .load_chunk_decompressed(chunk)
         .map_err(|e| {
             tracing::error!("Failed to decompress chunk for '{}': {}", output_path.display(), e);
@@ -87,7 +84,7 @@ pub fn extract_chunk(
             Error::io_with_path(e, output_path)
         })?;
     
-    tracing::debug!("Successfully extracted chunk to: {}", output_path.display());
+    tracing::trace!("Successfully extracted chunk to: {}", output_path.display());
     
     Ok(())
 }
@@ -114,31 +111,32 @@ pub fn extract_all(
     hashtable: Option<&Hashtable>,
 ) -> Result<usize> {
     let output_dir = output_dir.as_ref();
-    
+
     tracing::info!("Extracting all chunks to: {}", output_dir.display());
-    
-    // Create the decoder and get chunks
-    let (mut decoder, chunks) = wad.decode();
-    
-    let total_chunks = chunks.len();
+
+    let total_chunks = wad.chunks().len();
     tracing::info!("Total chunks to extract: {}", total_chunks);
-    
+
     let mut extracted_count = 0;
-    
+
+    // Collect chunks first to avoid borrow checker issues (WadChunk is Copy)
+    let chunks: Vec<_> = wad.chunks().iter().copied().collect();
+
     // Extract each chunk
-    for (path_hash, chunk) in chunks.iter() {
+    for chunk in chunks.iter() {
+        let path_hash = chunk.path_hash();
         // Resolve the chunk path
         let resolved_path = if let Some(ht) = hashtable {
-            ht.resolve(*path_hash).to_string()
+            ht.resolve(path_hash).to_string()
         } else {
             // Fall back to hex hash if no hashtable provided
             format!("{:016x}", path_hash)
         };
-        
+
         tracing::debug!("Extracting chunk: {} (hash: {:016x})", resolved_path, path_hash);
-        
+
         // Decompress the chunk data
-        let chunk_data = decoder
+        let chunk_data = wad
             .load_chunk_decompressed(chunk)
             .map_err(|e| {
                 tracing::error!("Failed to decompress chunk '{}': {}", resolved_path, e);
@@ -283,26 +281,27 @@ pub fn extract_skin_assets(
         output_dir.display(),
         wad_folder_name
     );
-    
-    // Create the decoder and get chunks
-    let (mut decoder, chunks) = wad.decode();
-    
-    let total_chunks = chunks.len();
+
+    let total_chunks = wad.chunks().len();
     tracing::info!("Total chunks in WAD: {}", total_chunks);
-    
+
     let mut extracted_count = 0;
     let mut path_mappings: HashMap<String, String> = HashMap::new();
-    
+
+    // Collect chunks first to avoid borrow checker issues (WadChunk is Copy)
+    let chunks: Vec<_> = wad.chunks().iter().copied().collect();
+
     // Extract all chunks - we'll clean up unused files later based on skin BIN references
     let mut skipped_unknown = 0;
-    for (path_hash, chunk) in chunks.iter() {
+    for chunk in chunks.iter() {
+        let path_hash = chunk.path_hash();
         // Resolve the chunk path
-        let resolved_path = hashtable.resolve(*path_hash).to_string();
+        let resolved_path = hashtable.resolve(path_hash).to_string();
         let path_lower = resolved_path.to_lowercase();
-        
+
         // Check if this is an unresolved hash (hex string that doesn't look like a path)
         let is_unresolved = resolved_path.chars().all(|c| c.is_ascii_hexdigit());
-        
+
         // Extract everything under assets/ or data/
         // Also extract unresolved hashes (they might be important shared assets)
         if !path_lower.starts_with("assets/") && !path_lower.starts_with("data/") {
@@ -315,9 +314,9 @@ pub fn extract_skin_assets(
             }
             continue;
         }
-        
+
         // Decompress the chunk data
-        let chunk_data = match decoder.load_chunk_decompressed(chunk) {
+        let chunk_data = match wad.load_chunk_decompressed(chunk) {
             Ok(data) => data,
             Err(e) => {
                 tracing::warn!("Failed to decompress chunk '{}': {}", resolved_path, e);

@@ -12,10 +12,26 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import Editor, { OnMount, BeforeMount, Monaco } from '@monaco-editor/react';
+import Editor, { OnMount, BeforeMount, Monaco, loader } from '@monaco-editor/react';
+import * as monaco from 'monaco-editor';
 import type { editor } from 'monaco-editor';
 import { useAppState } from '../../lib/state';
 import * as api from '../../lib/api';
+
+// Configure Monaco workers for Tauri's custom protocol (blob: workers for production builds)
+import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
+import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
+
+// @ts-ignore - MonacoEnvironment is a global
+window.MonacoEnvironment = {
+    getWorker(_: unknown, label: string) {
+        if (label === 'json') return new jsonWorker();
+        return new editorWorker();
+    },
+};
+
+// Use locally-bundled Monaco instead of CDN (critical for Tauri offline builds)
+loader.config({ monaco });
 import { getIcon } from '../../lib/fileIcons';
 import {
     RITOBIN_LANGUAGE_ID,
@@ -78,8 +94,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
     const basePath = filePath.split(/[/\\]/).slice(0, -1).join('\\');
 
     /**
-     * Configure Monaco before the editor is created.
-     * @monaco-editor/react handles worker loading internally — no MonacoEnvironment needed.
+     * Configure Monaco language and theme before the editor is created.
      */
     const handleEditorWillMount: BeforeMount = (_monaco: Monaco) => {
         registerRitobinLanguage(_monaco);

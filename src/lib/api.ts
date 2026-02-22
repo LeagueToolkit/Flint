@@ -332,11 +332,11 @@ export async function scanGameWads(gamePath: string): Promise<GameWadInfo[]> {
 // =============================================================================
 
 export async function convertBinToText(binData: Uint8Array): Promise<string> {
-    return invokeCommand('convert_bin_to_text', { binData: Array.from(binData) });
+    return invokeCommand('convert_bin_bytes_to_text', { binData: Array.from(binData) });
 }
 
 export async function convertBinToJson(binData: Uint8Array): Promise<unknown> {
-    return invokeCommand('convert_bin_to_json', { binData: Array.from(binData) });
+    return invokeCommand('convert_bin_bytes_to_json', { binData: Array.from(binData) });
 }
 
 export async function convertTextToBin(textContent: string): Promise<Uint8Array> {

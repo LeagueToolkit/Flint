@@ -13,13 +13,196 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::LazyLock;
 use walkdir::WalkDir;
 use rayon::prelude::*;
 use dashmap::DashSet;
 use regex::Regex;
 
+/// Static regex for skin folder remapping (compiled once, used many times)
+static SKIN_FOLDER_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(skin)(\d+)(/)").expect("Invalid skin folder regex")
+});
+
+/// Parsed asset path with structured components (zero-copy where possible)
+///
+/// This enum provides type-safe path handling and eliminates repeated string parsing.
+/// Paths are parsed once and carry their semantic meaning through the repathing process.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum AssetPath<'a> {
+    /// SFX (Sound Effects) files - repath to audio/sfx/
+    /// These live in the champion WAD and can be safely repathed
+    SoundSfx {
+        filename: &'a str,  // Just the filename, all path components stripped
+    },
+
+    /// VO (Voice-Over) files - DO NOT REPATH
+    /// These live in separate language WADs and must keep their original paths
+    /// or the game won't be able to find them (resulting in silent characters)
+    SoundVo {
+        original_path: &'a str,  // Keep entire original path intact
+    },
+
+    /// HUD files for the target champion - go to creator-level hud/ folder
+    /// Pattern: characters/{champion}/hud/{filename}
+    ChampionHud {
+        filename: &'a str,
+    },
+
+    /// Target champion skin assets - go to project folder with skin ID remapped
+    /// Pattern: characters/{target_champion}/skins/skinXX/...
+    TargetChampionSkin {
+        /// Skin ID parsed from path (if present)
+        skin_id: Option<u32>,
+        /// Everything after the champion folder (may include skins/ prefix)
+        subpath: &'a str,
+    },
+
+    /// Other champion assets - go to creator-level shared-champion/ folder
+    /// Pattern: characters/{other_champion}/...
+    OtherChampion {
+        /// Everything after "characters/{champion}/"
+        subpath: &'a str,
+    },
+
+    /// Shared assets (non-champion) - go to creator-level shared/ folder
+    /// Pattern: particles/, maps/, etc.
+    Shared {
+        /// Path after stripping "shared/" prefix if present
+        subpath: &'a str,
+    },
+}
+
+impl<'a> AssetPath<'a> {
+    /// Parse a path into structured components (zero-copy where possible)
+    ///
+    /// This performs a single pass over the path string, extracting semantic
+    /// information without allocating intermediate strings.
+    fn parse(path: &'a str, target_champion: &str) -> Option<Self> {
+        // Strip "assets/" or "data/" prefix (case-insensitive)
+        let stripped = if path.len() >= 7 && path[..7].eq_ignore_ascii_case("assets/") {
+            &path[7..]
+        } else if path.len() >= 5 && path[..5].eq_ignore_ascii_case("data/") {
+            &path[5..]
+        } else {
+            return None; // Not an asset path
+        };
+
+        // === SOUND FILES ===
+        // Fast path: check for sounds/ prefix
+        if let Some(sound_path) = Self::strip_prefix_ignore_case(stripped, "sounds/") {
+            // Check if VO file (voice-over)
+            if Self::contains_ignore_case(sound_path, "/vo/") {
+                return Some(AssetPath::SoundVo {
+                    original_path: path,
+                });
+            }
+
+            // SFX file - extract just the filename
+            let filename = sound_path.split('/').next_back().unwrap_or(sound_path);
+            return Some(AssetPath::SoundSfx { filename });
+        }
+
+        // === CHAMPION PATHS ===
+        if let Some(rest) = Self::strip_prefix_ignore_case(stripped, "characters/") {
+            // Split into champion name and subpath
+            let mut parts = rest.splitn(2, '/');
+            let champion = parts.next()?;
+            let subpath = parts.next().unwrap_or("");
+
+            // HUD special case
+            if let Some(filename) = Self::strip_prefix_ignore_case(subpath, "hud/") {
+                if champion.eq_ignore_ascii_case(target_champion) {
+                    return Some(AssetPath::ChampionHud { filename });
+                }
+            }
+
+            // Target champion vs other champion
+            if champion.eq_ignore_ascii_case(target_champion) {
+                // Parse skin ID if present in path
+                let skin_id = if let Some(skins_path) = Self::strip_prefix_ignore_case(subpath, "skins/") {
+                    skins_path
+                        .split('/')
+                        .next()
+                        .and_then(|s| Self::strip_prefix_ignore_case(s, "skin"))
+                        .and_then(|s| s.parse::<u32>().ok())
+                } else {
+                    None
+                };
+
+                return Some(AssetPath::TargetChampionSkin { skin_id, subpath });
+            } else {
+                // Other champion
+                return Some(AssetPath::OtherChampion { subpath });
+            }
+        }
+
+        // === SHARED ASSETS ===
+        // Strip "shared/" prefix if present to avoid duplication
+        let subpath = Self::strip_prefix_ignore_case(stripped, "shared/").unwrap_or(stripped);
+        Some(AssetPath::Shared { subpath })
+    }
+
+    /// Convert parsed path to final repathed string
+    fn to_repathed(&self, config: &RepathConfig) -> String {
+        let creator = config.creator_name.replace(' ', "-");
+        let prefix = config.prefix();
+
+        match self {
+            AssetPath::SoundSfx { filename } => {
+                format!("ASSETS/{}/audio/sfx/{}", prefix, filename)
+            }
+            AssetPath::SoundVo { original_path } => {
+                // Return original path unchanged - game needs this exact path
+                original_path.to_string()
+            }
+            AssetPath::ChampionHud { filename } => {
+                format!("ASSETS/{}/hud/{}", creator, filename)
+            }
+            AssetPath::TargetChampionSkin { subpath, .. } => {
+                // Strip "skins/" prefix if present
+                let after_skins = Self::strip_prefix_ignore_case(subpath, "skins/")
+                    .unwrap_or(subpath);
+
+                // Remap skin IDs in the path
+                let remapped = remap_skin_ids(after_skins, config.target_skin_id);
+                format!("ASSETS/{}/{}", prefix, remapped)
+            }
+            AssetPath::OtherChampion { subpath } => {
+                // Extract path after "skins/" if present
+                let parts: Vec<&str> = subpath.split('/').collect();
+                let after_skins = if parts.len() >= 2 && parts[0].eq_ignore_ascii_case("skins") {
+                    parts[1..].join("/")
+                } else {
+                    subpath.to_string()
+                };
+                format!("ASSETS/{}/shared-champion/{}", creator, after_skins)
+            }
+            AssetPath::Shared { subpath } => {
+                format!("ASSETS/{}/shared/{}", creator, subpath)
+            }
+        }
+    }
+
+    /// Helper: case-insensitive prefix stripping
+    #[inline]
+    fn strip_prefix_ignore_case<'b>(s: &'b str, prefix: &str) -> Option<&'b str> {
+        if s.len() >= prefix.len() && s[..prefix.len()].eq_ignore_ascii_case(prefix) {
+            Some(&s[prefix.len()..])
+        } else {
+            None
+        }
+    }
+
+    /// Helper: case-insensitive substring check
+    #[inline]
+    fn contains_ignore_case(s: &str, pattern: &str) -> bool {
+        s.to_lowercase().contains(&pattern.to_lowercase())
+    }
+}
+
 /// Configuration for repathing operations
-/// 
+///
 /// Note: BIN concatenation is now handled separately by the organizer module.
 /// This config is purely for path modification operations.
 #[derive(Debug, Clone)]
@@ -311,96 +494,54 @@ fn collect_paths_from_value(value: &PropertyValueEnum, paths: &mut Vec<String>) 
     }
 }
 
+/// Check if a string is an asset path without allocating
 fn is_asset_path(s: &str) -> bool {
-    let lower = s.to_lowercase();
-    lower.starts_with("assets/") || lower.starts_with("data/")
+    // Fast path: check minimum length first
+    if s.len() < 5 {
+        return false;
+    }
+
+    // Case-insensitive comparison without allocation
+    (s.len() >= 7 && s[..7].eq_ignore_ascii_case("assets/")) ||
+    (s.len() >= 5 && s[..5].eq_ignore_ascii_case("data/"))
 }
 
+/// Normalize path to lowercase with forward slashes
 fn normalize_path(s: &str) -> String {
     s.to_lowercase().replace('\\', "/")
 }
 
-fn apply_prefix_to_path(path: &str, prefix: &str, config: &RepathConfig) -> String {
-    let lower = path.to_lowercase();
-
-    // Strip the original prefix (assets/ or data/)
-    let stripped = if lower.starts_with("assets/") {
-        &path[7..]  // Skip "assets/"
-    } else if lower.starts_with("data/") {
-        &path[5..]  // Skip "data/"
+fn apply_prefix_to_path(path: &str, _prefix: &str, config: &RepathConfig) -> String {
+    // Use the AST-based parser for structured path handling
+    if let Some(asset_path) = AssetPath::parse(path, &config.champion) {
+        asset_path.to_repathed(config)
     } else {
-        path
-    };
-
-    // Step 1: Replace champion folder with project folder
-    // Path format: characters/{champion}/... → characters/{project}/...
-    let champion_replaced = replace_champion_with_project(stripped, config);
-
-    // Step 2: Remap skin IDs: Replace ALL skin references with target_skin_id
-    let remapped = remap_skin_ids(&champion_replaced, config.target_skin_id);
-
-    // Step 3: Add new prefix: ASSETS/{creator}/...
-    format!("ASSETS/{}/{}", prefix, remapped)
+        // Fallback: not a valid asset path, return unchanged
+        // This shouldn't happen in normal operation, but provides safety
+        tracing::warn!("Invalid asset path (no assets/ or data/ prefix): {}", path);
+        path.to_string()
+    }
 }
 
-/// Replace champion folder name with project name in paths
-/// Example: characters/renekton/skins/... → characters/renny/skins/...
-fn replace_champion_with_project(path: &str, config: &RepathConfig) -> String {
-    let champion_lower = config.champion.to_lowercase();
-    let parts: Vec<&str> = path.split('/').collect();
-
-    // Look for pattern: characters/{champion}/...
-    if parts.len() >= 2 && parts[0].to_lowercase() == "characters" {
-        // Check if the second segment matches the champion name
-        if parts[1].to_lowercase() == champion_lower {
-            // Replace champion with project
-            let mut new_parts = parts.clone();
-            new_parts[1] = &config.project_name;
-            return new_parts.join("/");
-        }
+/// Remap skin ID in folder paths only (not filenames)
+/// Examples:
+///   - skin17/particles/blade.dds → skin42/particles/blade.dds
+///   - skin17/renekton_skin17_base.skn → skin42/renekton_skin17_base.skn (filename unchanged!)
+///   - animations/skin8.bin → animations/skin8.bin (animation BINs unchanged!)
+fn remap_skin_ids(path: &str, target_skin_id: u32) -> String {
+    // Fast path: if path doesn't start with "skin", skip regex entirely
+    if !path.starts_with("skin") && !path.starts_with("Skin") {
+        return path.to_string();
     }
 
-    // If no champion folder found, return as-is
-    path.to_string()
-}
-
-/// Remap all skin ID references in a path to the target skin ID
-/// Examples:
-///   - characters/renekton/skins/skin0/... → characters/renekton/skins/skin42/...
-///   - characters/renekton/skins/skin17/renekton_skin17_base.skn
-///     → characters/renekton/skins/skin42/renekton_skin42_base.skn
-///   - characters/kayn/animations/skin8.bin → characters/kayn/animations/skin42.bin
-fn remap_skin_ids(path: &str, target_skin_id: u32) -> String {
-    // Match skin folders: skins/skin0, skins/skin17, etc.
-    let skin_folder_re = Regex::new(r"(skins/skin)(\d+)(/?)").unwrap();
-    let mut result = skin_folder_re.replace_all(path, |caps: &regex::Captures| {
+    // Use static regex (compiled once at startup)
+    SKIN_FOLDER_RE.replace(path, |caps: &regex::Captures| {
         format!("{}{}{}",
-            &caps[1],                    // "skins/skin"
-            target_skin_id,              // "42"
-            &caps[3]                     // "/" or ""
+            &caps[1],           // "skin"
+            target_skin_id,     // "42"
+            &caps[3]            // "/"
         )
-    }).to_string();
-
-    // Match animation paths: animations/skin8.bin → animations/skin42.bin
-    let animation_re = Regex::new(r"(animations/skin)(\d+)(\.bin)").unwrap();
-    result = animation_re.replace_all(&result, |caps: &regex::Captures| {
-        format!("{}{}{}",
-            &caps[1],                    // "animations/skin"
-            target_skin_id,              // "42"
-            &caps[3]                     // ".bin"
-        )
-    }).to_string();
-
-    // Match skin in filenames: renekton_skin17_base.skn → renekton_skin42_base.skn
-    let skin_filename_re = Regex::new(r"_skin(\d+)([_\.])").unwrap();
-    result = skin_filename_re.replace_all(&result, |caps: &regex::Captures| {
-        format!("_skin{}{}",
-            target_skin_id,              // "42"
-            &caps[2]                     // "_" or "."
-        )
-    }).to_string();
-
-    result
+    }).into_owned()
 }
 
 /// Repath a single BIN file
@@ -482,6 +623,8 @@ fn repath_value(value: &mut PropertyValueEnum, existing_paths: &HashSet<String>,
 
 fn relocate_assets(content_base: &Path, existing_paths: &HashSet<String>, prefix: &str, config: &RepathConfig) -> Result<usize> {
     let mut relocated = 0;
+    // Track destination paths to detect conflicts
+    let mut destinations: HashMap<String, String> = HashMap::new();
 
     for path in existing_paths {
         // Skip BIN files EXCEPT concat.bin (which needs to move to match its repathed reference)
@@ -500,6 +643,17 @@ fn relocate_assets(content_base: &Path, existing_paths: &HashSet<String>, prefix
         if !source.exists() {
             continue;
         }
+
+        // Detect conflicts: two source paths mapping to the same destination
+        let dest_normalized = normalize_path(&new_path);
+        if let Some(prev_source) = destinations.get(&dest_normalized) {
+            tracing::warn!(
+                "Conflict detected: '{}' and '{}' both map to '{}'",
+                prev_source, path, dest_normalized
+            );
+            continue; // Skip conflicting files, first-writer wins
+        }
+        destinations.insert(dest_normalized, path.clone());
 
         // Create destination directory
         if let Some(parent) = dest.parent() {
@@ -552,10 +706,15 @@ fn cleanup_unused_files(content_base: &Path, referenced_paths: &HashSet<String>,
         if let Ok(rel_path) = path.strip_prefix(content_base) {
             let normalized = normalize_path(&rel_path.to_string_lossy());
 
-            // Also remove files NOT in the new ASSETS/{creator}/characters/{project}/ tree
+            // Also remove files NOT in the new ASSETS/{creator}/ tree
+            // Files can be in:
+            // - ASSETS/{creator}/{project}/ (target champion)
+            // - ASSETS/{creator}/shared/ (shared assets)
+            // - ASSETS/{creator}/shared-champion/ (other champions)
+            let creator = config.creator_name.replace(' ', "-").to_lowercase();
             let in_new_tree = normalized.to_lowercase().starts_with(&format!(
-                "assets/{}/characters/",
-                prefix.to_lowercase()
+                "assets/{}/",
+                creator
             ));
 
             if !expected_paths.contains(&normalized) || !in_new_tree {
@@ -729,33 +888,33 @@ mod tests {
 
     #[test]
     fn test_remap_skin_ids() {
-        // Test folder remapping
+        // Test folder remapping only (not filenames)
         assert_eq!(
-            remap_skin_ids("characters/renekton/skins/skin0/base.skn", 42),
-            "characters/renekton/skins/skin42/base.skn"
+            remap_skin_ids("skin0/base.skn", 42),
+            "skin42/base.skn"
         );
 
-        // Test filename remapping
+        // Test that filename stays unchanged
         assert_eq!(
-            remap_skin_ids("characters/renekton/skins/skin17/renekton_skin17_base.skn", 42),
-            "characters/renekton/skins/skin42/renekton_skin42_base.skn"
+            remap_skin_ids("skin17/renekton_skin17_base.skn", 42),
+            "skin42/renekton_skin17_base.skn"
         );
 
-        // Test animation remapping
+        // Test that animation paths are NOT remapped (no folder prefix)
         assert_eq!(
-            remap_skin_ids("characters/kayn/animations/skin8.bin", 42),
-            "characters/kayn/animations/skin42.bin"
+            remap_skin_ids("animations/skin8.bin", 42),
+            "animations/skin8.bin"
         );
 
-        // Test padded skin IDs
+        // Test nested paths
         assert_eq!(
-            remap_skin_ids("characters/ahri/skins/skin00/ahri_skin00_tx_cm.dds", 5),
-            "characters/ahri/skins/skin5/ahri_skin5_tx_cm.dds"
+            remap_skin_ids("skin0/particles/blade.dds", 42),
+            "skin42/particles/blade.dds"
         );
     }
 
     #[test]
-    fn test_replace_champion_with_project() {
+    fn test_apply_prefix_to_path_target_champion() {
         let config = RepathConfig {
             creator_name: "SirDexal".to_string(),
             project_name: "Renny".to_string(),
@@ -764,55 +923,362 @@ mod tests {
             cleanup_unused: true,
         };
 
-        // Test champion replacement
-        assert_eq!(
-            replace_champion_with_project("characters/renekton/skins/skin17/base.skn", &config),
-            "characters/Renny/skins/skin17/base.skn"
-        );
-
-        // Test case-insensitive matching
-        assert_eq!(
-            replace_champion_with_project("characters/Renekton/skins/skin0/base.skn", &config),
-            "characters/Renny/skins/skin0/base.skn"
-        );
-
-        // Test non-champion path (should return unchanged)
-        assert_eq!(
-            replace_champion_with_project("textures/some_texture.dds", &config),
-            "textures/some_texture.dds"
-        );
-    }
-
-    #[test]
-    fn test_apply_prefix_to_path_v2() {
-        let config = RepathConfig {
-            creator_name: "SirDexal".to_string(),
-            project_name: "Renny".to_string(),
-            champion: "Renekton".to_string(),
-            target_skin_id: 42,
-            cleanup_unused: true,
-        };
-
-        // Test new structure: ASSETS/{creator}/characters/{project}/...
+        // Target champion: strip characters/, champion/, skins/ and remap folder
         // Input: assets/characters/renekton/skins/skin17/renekton_skin17_base.skn
-        // Expected: ASSETS/SirDexal/Renny/characters/Renny/skins/skin42/renekton_skin42_base.skn
+        // Expected: ASSETS/SirDexal/Renny/skin42/renekton_skin17_base.skn
         assert_eq!(
             apply_prefix_to_path(
                 "assets/characters/renekton/skins/skin17/renekton_skin17_base.skn",
                 "SirDexal/Renny",
                 &config
             ),
-            "ASSETS/SirDexal/Renny/characters/Renny/skins/skin42/renekton_skin42_base.skn"
+            "ASSETS/SirDexal/Renny/skin42/renekton_skin17_base.skn"
         );
 
-        // Test with data/ prefix
+        // Target champion particles
         assert_eq!(
             apply_prefix_to_path(
-                "data/characters/renekton/skins/skin0.bin",
+                "assets/characters/renekton/skins/skin17/particles/blade.dds",
                 "SirDexal/Renny",
                 &config
             ),
-            "ASSETS/SirDexal/Renny/characters/Renny/skins/skin42.bin"
+            "ASSETS/SirDexal/Renny/skin42/particles/blade.dds"
         );
+
+        // Target champion animations (no skins/ folder)
+        assert_eq!(
+            apply_prefix_to_path(
+                "data/characters/renekton/animations/skin8.bin",
+                "SirDexal/Renny",
+                &config
+            ),
+            "ASSETS/SirDexal/Renny/animations/skin8.bin"
+        );
+    }
+
+    #[test]
+    fn test_apply_prefix_to_path_other_champions() {
+        let config = RepathConfig {
+            creator_name: "SirDexal".to_string(),
+            project_name: "Renny".to_string(),
+            champion: "Renekton".to_string(),
+            target_skin_id: 42,
+            cleanup_unused: true,
+        };
+
+        // Other champion → shared-champion folder at CREATOR level (not project level)
+        // Input: assets/characters/sona/skins/skin5/sona_skin5_base.skn
+        // Expected: ASSETS/SirDexal/shared-champion/skin5/sona_skin5_base.skn
+        assert_eq!(
+            apply_prefix_to_path(
+                "assets/characters/sona/skins/skin5/sona_skin5_base.skn",
+                "SirDexal/Renny",
+                &config
+            ),
+            "ASSETS/SirDexal/shared-champion/skin5/sona_skin5_base.skn"
+        );
+
+        // Other champion particles
+        assert_eq!(
+            apply_prefix_to_path(
+                "assets/characters/ahri/skins/skin0/particles/orb.dds",
+                "SirDexal/Renny",
+                &config
+            ),
+            "ASSETS/SirDexal/shared-champion/skin0/particles/orb.dds"
+        );
+    }
+
+    #[test]
+    fn test_apply_prefix_to_path_shared_assets() {
+        let config = RepathConfig {
+            creator_name: "SirDexal".to_string(),
+            project_name: "Renny".to_string(),
+            champion: "Renekton".to_string(),
+            target_skin_id: 42,
+            cleanup_unused: true,
+        };
+
+        // Non-champion assets → shared folder at CREATOR level (not project level)
+        assert_eq!(
+            apply_prefix_to_path(
+                "assets/particles/fire_vfx.dds",
+                "SirDexal/Renny",
+                &config
+            ),
+            "ASSETS/SirDexal/shared/particles/fire_vfx.dds"
+        );
+
+        // Maps and other global assets
+        assert_eq!(
+            apply_prefix_to_path(
+                "data/maps/summoners_rift/textures/grass.dds",
+                "SirDexal/Renny",
+                &config
+            ),
+            "ASSETS/SirDexal/shared/maps/summoners_rift/textures/grass.dds"
+        );
+
+        // League's existing shared folder (no duplicate!)
+        // Input: assets/shared/particles/fire.dds
+        // Expected: ASSETS/SirDexal/shared/particles/fire.dds (NOT shared/shared/!)
+        assert_eq!(
+            apply_prefix_to_path(
+                "assets/shared/particles/fire.dds",
+                "SirDexal/Renny",
+                &config
+            ),
+            "ASSETS/SirDexal/shared/particles/fire.dds"
+        );
+    }
+
+    #[test]
+    fn test_apply_prefix_to_path_sounds() {
+        let config = RepathConfig {
+            creator_name: "SirDexal".to_string(),
+            project_name: "Cozy".to_string(),
+            champion: "Kayn".to_string(),
+            target_skin_id: 20,
+            cleanup_unused: true,
+        };
+
+        // SFX files: Repath to audio/sfx/ with ONLY filename (strip all path components)
+        // Input: assets/sounds/wwise2016/sfx/characters/kayn/skins/skin20/kayn_skin20_sfx_audio.bnk
+        // Expected: ASSETS/SirDexal/Cozy/audio/sfx/kayn_skin20_sfx_audio.bnk
+        assert_eq!(
+            apply_prefix_to_path(
+                "assets/sounds/wwise2016/sfx/characters/kayn/skins/skin20/kayn_skin20_sfx_audio.bnk",
+                "SirDexal/Cozy",
+                &config
+            ),
+            "ASSETS/SirDexal/Cozy/audio/sfx/kayn_skin20_sfx_audio.bnk"
+        );
+
+        // VO files: DO NOT REPATH - keep original path (they're in separate language WADs)
+        // Input: assets/sounds/wwise2016/vo/en_us/characters/kayn/kayn_vo.wpk
+        // Expected: assets/sounds/wwise2016/vo/en_us/characters/kayn/kayn_vo.wpk (UNCHANGED)
+        assert_eq!(
+            apply_prefix_to_path(
+                "assets/sounds/wwise2016/vo/en_us/characters/kayn/kayn_vo.wpk",
+                "SirDexal/Cozy",
+                &config
+            ),
+            "assets/sounds/wwise2016/vo/en_us/characters/kayn/kayn_vo.wpk"
+        );
+
+        // Another SFX example with data/ prefix
+        assert_eq!(
+            apply_prefix_to_path(
+                "data/sounds/wwise2016/sfx/characters/kayn/skins/skin20/kayn_skin20_impact.bnk",
+                "SirDexal/Cozy",
+                &config
+            ),
+            "ASSETS/SirDexal/Cozy/audio/sfx/kayn_skin20_impact.bnk"
+        );
+
+        // VO with different language - still untouched
+        assert_eq!(
+            apply_prefix_to_path(
+                "assets/sounds/wwise2016/vo/ja_jp/characters/kayn/kayn_vo.wpk",
+                "SirDexal/Cozy",
+                &config
+            ),
+            "assets/sounds/wwise2016/vo/ja_jp/characters/kayn/kayn_vo.wpk"
+        );
+
+        // Case-insensitive VO detection - preserves original case
+        assert_eq!(
+            apply_prefix_to_path(
+                "ASSETS/Sounds/wwise2016/VO/en_us/characters/kayn/kayn_vo.wpk",
+                "SirDexal/Cozy",
+                &config
+            ),
+            "ASSETS/Sounds/wwise2016/VO/en_us/characters/kayn/kayn_vo.wpk"
+        );
+    }
+
+    #[test]
+    fn test_apply_prefix_to_path_hud() {
+        let config = RepathConfig {
+            creator_name: "SirDexal".to_string(),
+            project_name: "Renny".to_string(),
+            champion: "Renekton".to_string(),
+            target_skin_id: 42,
+            cleanup_unused: true,
+        };
+
+        // HUD files go to creator level (not project level)
+        // Input: assets/characters/renekton/hud/renekton_hud.dds
+        // Expected: ASSETS/SirDexal/hud/renekton_hud.dds
+        assert_eq!(
+            apply_prefix_to_path(
+                "assets/characters/renekton/hud/renekton_hud.dds",
+                "SirDexal/Renny",
+                &config
+            ),
+            "ASSETS/SirDexal/hud/renekton_hud.dds"
+        );
+    }
+
+    #[test]
+    fn test_asset_path_parse_sound_sfx() {
+        let path = "assets/sounds/wwise2016/sfx/characters/kayn/skins/skin20/kayn_skin20_sfx.bnk";
+        let parsed = AssetPath::parse(path, "Kayn");
+
+        assert!(parsed.is_some());
+        match parsed.unwrap() {
+            AssetPath::SoundSfx { filename } => {
+                assert_eq!(filename, "kayn_skin20_sfx.bnk");
+            }
+            _ => panic!("Expected SoundSfx variant"),
+        }
+    }
+
+    #[test]
+    fn test_asset_path_parse_sound_vo() {
+        let path = "assets/sounds/wwise2016/vo/en_us/characters/kayn/kayn_vo.wpk";
+        let parsed = AssetPath::parse(path, "Kayn");
+
+        assert!(parsed.is_some());
+        match parsed.unwrap() {
+            AssetPath::SoundVo { original_path } => {
+                assert_eq!(original_path, path);
+            }
+            _ => panic!("Expected SoundVo variant"),
+        }
+    }
+
+    #[test]
+    fn test_asset_path_parse_champion_hud() {
+        let path = "assets/characters/renekton/hud/renekton_hud.dds";
+        let parsed = AssetPath::parse(path, "Renekton");
+
+        assert!(parsed.is_some());
+        match parsed.unwrap() {
+            AssetPath::ChampionHud { filename } => {
+                assert_eq!(filename, "renekton_hud.dds");
+            }
+            _ => panic!("Expected ChampionHud variant"),
+        }
+    }
+
+    #[test]
+    fn test_asset_path_parse_target_champion_skin() {
+        let path = "assets/characters/kayn/skins/skin20/particles/blade.dds";
+        let parsed = AssetPath::parse(path, "Kayn");
+
+        assert!(parsed.is_some());
+        match parsed.unwrap() {
+            AssetPath::TargetChampionSkin { skin_id, subpath } => {
+                assert_eq!(skin_id, Some(20));
+                assert_eq!(subpath, "skins/skin20/particles/blade.dds");
+            }
+            _ => panic!("Expected TargetChampionSkin variant"),
+        }
+    }
+
+    #[test]
+    fn test_asset_path_parse_other_champion() {
+        let path = "assets/characters/sona/skins/skin5/particles/orb.dds";
+        let parsed = AssetPath::parse(path, "Kayn"); // Kayn is target, Sona is other
+
+        assert!(parsed.is_some());
+        match parsed.unwrap() {
+            AssetPath::OtherChampion { subpath } => {
+                assert_eq!(subpath, "skins/skin5/particles/orb.dds");
+            }
+            _ => panic!("Expected OtherChampion variant"),
+        }
+    }
+
+    #[test]
+    fn test_asset_path_parse_shared() {
+        let path = "assets/particles/fire.dds";
+        let parsed = AssetPath::parse(path, "Kayn");
+
+        assert!(parsed.is_some());
+        match parsed.unwrap() {
+            AssetPath::Shared { subpath } => {
+                assert_eq!(subpath, "particles/fire.dds");
+            }
+            _ => panic!("Expected Shared variant"),
+        }
+    }
+
+    #[test]
+    fn test_asset_path_parse_shared_with_prefix() {
+        // Should strip "shared/" prefix to avoid duplication
+        let path = "assets/shared/particles/fire.dds";
+        let parsed = AssetPath::parse(path, "Kayn");
+
+        assert!(parsed.is_some());
+        match parsed.unwrap() {
+            AssetPath::Shared { subpath } => {
+                assert_eq!(subpath, "particles/fire.dds"); // "shared/" stripped
+            }
+            _ => panic!("Expected Shared variant"),
+        }
+    }
+
+    #[test]
+    fn test_asset_path_parse_case_insensitive() {
+        // Test case-insensitive parsing
+        let path = "ASSETS/SOUNDS/wwise2016/VO/en_us/kayn_vo.wpk";
+        let parsed = AssetPath::parse(path, "Kayn");
+
+        assert!(parsed.is_some());
+        match parsed.unwrap() {
+            AssetPath::SoundVo { original_path } => {
+                assert_eq!(original_path, path);
+            }
+            _ => panic!("Expected SoundVo variant"),
+        }
+    }
+
+    #[test]
+    fn test_asset_path_to_repathed_sfx() {
+        let config = RepathConfig {
+            creator_name: "TestCreator".to_string(),
+            project_name: "TestProject".to_string(),
+            champion: "Kayn".to_string(),
+            target_skin_id: 20,
+            cleanup_unused: true,
+        };
+
+        let asset_path = AssetPath::SoundSfx {
+            filename: "kayn_skin20_sfx.bnk",
+        };
+
+        assert_eq!(
+            asset_path.to_repathed(&config),
+            "ASSETS/TestCreator/TestProject/audio/sfx/kayn_skin20_sfx.bnk"
+        );
+    }
+
+    #[test]
+    fn test_asset_path_to_repathed_vo() {
+        let config = RepathConfig {
+            creator_name: "TestCreator".to_string(),
+            project_name: "TestProject".to_string(),
+            champion: "Kayn".to_string(),
+            target_skin_id: 20,
+            cleanup_unused: true,
+        };
+
+        let original = "assets/sounds/wwise2016/vo/en_us/kayn_vo.wpk";
+        let asset_path = AssetPath::SoundVo {
+            original_path: original,
+        };
+
+        // VO paths should remain unchanged
+        assert_eq!(asset_path.to_repathed(&config), original);
+    }
+
+    #[test]
+    fn test_asset_path_invalid() {
+        // Paths without "assets/" or "data/" prefix should return None
+        let path = "sounds/wwise2016/sfx/test.bnk";
+        let parsed = AssetPath::parse(path, "Kayn");
+        assert!(parsed.is_none());
     }
 }

@@ -47,12 +47,36 @@ impl Hashtable {
 
         tracing::debug!("Loading {} hash files in parallel", txt_files.len());
 
-        // Parse each file in parallel into flat Vec<(hash, path)>.
-        let partial: Vec<Vec<(u64, String)>> = txt_files
+        // Parse each file in parallel - collect Results to check for parse errors
+        type ParseResult = (PathBuf, Result<Vec<(u64, String)>>);
+        let results: Vec<ParseResult> = txt_files
             .par_iter()
-            .filter_map(|path| match Self::parse_file(path) {
-                Ok(v)  => { tracing::trace!("Loaded {} hashes from {:?}", v.len(), path.file_name()); Some(v) }
-                Err(e) => { tracing::warn!("Skipped {:?}: {}", path, e); None }
+            .map(|path| (path.clone(), Self::parse_file(path)))
+            .collect();
+
+        // Check for parse errors (invalid hash format) - these should fail fast
+        // I/O errors are more lenient and just skip the file
+        for (path, result) in &results {
+            if let Err(e) = result {
+                if matches!(e, Error::Parse { .. }) {
+                    tracing::error!("Parse error in {:?}: {}", path, e);
+                    // Recreate the error since it can't be cloned
+                    if let Error::Parse { line, message, .. } = e {
+                        return Err(Error::parse_with_path(*line, message.clone(), path));
+                    }
+                }
+            }
+        }
+
+        // Collect successful parses
+        let partial: Vec<Vec<(u64, String)>> = results
+            .into_iter()
+            .filter_map(|(_, result)| match result {
+                Ok(v) => Some(v),
+                Err(e) => {
+                    tracing::warn!("Skipped file: {}", e);
+                    None
+                }
             })
             .collect();
 
@@ -91,16 +115,34 @@ impl Hashtable {
             let Some((hash_str, path_str)) = line.split_once(' ') else { continue; };
 
             let hash = if let Some(hex) = hash_str.strip_prefix("0x").or_else(|| hash_str.strip_prefix("0X")) {
-                u64::from_str_radix(hex, 16)
+                // Explicit 0x prefix → parse as hex
+                u64::from_str_radix(hex, 16).map_err(|e| Error::parse_with_path(
+                    line_idx + 1,
+                    format!("Invalid hash value: '{}' - {}", hash_str, e),
+                    path,
+                ))
+            } else if hash_str.bytes().all(|b| b.is_ascii_digit()) {
+                // Only digits 0-9 → parse as decimal
+                hash_str.parse::<u64>().map_err(|e| Error::parse_with_path(
+                    line_idx + 1,
+                    format!("Invalid hash value: '{}' - {}", hash_str, e),
+                    path,
+                ))
             } else if hash_str.bytes().all(|b| b.is_ascii_hexdigit()) {
-                u64::from_str_radix(hash_str, 16)
+                // Contains hex letters a-f → parse as hex
+                u64::from_str_radix(hash_str, 16).map_err(|e| Error::parse_with_path(
+                    line_idx + 1,
+                    format!("Invalid hash value: '{}' - {}", hash_str, e),
+                    path,
+                ))
             } else {
-                hash_str.parse::<u64>()
-            }.map_err(|e| Error::parse_with_path(
-                line_idx + 1,
-                format!("Invalid hash value: '{}' - {}", hash_str, e),
-                path,
-            ))?;
+                // Invalid format - contains non-hex characters
+                Err(Error::parse_with_path(
+                    line_idx + 1,
+                    format!("Invalid hash value: '{}' - must be decimal, hex, or 0x-prefixed hex", hash_str),
+                    path,
+                ))
+            }?;
 
             out.push((hash, path_str.to_string()));
         }
@@ -123,8 +165,10 @@ impl Hashtable {
         }
     }
 
-    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize { self.keys.len() }
+
+    #[allow(dead_code)]
+    pub fn is_empty(&self) -> bool { self.keys.is_empty() }
 }
 
 // =============================================================================

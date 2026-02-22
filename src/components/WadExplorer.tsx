@@ -134,10 +134,10 @@ function formatBytes(n: number): string {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const QUICK_ACTIONS = [
-    { label: 'Textures',  regex: /\.(dds|tex|png|jpg|jpeg)$/i,  iconHtml: getIcon('texture') },
-    { label: 'BIN Files', regex: /\.bin$/i,                      iconHtml: getIcon('bin') },
-    { label: 'Audio',     regex: /\.(bnk|wpk)$/i,               iconHtml: getIcon('audio') },
-    { label: 'Models',    regex: /\.(skn|skl|scb|sco)$/i,       iconHtml: getIcon('model') },
+    { label: 'Textures', regex: /\.(dds|tex|png|jpg|jpeg)$/i, iconHtml: getIcon('texture') },
+    { label: 'BIN Files', regex: /\.bin$/i, iconHtml: getIcon('bin') },
+    { label: 'Audio', regex: /\.(bnk|wpk)$/i, iconHtml: getIcon('audio') },
+    { label: 'Models', regex: /\.(skn|skl|scb|sco)$/i, iconHtml: getIcon('model') },
 ] as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -164,11 +164,11 @@ function detectType(bytes: Uint8Array, pathHint: string | null): string {
         if (magic === 'PROP' || magic === 'PTCH') return 'application/x-bin';
     }
     const extMap: Record<string, string> = {
-        dds:'image/dds', tex:'image/tex', png:'image/png', jpg:'image/jpeg', jpeg:'image/jpeg',
-        bin:'application/x-bin', json:'application/json', txt:'text/plain', lua:'text/x-lua',
-        xml:'application/xml', js:'text/javascript', ts:'text/typescript',
-        skn:'model/x-lol-skn', skl:'model/x-lol-skl', scb:'model/x-lol-scb',
-        anm:'animation/x-lol-anm', bnk:'audio/x-wwise-bnk', wpk:'audio/x-wwise-wpk',
+        dds: 'image/dds', tex: 'image/tex', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+        bin: 'application/x-bin', json: 'application/json', txt: 'text/plain', lua: 'text/x-lua',
+        xml: 'application/xml', js: 'text/javascript', ts: 'text/typescript',
+        skn: 'model/x-lol-skn', skl: 'model/x-lol-skl', scb: 'model/x-lol-scb',
+        anm: 'animation/x-lol-anm', bnk: 'audio/x-wwise-bnk', wpk: 'audio/x-wwise-wpk',
     };
     return extMap[ext] ?? 'application/octet-stream';
 }
@@ -249,7 +249,7 @@ const ChunkPreview: React.FC<{
             {/* Toolbar */}
             <div className="preview-panel__toolbar" style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 10px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
                 <button className="btn btn--sm" onClick={onClose} title="Close preview" style={{ padding: '2px 6px' }}>
-                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4.5 4.5l7 7m0-7l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4.5 4.5l7 7m0-7l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
                 </button>
                 {data?.imageUrl && (
                     <>
@@ -383,28 +383,77 @@ interface VFSNodeProps {
     selectedHash: string | null;
     onSelectFile: (wadPath: string, chunk: WadChunk) => void;
     onToggleFolder: (key: string) => void;
+    onDeepToggleFolder: (keys: string[], expand: boolean) => void;
     onContextMenu: (chunk: WadChunk, wadPath: string, x: number, y: number) => void;
 }
 
+// Compact folders: merge single-child VFS folder chains into one label
+function compactVFSNode(node: VFSFolder): { displayPath: string; effectiveNode: VFSFolder } {
+    let current = node;
+    const parts = [current.name];
+    while (
+        current.children.length === 1 &&
+        current.children[0].type === 'folder'
+    ) {
+        current = current.children[0];
+        parts.push(current.name);
+    }
+    return { displayPath: parts.join('/'), effectiveNode: current };
+}
+
+// Collect all descendant folder keys for deep expand/collapse
+function collectAllVFSFolderKeys(node: VFSNode): string[] {
+    if (node.type !== 'folder') return [];
+    const result = [node.key];
+    for (const child of node.children) {
+        result.push(...collectAllVFSFolderKeys(child));
+    }
+    return result;
+}
+
 const VFSNodeRow: React.FC<VFSNodeProps> = React.memo(({
-    node, depth, expandedFolders, selectedHash, onSelectFile, onToggleFolder, onContextMenu,
+    node, depth, expandedFolders, selectedHash, onSelectFile, onToggleFolder, onDeepToggleFolder, onContextMenu,
 }) => {
     const indent = depth * 14;
 
     if (node.type === 'folder') {
-        const isExp = expandedFolders.has(node.key);
+        // Apply compact-folder merging
+        const { displayPath, effectiveNode } = compactVFSNode(node);
+        const isExp = expandedFolders.has(effectiveNode.key);
+
+        const handleFolderClick = (e: React.MouseEvent) => {
+            if (e.shiftKey) {
+                // Deep expand/collapse
+                const allKeys = collectAllVFSFolderKeys(effectiveNode);
+                onDeepToggleFolder(allKeys, !isExp);
+            } else {
+                onToggleFolder(effectiveNode.key);
+            }
+        };
+
         return (
             <>
                 <div
                     className="file-tree__item"
                     style={{ paddingLeft: `${8 + indent}px` }}
-                    onClick={() => onToggleFolder(node.key)}
+                    onClick={handleFolderClick}
                 >
                     <span className="file-tree__chevron" dangerouslySetInnerHTML={{ __html: getIcon(isExp ? 'chevronDown' : 'chevronRight') }} />
                     <span className="file-tree__icon" dangerouslySetInnerHTML={{ __html: getIcon(isExp ? 'folderOpen' : 'folder') }} />
-                    <span className="file-tree__name">{node.name}</span>
+                    <span className="file-tree__name">
+                        {displayPath.includes('/') ? (
+                            displayPath.split('/').map((segment, idx, arr) => (
+                                <React.Fragment key={idx}>
+                                    <span className="file-tree__compact-segment">{segment}</span>
+                                    {idx < arr.length - 1 && <span className="file-tree__compact-separator">/</span>}
+                                </React.Fragment>
+                            ))
+                        ) : (
+                            displayPath
+                        )}
+                    </span>
                 </div>
-                {isExp && node.children.map(child => (
+                {isExp && effectiveNode.children.map(child => (
                     <VFSNodeRow
                         key={child.type === 'file' ? `${child.wadPath}::${child.chunk.hash}` : child.key}
                         node={child}
@@ -413,6 +462,7 @@ const VFSNodeRow: React.FC<VFSNodeProps> = React.memo(({
                         selectedHash={selectedHash}
                         onSelectFile={onSelectFile}
                         onToggleFolder={onToggleFolder}
+                        onDeepToggleFolder={onDeepToggleFolder}
                         onContextMenu={onContextMenu}
                     />
                 ))}
@@ -663,6 +713,10 @@ export const WadExplorer: React.FC = () => {
         dispatch({ type: 'TOGGLE_WAD_EXPLORER_FOLDER', payload: key });
     }, [dispatch]);
 
+    const handleDeepToggleFolder = useCallback((keys: string[], expand: boolean) => {
+        dispatch({ type: 'BULK_SET_WAD_EXPLORER_FOLDERS', payload: { keys, expand } });
+    }, [dispatch]);
+
     const handleSelectFile = useCallback((wadPath: string, chunk: WadChunk) => {
         dispatch({ type: 'SET_WAD_EXPLORER_SELECTED', payload: { wadPath, hash: chunk.hash } });
     }, [dispatch]);
@@ -877,76 +931,77 @@ export const WadExplorer: React.FC = () => {
                         const isCatCollapsed = collapsedCategories.has(cat);
                         const loadedInCat = wads.filter(w => w.status === 'loaded').length;
                         return (
-                        <div key={cat}>
-                            {/* Category label — clickable to collapse */}
-                            <div
-                                className="file-tree__item"
-                                style={{ padding: '4px 8px 2px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', userSelect: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-                                onClick={() => handleToggleCategory(cat)}
-                            >
-                                <span dangerouslySetInnerHTML={{ __html: getIcon(isCatCollapsed ? 'chevronRight' : 'chevronDown') }} />
-                                <span style={{ flex: 1 }}>{cat}</span>
-                                <span style={{ fontSize: '9px', opacity: 0.5, fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>
-                                    {loadedInCat}/{wads.length}
-                                </span>
-                            </div>
-                            {!isCatCollapsed && wads.map(wad => {
-                                const isExp = wadExplorer.expandedWads.has(wad.path);
-                                const subtree = wadSubtrees.get(wad.path) ?? [];
-                                return (
-                                    <div key={wad.path}>
-                                        {/* WAD row */}
-                                        <div
-                                            className="file-tree__item"
-                                            style={{ paddingLeft: '8px' }}
-                                            onClick={() => handleToggleWad(wad.path)}
-                                            title={wad.path}
-                                        >
-                                            <span className="file-tree__chevron" dangerouslySetInnerHTML={{ __html: getIcon(isExp ? 'chevronDown' : 'chevronRight') }} />
-                                            <span className="file-tree__icon" dangerouslySetInnerHTML={{ __html: getIcon('wad') }} />
-                                            <span className="file-tree__name" style={{ flex: 1 }}>{wad.name}</span>
-                                            {wad.status === 'loading' && (
-                                                <span style={{ fontSize: '10px', opacity: 0.5, marginRight: '4px' }}>···</span>
-                                            )}
-                                            {wad.status === 'loaded' && (
-                                                <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginRight: '4px' }}>
-                                                    {wad.chunks.length.toLocaleString()}
-                                                </span>
-                                            )}
-                                            {wad.status === 'error' && (
-                                                <span style={{ fontSize: '10px', color: 'var(--error, #f44)', marginRight: '4px' }} title={wad.error}>!</span>
-                                            )}
-                                        </div>
+                            <div key={cat}>
+                                {/* Category label — clickable to collapse */}
+                                <div
+                                    className="file-tree__item"
+                                    style={{ padding: '4px 8px 2px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', userSelect: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                                    onClick={() => handleToggleCategory(cat)}
+                                >
+                                    <span dangerouslySetInnerHTML={{ __html: getIcon(isCatCollapsed ? 'chevronRight' : 'chevronDown') }} />
+                                    <span style={{ flex: 1 }}>{cat}</span>
+                                    <span style={{ fontSize: '9px', opacity: 0.5, fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>
+                                        {loadedInCat}/{wads.length}
+                                    </span>
+                                </div>
+                                {!isCatCollapsed && wads.map(wad => {
+                                    const isExp = wadExplorer.expandedWads.has(wad.path);
+                                    const subtree = wadSubtrees.get(wad.path) ?? [];
+                                    return (
+                                        <div key={wad.path}>
+                                            {/* WAD row */}
+                                            <div
+                                                className="file-tree__item"
+                                                style={{ paddingLeft: '8px' }}
+                                                onClick={() => handleToggleWad(wad.path)}
+                                                title={wad.path}
+                                            >
+                                                <span className="file-tree__chevron" dangerouslySetInnerHTML={{ __html: getIcon(isExp ? 'chevronDown' : 'chevronRight') }} />
+                                                <span className="file-tree__icon" dangerouslySetInnerHTML={{ __html: getIcon('wad') }} />
+                                                <span className="file-tree__name" style={{ flex: 1 }}>{wad.name}</span>
+                                                {wad.status === 'loading' && (
+                                                    <span style={{ fontSize: '10px', opacity: 0.5, marginRight: '4px' }}>···</span>
+                                                )}
+                                                {wad.status === 'loaded' && (
+                                                    <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginRight: '4px' }}>
+                                                        {wad.chunks.length.toLocaleString()}
+                                                    </span>
+                                                )}
+                                                {wad.status === 'error' && (
+                                                    <span style={{ fontSize: '10px', color: 'var(--error, #f44)', marginRight: '4px' }} title={wad.error}>!</span>
+                                                )}
+                                            </div>
 
-                                        {/* WAD subtree */}
-                                        {isExp && wad.status === 'loading' && (
-                                            <div style={{ paddingLeft: '24px', padding: '8px 24px', fontSize: '11px', color: 'var(--text-muted)' }}>
-                                                <div className="spinner" style={{ display: 'inline-block', width: '12px', height: '12px', marginRight: '6px', verticalAlign: 'middle' }} />
-                                                Loading chunks…
-                                            </div>
-                                        )}
-                                        {isExp && wad.status === 'error' && (
-                                            <div style={{ paddingLeft: '24px', fontSize: '11px', color: 'var(--error, #f44)', padding: '6px 24px' }}>
-                                                {wad.error ?? 'Failed to load'}
-                                            </div>
-                                        )}
-                                        {isExp && wad.status === 'loaded' && subtree.map(node => (
-                                            <VFSNodeRow
-                                                key={node.type === 'file' ? `${node.wadPath}::${node.chunk.hash}` : node.key}
-                                                node={node}
-                                                depth={1}
-                                                expandedFolders={wadExplorer.expandedFolders}
-                                                selectedHash={wadExplorer.selected?.wadPath === wad.path ? wadExplorer.selected.hash : null}
-                                                onSelectFile={handleSelectFile}
-                                                onToggleFolder={handleToggleFolder}
-                                                onContextMenu={handleContextMenu}
-                                            />
-                                        ))}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    );
+                                            {/* WAD subtree */}
+                                            {isExp && wad.status === 'loading' && (
+                                                <div style={{ paddingLeft: '24px', padding: '8px 24px', fontSize: '11px', color: 'var(--text-muted)' }}>
+                                                    <div className="spinner" style={{ display: 'inline-block', width: '12px', height: '12px', marginRight: '6px', verticalAlign: 'middle' }} />
+                                                    Loading chunks…
+                                                </div>
+                                            )}
+                                            {isExp && wad.status === 'error' && (
+                                                <div style={{ paddingLeft: '24px', fontSize: '11px', color: 'var(--error, #f44)', padding: '6px 24px' }}>
+                                                    {wad.error ?? 'Failed to load'}
+                                                </div>
+                                            )}
+                                            {isExp && wad.status === 'loaded' && subtree.map(node => (
+                                                <VFSNodeRow
+                                                    key={node.type === 'file' ? `${node.wadPath}::${node.chunk.hash}` : node.key}
+                                                    node={node}
+                                                    depth={1}
+                                                    expandedFolders={wadExplorer.expandedFolders}
+                                                    selectedHash={wadExplorer.selected?.wadPath === wad.path ? wadExplorer.selected.hash : null}
+                                                    onSelectFile={handleSelectFile}
+                                                    onToggleFolder={handleToggleFolder}
+                                                    onDeepToggleFolder={handleDeepToggleFolder}
+                                                    onContextMenu={handleContextMenu}
+                                                />
+                                            ))}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        );
                     })}
                 </div>
 
