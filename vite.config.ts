@@ -18,18 +18,27 @@ export default defineConfig({
         // Code splitting for better caching and faster initial load
         rollupOptions: {
             output: {
-                manualChunks: {
+                manualChunks: (id) => {
+                    // Monaco editor workers MUST stay in main bundle for blob: URL worker initialization
+                    if (id.includes('monaco-editor') && id.includes('worker')) {
+                        return undefined; // Keep in main bundle
+                    }
                     // React vendor chunk
-                    'react-vendor': ['react', 'react-dom'],
-
-                    // Monaco Editor - lazy loaded
-                    'monaco': ['@monaco-editor/react', 'monaco-editor'],
-
+                    if (id.includes('node_modules/react') || id.includes('node_modules/react-dom')) {
+                        return 'react-vendor';
+                    }
+                    // Monaco Editor UI (not workers) - lazy loaded
+                    if (id.includes('@monaco-editor/react') || id.includes('monaco-editor')) {
+                        return 'monaco';
+                    }
                     // Three.js 3D rendering - lazy loaded
-                    'three': ['three', '@react-three/fiber', '@react-three/drei'],
-
+                    if (id.includes('three') || id.includes('@react-three')) {
+                        return 'three';
+                    }
                     // Tauri APIs
-                    'tauri-apis': ['@tauri-apps/api', '@tauri-apps/plugin-dialog'],
+                    if (id.includes('@tauri-apps')) {
+                        return 'tauri-apis';
+                    }
                 },
             },
         },

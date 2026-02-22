@@ -2,6 +2,7 @@ use parking_lot::Mutex;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use crate::core::hash::Hashtable;
+use crate::core::wad::cache::WadCache;
 
 /// Global lazy-loaded hashtable — only initialized on the first call to `get_hashtable`.
 static LAZY_HASHTABLE: OnceLock<Arc<Hashtable>> = OnceLock::new();
@@ -52,5 +53,26 @@ impl HashtableState {
     #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         LAZY_HASHTABLE.get().is_none_or(|h| h.is_empty())
+    }
+}
+
+/// Global WAD metadata cache for fast repeated access.
+/// WADs are immutable once written, so caching headers is safe.
+#[derive(Clone)]
+pub struct WadCacheState(pub Arc<WadCache>);
+
+impl Default for WadCacheState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl WadCacheState {
+    pub fn new() -> Self {
+        Self(Arc::new(WadCache::new()))
+    }
+
+    pub fn get(&self) -> Arc<WadCache> {
+        Arc::clone(&self.0)
     }
 }

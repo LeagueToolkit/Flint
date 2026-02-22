@@ -8,7 +8,7 @@ mod state;
 
 use core::hash::get_ritoshark_hash_dir;
 use core::frontend_log::{FrontendLogLayer, set_app_handle};
-use state::HashtableState;
+use state::{HashtableState, WadCacheState};
 use tauri::Manager;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
@@ -31,6 +31,7 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(HashtableState::new())
+        .manage(WadCacheState::new())
         .setup(|app| {
             // Set app handle for frontend logging
             set_app_handle(app.handle().clone());
