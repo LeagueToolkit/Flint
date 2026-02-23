@@ -72,6 +72,7 @@ interface ScbMeshData {
     indices: number[];
     bounding_box: [[number, number, number], [number, number, number]];
     material_ranges: Record<string, [number, number]>;
+    material_data?: Record<string, MaterialData>;
 }
 
 // Union type for mesh data
@@ -389,85 +390,72 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ meshData, visibleMaterials, wir
     }, [meshData, visibleMaterials]);
 
     // Load textures from the backend-provided material_data (with UV transforms)
+    // Works for both SKN and SCB mesh data
     const textureCache = useMemo(() => {
         const cache = new Map<string, THREE.Texture>();
         const textureLoader = new THREE.TextureLoader();
 
-        console.log('=== SKN Material Data Loading ===');
+        // Get material_data from either SKN or SCB mesh data
+        const matData: Record<string, MaterialData> | undefined =
+            isSknMeshDataType(meshData)
+                ? meshData.material_data
+                : (meshData as ScbMeshData).material_data;
 
-        if (isSknMeshDataType(meshData)) {
-            console.log('Materials from SKN:', meshData.materials.map(m => m.name));
+        if (matData && Object.keys(matData).length > 0) {
+            console.log('Material data from backend:', Object.keys(matData));
 
-            // Prefer material_data (new) over textures (deprecated)
-            if (meshData.material_data && Object.keys(meshData.material_data).length > 0) {
-                console.log('Material data from backend:', Object.keys(meshData.material_data));
+            for (const [materialName, data] of Object.entries(matData)) {
+                try {
+                    const dataUrl = `data:image/png;base64,${data.texture}`;
+                    const texture = textureLoader.load(dataUrl);
 
-                for (const [materialName, matData] of Object.entries(meshData.material_data)) {
-                    try {
-                        const dataUrl = `data:image/png;base64,${matData.texture}`;
-                        const texture = textureLoader.load(dataUrl);
+                    // CRITICAL: Do NOT flip Y - League meshes have reversed normals
+                    texture.flipY = false;
+                    texture.colorSpace = THREE.SRGBColorSpace;
 
-                        // CRITICAL: Do NOT flip Y - League meshes have reversed normals
-                        texture.flipY = false;
-                        texture.colorSpace = THREE.SRGBColorSpace;
-
-                        // Apply UV transformations from material properties
-                        if (matData.uv_scale) {
-                            texture.repeat.set(matData.uv_scale[0], matData.uv_scale[1]);
-                            console.log(`  UV Scale for "${materialName}": [${matData.uv_scale[0]}, ${matData.uv_scale[1]}]`);
-                        }
-
-                        if (matData.uv_offset) {
-                            texture.offset.set(matData.uv_offset[0], matData.uv_offset[1]);
-                            console.log(`  UV Offset for "${materialName}": [${matData.uv_offset[0]}, ${matData.uv_offset[1]}]`);
-                        }
-
-                        // Handle flipbook materials
-                        if (matData.flipbook_size) {
-                            const [cols, rows] = matData.flipbook_size;
-                            const frame = matData.flipbook_frame || 0;
-
-                            // Calculate which cell to show in the atlas
-                            const col = Math.floor(frame % cols);
-                            const row = Math.floor(frame / cols);
-
-                            // Set repeat to show only one cell
-                            texture.repeat.set(1 / cols, 1 / rows);
-
-                            // Set offset to the correct cell (UV origin is bottom-left)
-                            // For row 0, we want offset.y = 1 - 1/rows (top row)
-                            texture.offset.set(col / cols, 1 - (row + 1) / rows);
-
-                            console.log(`  Flipbook for "${materialName}": ${cols}x${rows} grid, frame ${frame} (cell [${col}, ${row}])`);
-                        }
-
-                        texture.wrapS = THREE.RepeatWrapping;
-                        texture.wrapT = THREE.RepeatWrapping;
-                        texture.needsUpdate = true;
-
-                        cache.set(materialName, texture);
-                        console.log(`✓ Loaded material data for "${materialName}"`);
-                    } catch (error) {
-                        console.warn(`✗ Failed to load material data for "${materialName}":`, error);
+                    // Apply UV transformations from material properties
+                    if (data.uv_scale) {
+                        texture.repeat.set(data.uv_scale[0], data.uv_scale[1]);
                     }
+
+                    if (data.uv_offset) {
+                        texture.offset.set(data.uv_offset[0], data.uv_offset[1]);
+                    }
+
+                    // Handle flipbook materials
+                    if (data.flipbook_size) {
+                        const [cols, rows] = data.flipbook_size;
+                        const frame = data.flipbook_frame || 0;
+                        const col = Math.floor(frame % cols);
+                        const row = Math.floor(frame / cols);
+                        texture.repeat.set(1 / cols, 1 / rows);
+                        texture.offset.set(col / cols, 1 - (row + 1) / rows);
+                    }
+
+                    texture.wrapS = THREE.RepeatWrapping;
+                    texture.wrapT = THREE.RepeatWrapping;
+                    texture.needsUpdate = true;
+
+                    cache.set(materialName, texture);
+                    console.log(`✓ Loaded material data for "${materialName}"`);
+                } catch (error) {
+                    console.warn(`✗ Failed to load material data for "${materialName}":`, error);
                 }
-            } else if (meshData.textures) {
-                // Fallback to deprecated textures field for backward compatibility
-                console.log('Using deprecated textures field:', Object.keys(meshData.textures));
-                for (const [materialName, base64Data] of Object.entries(meshData.textures)) {
-                    try {
-                        const dataUrl = `data:image/png;base64,${base64Data}`;
-                        const texture = textureLoader.load(dataUrl);
-                        texture.flipY = false;
-                        texture.colorSpace = THREE.SRGBColorSpace;
-                        texture.wrapS = THREE.RepeatWrapping;
-                        texture.wrapT = THREE.RepeatWrapping;
+            }
+        } else if (isSknMeshDataType(meshData) && meshData.textures) {
+            // Fallback to deprecated textures field for backward compatibility
+            for (const [materialName, base64Data] of Object.entries(meshData.textures)) {
+                try {
+                    const dataUrl = `data:image/png;base64,${base64Data}`;
+                    const texture = textureLoader.load(dataUrl);
+                    texture.flipY = false;
+                    texture.colorSpace = THREE.SRGBColorSpace;
+                    texture.wrapS = THREE.RepeatWrapping;
+                    texture.wrapT = THREE.RepeatWrapping;
 
-                        cache.set(materialName, texture);
-                        console.log(`✓ Loaded texture for "${materialName}" (deprecated path)`);
-                    } catch (error) {
-                        console.warn(`✗ Failed to load texture for "${materialName}":`, error);
-                    }
+                    cache.set(materialName, texture);
+                } catch (error) {
+                    console.warn(`✗ Failed to load texture for "${materialName}":`, error);
                 }
             }
         }
@@ -1092,11 +1080,13 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                     <div className="model-preview__materials-list">
                         {meshData.materials.map((mat, index) => {
                             const matName = typeof mat === 'string' ? mat : mat.name;
-                            // Check for texture in material_data (new) or textures (deprecated)
-                            const hasTexture = isSknMeshData(meshData) && (
-                                (meshData.material_data && meshData.material_data[matName]) ||
-                                (meshData.textures && meshData.textures[matName])
-                            );
+                            // Check for texture in material_data (works for both SKN and SCB)
+                            const hasTexture =
+                                (isSknMeshData(meshData) && (
+                                    meshData.material_data?.[matName] ||
+                                    meshData.textures?.[matName]
+                                )) ||
+                                (!isSknMeshData(meshData) && (meshData as ScbMeshData).material_data?.[matName]);
                             return (
                                 <label
                                     key={matName || index}
@@ -1133,7 +1123,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                     </div>
 
                     {/* Texture Preview Tooltip - uses shared asset-preview-tooltip styling */}
-                    {hoveredMaterial && isSknMeshData(meshData) && (
+                    {hoveredMaterial && (
                         <div
                             className="asset-preview-tooltip"
                             style={{
@@ -1149,9 +1139,12 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                             </div>
                             <div className="asset-preview-tooltip__content">
                                 {(() => {
-                                    // Get texture from material_data (new) or textures (deprecated)
-                                    const textureData = meshData.material_data?.[hoveredMaterial]?.texture ||
-                                        meshData.textures?.[hoveredMaterial];
+                                    // Get texture from material_data (works for both SKN and SCB)
+                                    const sknData = meshData as SknMeshData;
+                                    const scbData = meshData as ScbMeshData;
+                                    const textureData = sknData.material_data?.[hoveredMaterial]?.texture ||
+                                        scbData.material_data?.[hoveredMaterial]?.texture ||
+                                        sknData.textures?.[hoveredMaterial];
                                     if (textureData) {
                                         return (
                                             <div className="asset-preview-tooltip__texture">

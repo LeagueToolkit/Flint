@@ -36,6 +36,10 @@ pub struct MaterialProperties {
 }
 
 /// Texture mapping extracted from BIN file with UV transform parameters
+///
+/// DEPRECATED: Use bin_texture_discovery::discover_material_textures instead
+#[deprecated(note = "Use bin_texture_discovery::discover_material_textures instead")]
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct TextureMapping {
     /// Default texture path for meshes without specific override
@@ -53,167 +57,173 @@ pub struct TextureMapping {
     pub ritobin_content: String,
 }
 
-/// Find skin0.bin (or skinN.bin) relative to an SKN file
-/// 
-/// Looks for the skin BIN in multiple locations:
-/// 1. Same directory as SKN (skinN.bin)
-/// 2. data/characters/{champion}/skins/skinN/ structure
-/// 3. Parent directories
+/// Find skin BIN (or skinN.bin) relative to an SKN file
+///
+/// Uses smart root detection: walks up from the mesh path to find a directory
+/// containing `data/`, then searches `data/characters/{champion}/skins/`.
 pub fn find_skin_bin(skn_path: &Path) -> Option<PathBuf> {
-    let _path_str = skn_path.to_string_lossy().to_lowercase();
     tracing::info!("Looking for skin BIN relative to: {}", skn_path.display());
-    
-    // Try to extract champion name and skin number from path
-    // Path patterns:
-    // .../characters/{champion}/skins/skin{N}/{champion}.skn
-    // .../assets/characters/{champion}/skins/skin{N}/{champion}.skn
-    // .../assets/characters/{champion}/skins/base/{champion}.skn  (base = skin0)
-    
-    let mut champion_name: Option<String> = None;
-    let mut skin_folder: Option<String> = None;  // e.g., "skin0", "skin20"
-    
-    // Parse path components
-    let components: Vec<&str> = skn_path.to_str()
-        .unwrap_or("")
-        .split(&['/', '\\'][..])
-        .collect();
-    
-    for (i, part) in components.iter().enumerate() {
-        let lower = part.to_lowercase();
-        
-        // Look for "skins" folder to find structure
-        if lower == "skins" && i + 1 < components.len() {
-            // Next component should be skinN folder or "base"
-            let next = components[i + 1].to_lowercase();
-            if next.starts_with("skin") {
-                skin_folder = Some(next.clone());
-            } else if next == "base" {
-                // "base" folder is equivalent to "skin0"
-                skin_folder = Some("skin0".to_string());
-                tracing::debug!("Detected 'base' folder, treating as skin0");
-            }
-            
-            // Champion is typically 2 folders back: characters/{champion}/skins
-            if i >= 2 && components[i - 1].to_lowercase() != "characters" {
-                champion_name = Some(components[i - 1].to_lowercase());
-            }
-        }
-        
-        // Also detect champion from "characters/{champion}" pattern
-        if lower == "characters" && i + 1 < components.len() {
-            champion_name = Some(components[i + 1].to_lowercase());
-        }
-    }
-    
+
+    let champion_name = extract_champion_name(skn_path);
+    let skin_folder = extract_skin_folder_from_path(skn_path);
+
     tracing::info!("Extracted: champion={:?}, skin_folder={:?}", champion_name, skin_folder);
-    
-    // Determine the BIN filename based on skin folder
-    let bin_filename = if let Some(ref folder) = skin_folder {
-        format!("{}.bin", folder)  // skin0 -> skin0.bin, skin20 -> skin20.bin
-    } else {
-        "skin0.bin".to_string()  // Default
-    };
-    
-    // Strategy 1: Same directory as SKN
-    if let Some(parent) = skn_path.parent() {
-        let bin_path = parent.join(&bin_filename);
-        tracing::info!("Strategy 1: Checking {}", bin_path.display());
-        if bin_path.exists() {
-            tracing::info!("Found skin BIN!");
-            return Some(bin_path);
-        }
-        
-        // Also try skin0.bin as fallback
-        let fallback = parent.join("skin0.bin");
-        if fallback.exists() {
-            tracing::info!("Found skin0.bin as fallback!");
-            return Some(fallback);
-        }
-    }
-    
-    // Strategy 2: Look for data/ folder at project root
-    // Find project root by looking for assets/ folder
-    let mut project_root: Option<PathBuf> = None;
-    
-    for (i, part) in components.iter().enumerate() {
-        let lower = part.to_lowercase();
-        if lower == "assets" || lower.contains("assets.wad") {
-            // Project root is everything before assets/
-            if i > 0 {
-                project_root = Some(components[..i].iter().collect::<PathBuf>());
-            }
-            break;
-        }
-    }
-    
-    if let (Some(root), Some(champ), Some(skin)) = (&project_root, &champion_name, &skin_folder) {
-        // Try: data/characters/{champion}/skins/{skin}/{skin}.bin
-        let data_path = root
+
+    let champion_name = champion_name?;
+
+    // Find project root by walking up to find a directory with `data/` child
+    if let Some(root) = find_project_root_from_path(skn_path) {
+        tracing::info!("Project root: {}", root.display());
+
+        let skins_dir = root
             .join("data")
             .join("characters")
-            .join(champ)
-            .join("skins")
-            .join(skin)
-            .join(format!("{}.bin", skin));
-        
-        tracing::info!("Strategy 2: Checking {}", data_path.display());
-        if data_path.exists() {
-            tracing::info!("Found skin BIN in data folder!");
-            return Some(data_path);
-        }
-        
-        // Also try without the nested skin folder:
-        // data/characters/{champion}/skins/{skin}.bin
-        let alt_path = root
-            .join("data")
-            .join("characters")
-            .join(champ)
-            .join("skins")
-            .join(format!("{}.bin", skin));
-        
-        tracing::info!("Strategy 2b: Checking {}", alt_path.display());
-        if alt_path.exists() {
-            tracing::info!("Found skin BIN at alternate data path!");
-            return Some(alt_path);
+            .join(&champion_name)
+            .join("skins");
+
+        if let Some(found) = search_skins_dir(&skins_dir, skin_folder.as_deref()) {
+            return Some(found);
         }
     }
-    
-    // Strategy 3: Walk up looking for data/ sibling to assets/
-    let mut current = skn_path.parent();
-    while let Some(dir) = current {
-        // Check if this dir has both data/ and assets/ subdirs
-        let data_dir = dir.join("data");
-        let assets_dir = dir.join("assets");
-        
-        if data_dir.exists() && assets_dir.exists() {
-            tracing::info!("Strategy 3: Found project root at {}", dir.display());
-            
-            if let (Some(champ), Some(skin)) = (&champion_name, &skin_folder) {
-                let bin_path = data_dir
-                    .join("characters")
-                    .join(champ)
-                    .join("skins")
-                    .join(skin)
-                    .join(format!("{}.bin", skin));
-                
-                tracing::info!("Strategy 3: Checking {}", bin_path.display());
-                if bin_path.exists() {
-                    return Some(bin_path);
-                }
-            }
-        }
-        
-        current = dir.parent();
-    }
-    
+
     tracing::warn!("skin BIN not found for: {}", skn_path.display());
     None
 }
 
+/// Extract champion name from a file path.
+/// Looks for `characters/{champion}` pattern, then falls back to filename.
+fn extract_champion_name(path: &Path) -> Option<String> {
+    let path_str = path.to_string_lossy().to_lowercase();
+    let components: Vec<&str> = path_str.split(&['/', '\\'][..]).collect();
+
+    // Strategy 1: "characters/{champion}" pattern
+    for (i, part) in components.iter().enumerate() {
+        if *part == "characters" && i + 1 < components.len() {
+            return Some(components[i + 1].to_string());
+        }
+    }
+
+    // Strategy 2: Filename (skip generic names)
+    if let Some(file_name) = path.file_stem() {
+        let name = file_name.to_string_lossy().to_lowercase();
+        if !name.starts_with("skin") && name != "base" && !name.is_empty() {
+            tracing::debug!("Using filename as champion name: {}", name);
+            return Some(name);
+        }
+    }
+
+    // Strategy 3: Parent of skins/base folder
+    for (i, part) in components.iter().enumerate() {
+        if (*part == "base" || *part == "skins") && i > 0 {
+            let potential = components[i - 1];
+            if !potential.is_empty()
+                && potential != "assets"
+                && potential != "data"
+                && !potential.contains("wad")
+            {
+                return Some(potential.to_string());
+            }
+        }
+    }
+
+    None
+}
+
+/// Extract skin folder name from a path (e.g., "skin0", "skin20", "base" → "skin0")
+fn extract_skin_folder_from_path(path: &Path) -> Option<String> {
+    let path_str = path.to_string_lossy().to_lowercase();
+    let components: Vec<&str> = path_str.split(&['/', '\\'][..]).collect();
+
+    for (i, part) in components.iter().enumerate() {
+        if *part == "skins" && i + 1 < components.len() {
+            let next = components[i + 1];
+            if next.starts_with("skin") {
+                return Some(next.to_string());
+            } else if next == "base" {
+                return Some("skin0".to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Find the project root by walking up the directory tree until we find
+/// a directory that contains a `data/` subdirectory.
+fn find_project_root_from_path(file_path: &Path) -> Option<PathBuf> {
+    let mut current = file_path.parent()?;
+
+    for _ in 0..15 {
+        let data_dir = current.join("data");
+        if data_dir.exists() && data_dir.is_dir() {
+            tracing::debug!("Found project root (has data/): {}", current.display());
+            return Some(current.to_path_buf());
+        }
+        current = current.parent()?;
+    }
+
+    None
+}
+
+/// Search a skins directory for BIN files, trying multiple strategies.
+fn search_skins_dir(skins_dir: &Path, skin_folder: Option<&str>) -> Option<PathBuf> {
+    if !skins_dir.exists() {
+        return None;
+    }
+
+    // Strategy 1: *Concat.bin (pre-merged, highest priority)
+    if let Ok(entries) = std::fs::read_dir(skins_dir) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let name = entry.file_name().to_string_lossy().to_lowercase();
+            if name.contains("concat") && name.ends_with(".bin") {
+                tracing::info!("Found concat BIN: {}", entry.path().display());
+                return Some(entry.path());
+            }
+        }
+    }
+
+    // Strategy 2: Specific skin folder
+    if let Some(skin) = skin_folder {
+        let nested = skins_dir.join(skin).join(format!("{}.bin", skin));
+        if nested.exists() {
+            tracing::info!("Found nested skin BIN: {}", nested.display());
+            return Some(nested);
+        }
+        let flat = skins_dir.join(format!("{}.bin", skin));
+        if flat.exists() {
+            tracing::info!("Found flat skin BIN: {}", flat.display());
+            return Some(flat);
+        }
+    }
+
+    // Strategy 3: Fallback to skin0.bin
+    let skin0 = skins_dir.join("skin0.bin");
+    if skin0.exists() {
+        tracing::info!("Found fallback skin0.bin");
+        return Some(skin0);
+    }
+
+    // Strategy 4: Any .bin file
+    if let Ok(entries) = std::fs::read_dir(skins_dir) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("bin") {
+                tracing::info!("Found fallback BIN: {}", path.display());
+                return Some(path);
+            }
+        }
+    }
+
+    None
+}
+
 /// Extract texture mappings from a skin0.bin file
-/// 
+///
 /// Parses the BIN file by converting it to Ritobin text format and using regex
 /// to find skinMeshProperties and material overrides.
+///
+/// DEPRECATED: Use bin_texture_discovery::discover_material_textures instead
+#[deprecated(note = "Use bin_texture_discovery::discover_material_textures instead")]
+#[allow(dead_code)]
 pub fn extract_texture_mapping(bin_path: &Path) -> anyhow::Result<TextureMapping> {
     let data = fs::read(bin_path)?;
     let tree = ltk_bridge::read_bin(&data)
@@ -233,7 +243,7 @@ pub fn extract_texture_mapping(bin_path: &Path) -> anyhow::Result<TextureMapping
 /// 2. materialOverride blocks (with submesh -> texture/material mappings)
 /// 3. StaticMaterialDef blocks (to resolve material links)
 #[allow(clippy::regex_creation_in_loops)]
-fn extract_texture_mapping_from_text(content: &str) -> anyhow::Result<TextureMapping> {
+pub fn extract_texture_mapping_from_text(content: &str) -> anyhow::Result<TextureMapping> {
     let mut mapping = TextureMapping {
         ritobin_content: content.to_string(),
         ..Default::default()

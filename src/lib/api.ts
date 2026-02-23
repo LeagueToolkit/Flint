@@ -549,6 +549,7 @@ interface ScbMeshData {
     indices: number[];
     bounding_box: [[number, number, number], [number, number, number]];
     material_ranges: Record<string, [number, number]>;  // material name → [start_index, index_count]
+    material_data?: Record<string, { texture: string; uv_scale?: [number, number]; uv_offset?: [number, number]; flipbook_size?: [number, number]; flipbook_frame?: number }>;
 }
 
 /**

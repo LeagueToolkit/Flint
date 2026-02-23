@@ -31,6 +31,9 @@ pub struct ScbMeshData {
     pub bounding_box: [[f32; 3]; 2],
     /// Material ranges for per-material rendering (material_name -> (start_index, index_count))
     pub material_ranges: HashMap<String, (u32, u32)>,
+    /// Per-material data including textures AND UV transform parameters
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub material_data: HashMap<String, super::skn::MaterialData>,
 }
 
 /// Parse an SCB (binary) or SCO (ASCII) file and extract mesh data for 3D rendering
@@ -158,5 +161,6 @@ pub fn parse_scb_file<P: AsRef<Path>>(path: P) -> anyhow::Result<ScbMeshData> {
         indices,
         bounding_box,
         material_ranges,
+        material_data: HashMap::new(),
     })
 }
