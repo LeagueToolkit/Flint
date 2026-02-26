@@ -162,6 +162,11 @@ fn main() {
             commands::audio::write_bnk,
             commands::audio::write_wpk,
             commands::audio::save_audio_file,
+            // Fixer commands (Hematite integration)
+            commands::fixer::get_fixer_config,
+            commands::fixer::analyze_project,
+            commands::fixer::fix_project,
+            commands::fixer::batch_fix_projects,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

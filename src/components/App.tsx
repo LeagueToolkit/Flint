@@ -21,6 +21,7 @@ import { ExportModal } from './modals/ExportModal';
 import { FirstTimeSetupModal } from './modals/FirstTimeSetupModal';
 import { UpdateModal } from './modals/UpdateModal';
 import { RecolorModal } from './modals/RecolorModal';
+import { FixerModal } from './modals/FixerModal';
 import { ToastContainer } from './Toast';
 
 // Helper to get active tab from state
@@ -299,6 +300,7 @@ export const App: React.FC = () => {
             <FirstTimeSetupModal />
             <UpdateModal />
             <RecolorModal />
+            <FixerModal />
 
             {/* Toast notifications */}
             <ToastContainer />

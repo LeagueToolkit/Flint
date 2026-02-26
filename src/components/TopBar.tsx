@@ -267,6 +267,17 @@ export const TopBar: React.FC = () => {
                     </div>
                 )}
 
+                {/* Fixer — only visible on welcome/main page */}
+                {state.currentView === 'welcome' && (
+                    <button
+                        className="btn btn--ghost"
+                        title="Fix Projects (Hematite Fixer)"
+                        onClick={() => dispatch({ type: 'OPEN_MODAL', payload: { modal: 'fixer' } })}
+                    >
+                        <span dangerouslySetInnerHTML={{ __html: getIcon('wrench') }} />
+                    </button>
+                )}
+
                 {/* Settings — always accessible */}
                 <button
                     className="btn btn--ghost"

@@ -12,3 +12,4 @@ pub mod export;
 pub mod mesh;
 pub mod checkpoint;
 pub mod updater;
+pub mod fixer;
