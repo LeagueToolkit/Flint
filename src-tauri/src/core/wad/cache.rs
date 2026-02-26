@@ -21,8 +21,8 @@ pub struct CachedWadMetadata {
     pub path: PathBuf,
     /// Last modified time of the WAD file when cached
     pub mtime: SystemTime,
-    /// Chunk metadata (path hash, uncompressed size, compressed size, etc.)
-    pub chunks: Vec<WadChunk>,
+    /// Chunk metadata (shared via Arc to avoid cloning on cache hits)
+    pub chunks: Arc<Vec<WadChunk>>,
 }
 
 /// Thread-safe WAD metadata cache using DashMap for concurrent access
@@ -44,7 +44,7 @@ impl WadCache {
     /// - WAD not in cache
     /// - WAD file modified since cache entry was created
     /// - WAD file no longer exists
-    pub fn get(&self, path: impl AsRef<Path>) -> Option<Vec<WadChunk>> {
+    pub fn get(&self, path: impl AsRef<Path>) -> Option<Arc<Vec<WadChunk>>> {
         let path = path.as_ref();
         let entry = self.cache.get(path)?;
 
@@ -57,7 +57,7 @@ impl WadCache {
             return None;
         }
 
-        Some(entry.chunks.clone())
+        Some(Arc::clone(&entry.chunks))
     }
 
     /// Insert WAD metadata into cache
@@ -69,7 +69,7 @@ impl WadCache {
     /// # Returns
     /// * `Ok(())` if cached successfully
     /// * `Err(std::io::Error)` if file metadata cannot be read
-    pub fn insert(&self, path: impl AsRef<Path>, chunks: Vec<WadChunk>) -> std::io::Result<()> {
+    pub fn insert(&self, path: impl AsRef<Path>, chunks: Arc<Vec<WadChunk>>) -> std::io::Result<()> {
         let path = path.as_ref().to_path_buf();
         let mtime = std::fs::metadata(&path)?.modified()?;
 

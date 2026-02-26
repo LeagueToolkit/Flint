@@ -1,6 +1,7 @@
 use crate::error::{Error, Result};
 use league_toolkit::wad::{Wad, WadChunk, WadChunks};
 use std::fs::File;
+#[cfg(test)]
 use std::io::Read;
 use std::path::Path;
 
@@ -42,15 +43,6 @@ impl WadReader {
         let path = path.as_ref();
         tracing::debug!("Opening WAD file: {}", path.display());
 
-        // Read WAD version before mounting (for logging purposes)
-        let version = Self::read_wad_version(path)?;
-        tracing::debug!(
-            "WAD version {}.{} detected in '{}'",
-            version.0,
-            version.1,
-            path.display()
-        );
-
         let file = File::open(path)
             .map_err(|e| {
                 tracing::error!("Failed to open WAD file '{}': {}", path.display(), e);
@@ -64,9 +56,7 @@ impl WadReader {
             })?;
 
         tracing::debug!(
-            "Successfully opened WAD v{}.{} file '{}' with {} chunks",
-            version.0,
-            version.1,
+            "Successfully opened WAD '{}' with {} chunks",
             path.display(),
             wad.chunks().len()
         );
@@ -77,6 +67,7 @@ impl WadReader {
     /// Reads the WAD version from a file without fully parsing it
     ///
     /// Returns (major, minor) version tuple
+    #[cfg(test)]
     fn read_wad_version(path: impl AsRef<Path>) -> Result<(u8, u8)> {
         let mut file = File::open(path.as_ref())
             .map_err(|e| Error::io_with_path(e, path.as_ref()))?;
@@ -155,7 +146,7 @@ impl WadReader {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
+    use std::io::{Read, Write};
     use tempfile::NamedTempFile;
 
     #[test]

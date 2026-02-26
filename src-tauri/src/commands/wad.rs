@@ -5,6 +5,7 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
 use tauri::State;
 use walkdir::WalkDir;
 
@@ -80,9 +81,10 @@ pub async fn get_wad_chunks(
         tracing::debug!("WAD cache miss: {}", path);
         let reader = WadReader::open(&path)?;
         let chunks: Vec<_> = reader.chunks().iter().cloned().collect();
+        let chunks = Arc::new(chunks);
 
         // Cache for next time (ignore errors - cache is best-effort)
-        let _ = cache.insert(&path, chunks.clone());
+        let _ = cache.insert(&path, Arc::clone(&chunks));
 
         chunks
     };
@@ -90,9 +92,9 @@ pub async fn get_wad_chunks(
     // Get hashtable for path resolution (lazy loaded on first use)
     let hashtable = hashtable_state.get_hashtable();
 
-    let mut chunk_infos = Vec::new();
+    let mut chunk_infos = Vec::with_capacity(chunks.len());
 
-    for chunk in &chunks {
+    for chunk in chunks.iter() {
         let path_hash = chunk.path_hash();
         let resolved_path = if let Some(ref ht) = hashtable {
             let resolved = ht.resolve(path_hash);
@@ -154,13 +156,14 @@ pub async fn load_all_wad_chunks(
                 } else {
                     let reader = WadReader::open(wad_path).map_err(|e| e.to_string())?;
                     let chunks: Vec<_> = reader.chunks().iter().cloned().collect();
+                    let chunks = Arc::new(chunks);
                     // Cache for next time (ignore errors)
-                    let _ = cache.insert(wad_path, chunks.clone());
+                    let _ = cache.insert(wad_path, Arc::clone(&chunks));
                     chunks
                 };
 
                 let mut chunk_infos = Vec::with_capacity(chunks.len());
-                for chunk in &chunks {
+                for chunk in chunks.iter() {
                     let path_hash = chunk.path_hash();
                     let resolved = hashtable.as_ref().and_then(|ht| {
                         let r = ht.resolve(path_hash);

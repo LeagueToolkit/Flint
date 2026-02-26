@@ -495,38 +495,6 @@ const VFSNodeRow: React.FC<VFSNodeProps> = React.memo(({
 VFSNodeRow.displayName = 'VFSNodeRow';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Search result row (flat list, used when query is non-empty)
-// ─────────────────────────────────────────────────────────────────────────────
-
-const SearchResultRow: React.FC<{
-    chunk: WadChunk;
-    wadPath: string;
-    wadName: string;
-    isSelected: boolean;
-    onSelect: () => void;
-    onContextMenu: (x: number, y: number) => void;
-}> = React.memo(({ chunk, wadPath: _wadPath, wadName, isSelected, onSelect, onContextMenu }) => {
-    const name = chunk.path ? (chunk.path.split('/').pop() ?? chunk.hash) : chunk.hash;
-    const tooltip = `${wadName}\n${chunk.path ?? chunk.hash}\n${formatBytes(chunk.size)}`;
-    return (
-        <div
-            className={`file-tree__item ${isSelected ? 'file-tree__item--selected' : ''}`}
-            style={{ paddingLeft: '8px' }}
-            title={tooltip}
-            onClick={onSelect}
-            onContextMenu={e => { e.preventDefault(); onContextMenu(e.clientX, e.clientY); }}
-        >
-            <span className="file-tree__icon" dangerouslySetInnerHTML={{ __html: getFileIcon(name, false) }} />
-            <span className="file-tree__name" style={{ flex: 1, minWidth: 0 }}>{name}</span>
-            <span style={{ fontSize: '10px', color: 'var(--text-muted)', paddingRight: '4px', flexShrink: 0, opacity: 0.7 }}>
-                {wadName.replace('.wad.client', '')}
-            </span>
-        </div>
-    );
-});
-SearchResultRow.displayName = 'SearchResultRow';
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Quick-action cards (shown when no file is previewed)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -677,8 +645,8 @@ export const WadExplorer: React.FC = () => {
         if (wad?.status === 'idle') loadWad(wadPath);
     }, [dispatch, loadWad, wadExplorer.wads]);
 
-    // Single batch call once scan is ready — marks all as 'loading', fires one
-    // Rust command, then dispatches all results in one state update.
+    // Progressive batch loading: load WADs in small batches (~30 at a time) so the
+    // UI updates incrementally instead of blocking for one massive IPC response.
     useEffect(() => {
         if (wadExplorer.scanStatus !== 'ready') return;
         const idlePaths = wadExplorer.wads.filter(w => w.status === 'idle').map(w => w.path);
@@ -687,26 +655,33 @@ export const WadExplorer: React.FC = () => {
         // Mark all as loading in one dispatch
         dispatch({
             type: 'BATCH_SET_WAD_STATUSES',
-            payload: idlePaths.map(p => ({ wadPath: p, status: 'loading' })),
+            payload: idlePaths.map(p => ({ wadPath: p, status: 'loading' as const })),
         });
 
-        api.loadAllWadChunks(idlePaths).then(batches => {
-            dispatch({
-                type: 'BATCH_SET_WAD_STATUSES',
-                payload: batches.map(b => ({
-                    wadPath: b.path,
-                    status: b.error ? 'error' : 'loaded',
-                    chunks: b.chunks,
-                    error: b.error ?? undefined,
-                })),
-            });
-        }).catch(e => {
-            // Fallback: mark all as error
-            dispatch({
-                type: 'BATCH_SET_WAD_STATUSES',
-                payload: idlePaths.map(p => ({ wadPath: p, status: 'error', error: (e as Error).message })),
-            });
-        });
+        const BATCH_SIZE = 30;
+        const loadBatches = async () => {
+            for (let i = 0; i < idlePaths.length; i += BATCH_SIZE) {
+                const batch = idlePaths.slice(i, i + BATCH_SIZE);
+                try {
+                    const batches = await api.loadAllWadChunks(batch);
+                    dispatch({
+                        type: 'BATCH_SET_WAD_STATUSES',
+                        payload: batches.map(b => ({
+                            wadPath: b.path,
+                            status: (b.error ? 'error' : 'loaded') as WadExplorerWad['status'],
+                            chunks: b.chunks,
+                            error: b.error ?? undefined,
+                        })),
+                    });
+                } catch (e) {
+                    dispatch({
+                        type: 'BATCH_SET_WAD_STATUSES',
+                        payload: batch.map(p => ({ wadPath: p, status: 'error' as const, error: (e as Error).message })),
+                    });
+                }
+            }
+        };
+        loadBatches();
     }, [wadExplorer.scanStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const handleToggleFolder = useCallback((key: string) => {
@@ -796,20 +771,63 @@ export const WadExplorer: React.FC = () => {
         ? selectedWad.chunks.find(c => c.hash === wadExplorer.selected!.hash) ?? null
         : null;
 
-    // ── Search results (flat) ────────────────────────────────────────────────
-    const searchResults = useMemo(() => {
+    // ── Search results (grouped by WAD → folder) ──────────────────────────
+    const [collapsedSearchWads, setCollapsedSearchWads] = useState<Set<string>>(new Set());
+    const [collapsedSearchFolders, setCollapsedSearchFolders] = useState<Set<string>>(new Set());
+
+    const groupedSearchResults = useMemo(() => {
         if (!trimmed) return null;
-        const results: Array<{ chunk: WadChunk; wadPath: string; wadName: string }> = [];
+
+        const wadGroups: Array<{
+            wadPath: string;
+            wadName: string;
+            folders: Array<{
+                folderPath: string;
+                files: Array<{ chunk: WadChunk; fileName: string }>;
+            }>;
+            totalMatches: number;
+        }> = [];
+
+        let totalCapped = 0;
+        const MAX_RESULTS = 5000;
+
         for (const w of wadExplorer.wads) {
             if (w.status !== 'loaded') continue;
+            const folderMap = new Map<string, Array<{ chunk: WadChunk; fileName: string }>>();
+
             for (const chunk of w.chunks) {
-                if (matchChunk(chunk, searchRe, plainLower)) {
-                    results.push({ chunk, wadPath: w.path, wadName: w.name });
-                }
+                if (totalCapped >= MAX_RESULTS) break;
+                if (!matchChunk(chunk, searchRe, plainLower)) continue;
+
+                const fullPath = (chunk.path ?? chunk.hash).replace(/\\/g, '/');
+                const lastSlash = fullPath.lastIndexOf('/');
+                const folderPath = lastSlash >= 0 ? fullPath.slice(0, lastSlash) : '';
+                const fileName = lastSlash >= 0 ? fullPath.slice(lastSlash + 1) : fullPath;
+
+                let folder = folderMap.get(folderPath);
+                if (!folder) { folder = []; folderMap.set(folderPath, folder); }
+                folder.push({ chunk, fileName });
+                totalCapped++;
             }
+
+            if (folderMap.size > 0) {
+                const folders = Array.from(folderMap.entries())
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([fp, files]) => ({ folderPath: fp, files }));
+                const totalMatches = folders.reduce((s, f) => s + f.files.length, 0);
+                wadGroups.push({ wadPath: w.path, wadName: w.name, folders, totalMatches });
+            }
+            if (totalCapped >= MAX_RESULTS) break;
         }
-        return results.slice(0, 5000); // cap DOM size
+
+        return wadGroups;
     }, [wadExplorer.wads, trimmed, isRegex, inputValue]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Keep a flat count for the footer
+    const searchResultCount = useMemo(() => {
+        if (!groupedSearchResults) return 0;
+        return groupedSearchResults.reduce((s, g) => s + g.totalMatches, 0);
+    }, [groupedSearchResults]);
 
     // ── Grouped WAD categories for tree ─────────────────────────────────────
     const categories = useMemo(() => {
@@ -822,16 +840,30 @@ export const WadExplorer: React.FC = () => {
         return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
     }, [wadExplorer.wads]);
 
-    // ── WAD subtrees (memoized per wad) ─────────────────────────────────────
+    // ── WAD subtrees (lazily built per WAD, cached by chunks reference) ────
+    // Only builds VFS tree for a WAD when it's expanded AND loaded.
+    // Uses a ref cache keyed by wad path; invalidates when chunks array changes.
+    const vfsCacheRef = useRef<Map<string, { chunks: WadChunk[]; tree: VFSNode[] }>>(new Map());
     const wadSubtrees = useMemo(() => {
+        const cache = vfsCacheRef.current;
         const m = new Map<string, VFSNode[]>();
         for (const w of wadExplorer.wads) {
-            if (w.status === 'loaded') {
-                m.set(w.path, buildVFSSubtree(w.chunks, w.path));
+            if (w.status !== 'loaded') continue;
+            // Only build tree for expanded WADs (lazy)
+            if (!wadExplorer.expandedWads.has(w.path)) continue;
+            const cached = cache.get(w.path);
+            if (cached && cached.chunks === w.chunks) {
+                // Same chunks reference — reuse cached tree
+                m.set(w.path, cached.tree);
+            } else {
+                // Chunks changed or first build — rebuild tree
+                const tree = buildVFSSubtree(w.chunks, w.path);
+                cache.set(w.path, { chunks: w.chunks, tree });
+                m.set(w.path, tree);
             }
         }
         return m;
-    }, [wadExplorer.wads]);
+    }, [wadExplorer.wads, wadExplorer.expandedWads]);
 
     // ─────────────────────────────────────────────────────────────────────────
     // Render
@@ -901,33 +933,92 @@ export const WadExplorer: React.FC = () => {
                         </div>
                     )}
 
-                    {/* Search results (flat) */}
-                    {wadExplorer.scanStatus === 'ready' && searchResults !== null && (
+                    {/* Search results (grouped by WAD → folder) */}
+                    {wadExplorer.scanStatus === 'ready' && groupedSearchResults !== null && (
                         <>
                             {regexError && (
                                 <div style={{ padding: '8px 12px', fontSize: '11px', color: 'var(--error, #f44)' }}>Invalid regex pattern</div>
                             )}
-                            {searchResults.length === 0 && !regexError && (
+                            {groupedSearchResults.length === 0 && !regexError && (
                                 <div style={{ padding: '12px', fontSize: '12px', color: 'var(--text-muted)' }}>
                                     No matches found.
                                 </div>
                             )}
-                            {searchResults.map(({ chunk, wadPath, wadName }) => (
-                                <SearchResultRow
-                                    key={`${wadPath}::${chunk.hash}`}
-                                    chunk={chunk}
-                                    wadPath={wadPath}
-                                    wadName={wadName}
-                                    isSelected={wadExplorer.selected?.hash === chunk.hash && wadExplorer.selected?.wadPath === wadPath}
-                                    onSelect={() => handleSelectFile(wadPath, chunk)}
-                                    onContextMenu={(x, y) => handleContextMenu(chunk, wadPath, x, y)}
-                                />
-                            ))}
+                            {groupedSearchResults.map(group => {
+                                const isWadCollapsed = collapsedSearchWads.has(group.wadPath);
+                                return (
+                                    <div key={group.wadPath}>
+                                        {/* WAD header */}
+                                        <div
+                                            className="file-tree__item"
+                                            style={{ padding: '4px 8px 2px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', userSelect: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                                            onClick={() => setCollapsedSearchWads(prev => {
+                                                const next = new Set(prev);
+                                                if (next.has(group.wadPath)) next.delete(group.wadPath); else next.add(group.wadPath);
+                                                return next;
+                                            })}
+                                        >
+                                            <span dangerouslySetInnerHTML={{ __html: getIcon(isWadCollapsed ? 'chevronRight' : 'chevronDown') }} />
+                                            <span className="file-tree__icon" dangerouslySetInnerHTML={{ __html: getIcon('wad') }} />
+                                            <span style={{ flex: 1, textTransform: 'none', letterSpacing: 0, fontWeight: 500, fontSize: '11px' }}>{group.wadName}</span>
+                                            <span style={{ fontSize: '9px', opacity: 0.5, fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>
+                                                {group.totalMatches}
+                                            </span>
+                                        </div>
+                                        {!isWadCollapsed && group.folders.map(folder => {
+                                            const folderKey = `${group.wadPath}::s::${folder.folderPath}`;
+                                            const isFolderCollapsed = collapsedSearchFolders.has(folderKey);
+                                            return (
+                                                <div key={folderKey}>
+                                                    {/* Folder header */}
+                                                    {folder.folderPath !== '' && (
+                                                        <div
+                                                            className="file-tree__item"
+                                                            style={{ paddingLeft: '22px' }}
+                                                            onClick={() => setCollapsedSearchFolders(prev => {
+                                                                const next = new Set(prev);
+                                                                if (next.has(folderKey)) next.delete(folderKey); else next.add(folderKey);
+                                                                return next;
+                                                            })}
+                                                        >
+                                                            <span className="file-tree__chevron" dangerouslySetInnerHTML={{ __html: getIcon(isFolderCollapsed ? 'chevronRight' : 'chevronDown') }} />
+                                                            <span className="file-tree__icon" dangerouslySetInnerHTML={{ __html: getIcon(isFolderCollapsed ? 'folder' : 'folderOpen') }} />
+                                                            <span className="file-tree__name" style={{ fontSize: '11px' }}>{folder.folderPath}</span>
+                                                            <span style={{ fontSize: '10px', color: 'var(--text-muted)', paddingRight: '4px', flexShrink: 0 }}>
+                                                                {folder.files.length}
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                    {!isFolderCollapsed && folder.files.map(({ chunk, fileName }) => {
+                                                        const isSelected = wadExplorer.selected?.hash === chunk.hash && wadExplorer.selected?.wadPath === group.wadPath;
+                                                        return (
+                                                            <div
+                                                                key={`${group.wadPath}::${chunk.hash}`}
+                                                                className={`file-tree__item ${isSelected ? 'file-tree__item--selected' : ''}`}
+                                                                style={{ paddingLeft: folder.folderPath ? '44px' : '22px' }}
+                                                                title={`${chunk.path ?? chunk.hash}\nSize: ${formatBytes(chunk.size)}`}
+                                                                onClick={() => handleSelectFile(group.wadPath, chunk)}
+                                                                onContextMenu={e => { e.preventDefault(); handleContextMenu(chunk, group.wadPath, e.clientX, e.clientY); }}
+                                                            >
+                                                                <span className="file-tree__icon" dangerouslySetInnerHTML={{ __html: getFileIcon(fileName, false) }} />
+                                                                <span className="file-tree__name" style={{ flex: 1, minWidth: 0 }}>{fileName}</span>
+                                                                <span style={{ fontSize: '10px', color: 'var(--text-muted)', paddingRight: '4px', flexShrink: 0 }}>
+                                                                    {formatBytes(chunk.size)}
+                                                                </span>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                );
+                            })}
                         </>
                     )}
 
                     {/* Normal tree */}
-                    {wadExplorer.scanStatus === 'ready' && searchResults === null && categories.map(([cat, wads]) => {
+                    {wadExplorer.scanStatus === 'ready' && groupedSearchResults === null && categories.map(([cat, wads]) => {
                         const isCatCollapsed = collapsedCategories.has(cat);
                         const loadedInCat = wads.filter(w => w.status === 'loaded').length;
                         return (
@@ -1011,7 +1102,7 @@ export const WadExplorer: React.FC = () => {
                         <span>{wadExplorer.wads.length.toLocaleString()} WADs</span>
                         <span>·</span>
                         <span>{wadExplorer.wads.filter(w => w.status === 'loaded').length} loaded</span>
-                        {searchResults && <><span>·</span><span>{searchResults.length.toLocaleString()} matches</span></>}
+                        {groupedSearchResults && <><span>·</span><span>{searchResultCount.toLocaleString()} matches</span></>}
                     </div>
                 )}
             </div>
