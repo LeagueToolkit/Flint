@@ -1,0 +1,56 @@
+[package]
+name = "hematite"
+version = "0.1.0"
+description = "A Tauri App for fixing League of Legends skin files"
+authors = ["RitoShark"]
+edition = "2021"
+
+[lib]
+name = "hematite_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+# CLI binary for standalone use
+[[bin]]
+name = "hematite-cli"
+path = "src/bin/cli.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [], optional = true }
+
+
+[dependencies]
+tauri = { version = "2.0", features = [], optional = true }
+tauri-plugin-opener = { version = "2", optional = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+tokio = { version = "1.0", features = ["rt-multi-thread", "fs", "sync"] }
+futures = "0.3"
+walkdir = "2"
+anyhow = "1.0"
+log = "0.4"
+regex = "1.10"
+xxhash-rust = { version = "0.8", features = ["xxh64"] }
+indexmap = { version = "2.7", features = ["serde"] }
+
+# League toolkit crates from crates.io
+league-toolkit = { version = "0.2.18", features = ["serde"] }
+ltk_meta = { version = "0.3.3", features = ["serde"] }
+
+# CLI dependencies
+clap = { version = "4.4", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "chrono"] }
+colored = "2.0"
+chrono = "0.4"
+uuid = { version = "1.0", features = ["v4"] }
+
+# File processing dependencies
+zip = { version = "2.4", features = ["deflate"] }
+tempfile = "3.10"
+
+[features]
+default = []
+tauri-ui = ["tauri", "tauri-plugin-opener", "tauri-build"]
+wad-writer = []
+cli = []
