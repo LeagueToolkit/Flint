@@ -1,4 +1,5 @@
 // Core modules
+pub mod audio;
 pub mod hash;
 pub mod wad;
 pub mod bin;

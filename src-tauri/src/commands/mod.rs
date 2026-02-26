@@ -1,4 +1,5 @@
 // Command modules will be added in later tasks
+pub mod audio;
 pub mod hash;
 pub mod wad;
 pub mod bin;

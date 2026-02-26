@@ -4,7 +4,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import type { HashStatus, Project, FileTreeNode, Champion, GameWadInfo } from './types';
+import type { HashStatus, Project, FileTreeNode, Champion, GameWadInfo, AudioBankInfo, DecodedAudio, HircData, BinEventString, EventMapping } from './types';
 
 // =============================================================================
 // Error Handling
@@ -722,4 +722,83 @@ export async function readCheckpointFile(
     return invokeCommand('read_checkpoint_file', { projectPath, hash, filePath });
 }
 
+// =============================================================================
+// Audio / BNK Editor API
+// =============================================================================
 
+export async function parseAudioBank(path: string): Promise<AudioBankInfo> {
+    return invokeCommand('parse_audio_bank', { path });
+}
+
+export async function parseAudioBankBytes(data: number[]): Promise<AudioBankInfo> {
+    return invokeCommand('parse_audio_bank_bytes', { data });
+}
+
+export async function readAudioEntry(path: string, fileId: number): Promise<number[]> {
+    return invokeCommand('read_audio_entry', { path, fileId });
+}
+
+export async function readAudioEntryBytes(data: number[], fileId: number): Promise<number[]> {
+    return invokeCommand('read_audio_entry_bytes', { data, fileId });
+}
+
+export async function decodeWem(wemData: number[]): Promise<DecodedAudio> {
+    return invokeCommand('decode_wem', { wemData });
+}
+
+export async function parseBnkHirc(path: string): Promise<HircData | null> {
+    return invokeCommand('parse_bnk_hirc', { path });
+}
+
+export async function parseBnkHircBytes(data: number[]): Promise<HircData | null> {
+    return invokeCommand('parse_bnk_hirc_bytes', { data });
+}
+
+export async function extractBinAudioEvents(data: number[]): Promise<BinEventString[]> {
+    return invokeCommand('extract_bin_audio_events', { data });
+}
+
+export async function mapAudioEvents(
+    binData: number[],
+    eventsBnkData: number[]
+): Promise<EventMapping[]> {
+    return invokeCommand('map_audio_events', { binData, eventsBnkData });
+}
+
+export async function replaceAudioEntry(
+    bankData: number[],
+    fileId: number,
+    newWemData: number[]
+): Promise<number[]> {
+    return invokeCommand('replace_audio_entry', { bankData, fileId, newWemData });
+}
+
+export async function replaceAudioEntries(
+    bankData: number[],
+    replacements: { file_id: number; new_data: number[] }[]
+): Promise<number[]> {
+    return invokeCommand('replace_audio_entries', { bankData, replacements });
+}
+
+export async function silenceAudioEntry(
+    bankData: number[],
+    fileId: number
+): Promise<number[]> {
+    return invokeCommand('silence_audio_entry', { bankData, fileId });
+}
+
+export async function writeBnk(
+    entries: { id: number; data: number[] }[]
+): Promise<number[]> {
+    return invokeCommand('write_bnk', { entries });
+}
+
+export async function writeWpk(
+    entries: { id: number; data: number[] }[]
+): Promise<number[]> {
+    return invokeCommand('write_wpk', { entries });
+}
+
+export async function saveAudioFile(path: string, data: number[]): Promise<void> {
+    return invokeCommand('save_audio_file', { path, data });
+}

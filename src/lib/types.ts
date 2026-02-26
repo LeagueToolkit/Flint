@@ -268,3 +268,59 @@ export interface DownloadProgress {
     downloaded: number;
     total: number;
 }
+
+// =============================================================================
+// Audio / BNK Editor Types
+// =============================================================================
+
+export interface AudioEntryInfo {
+    id: number;
+    size: number;
+}
+
+export interface AudioBankInfo {
+    format: 'bnk' | 'wpk';
+    version: number;
+    entry_count: number;
+    entries: AudioEntryInfo[];
+    has_hirc: boolean;
+}
+
+export interface DecodedAudio {
+    data: number[];
+    format: 'ogg' | 'wav';
+    sample_rate: number | null;
+}
+
+export interface BinEventString {
+    name: string;
+    hash: number;
+}
+
+export interface EventMapping {
+    event_name: string;
+    wem_id: number;
+    container_id: number;
+    music_segment_id: number | null;
+    switch_id: number | null;
+}
+
+export interface HircData {
+    sounds: { self_id: number; file_id: number; is_streamed: boolean }[];
+    event_actions: { self_id: number; action_type: number; sound_object_id: number }[];
+    events: { self_id: number; action_ids: number[] }[];
+    random_containers: { self_id: number; sound_ids: number[] }[];
+    switch_containers: { self_id: number; group_id: number; children: number[] }[];
+    music_segments: { self_id: number; track_ids: number[] }[];
+    music_tracks: { self_id: number; file_ids: number[]; switch_group_id: number; switch_ids: number[] }[];
+    music_switches: { self_id: number; children: number[] }[];
+    music_playlists: { self_id: number; track_ids: number[] }[];
+}
+
+/** Tree node for the BNK editor UI */
+export interface AudioTreeNode {
+    id: string;
+    name: string;
+    audioEntry: AudioEntryInfo | null;
+    children: AudioTreeNode[];
+}

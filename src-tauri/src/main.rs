@@ -146,6 +146,22 @@ fn main() {
             commands::checkpoint::compare_checkpoints,
             commands::checkpoint::delete_checkpoint,
             commands::checkpoint::read_checkpoint_file,
+            // Audio commands (BNK/WPK editor)
+            commands::audio::parse_audio_bank,
+            commands::audio::parse_audio_bank_bytes,
+            commands::audio::read_audio_entry,
+            commands::audio::read_audio_entry_bytes,
+            commands::audio::decode_wem,
+            commands::audio::parse_bnk_hirc,
+            commands::audio::parse_bnk_hirc_bytes,
+            commands::audio::extract_bin_audio_events,
+            commands::audio::map_audio_events,
+            commands::audio::replace_audio_entry,
+            commands::audio::replace_audio_entries,
+            commands::audio::silence_audio_entry,
+            commands::audio::write_bnk,
+            commands::audio::write_wpk,
+            commands::audio::save_audio_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
