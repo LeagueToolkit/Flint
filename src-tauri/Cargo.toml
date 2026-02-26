@@ -1,6 +1,6 @@
 [package]
 name = "flint"
-version = "1.3.0"
+version = "1.4.0"
 edition = "2021"
 default-run = "flint"
 
@@ -95,7 +95,13 @@ ltk_fantome = "0.2"
 ltk_modpkg = { version = "0.2", features = ["project"] }
 
 # Hematite fixer library (config-driven skin fixer)
-hematite_lib = { package = "hematite", path = "../../Hematite-main/src-tauri", default-features = false }
+hematite_lib = { package = "hematite", path = "../Hematite-main/src-tauri", default-features = false }
+
+# LMDB via heed — memory-mapped B-tree DB for fast hash lookups
+heed = "0.20"
+
+# Memory-mapped file I/O for WAD extraction
+memmap2 = "0.9"
 
 # Additional dependencies required by ltk crates
 eyre = "0.6"

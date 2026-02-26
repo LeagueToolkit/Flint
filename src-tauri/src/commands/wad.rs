@@ -1,6 +1,7 @@
+use crate::core::hash::resolve_hashes_lmdb;
 use crate::core::wad::extractor::{extract_all, extract_chunk};
 use crate::core::wad::reader::WadReader;
-use crate::state::{HashtableState, WadCacheState};
+use crate::state::{LmdbCacheState, WadCacheState};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -32,48 +33,27 @@ pub struct ExtractionResult {
 }
 
 /// Opens a WAD file and returns metadata about it
-/// 
-/// # Arguments
-/// * `path` - Path to the WAD file
-/// 
-/// # Returns
-/// * `Result<WadInfo, String>` - WAD metadata or error message
-/// 
-/// # Requirements
-/// Validates: Requirements 3.1
 #[tauri::command]
 pub async fn read_wad(path: String) -> Result<WadInfo, String> {
     let reader = WadReader::open(&path)?;
-    
     Ok(WadInfo {
         path,
         chunk_count: reader.chunk_count(),
     })
 }
 
-/// Returns a list of all chunks in a WAD archive with resolved paths
+/// Returns a list of all chunks in a WAD archive with resolved paths.
 ///
-/// Uses cache to avoid re-parsing WAD headers on repeated calls (~100x speedup).
-///
-/// # Arguments
-/// * `path` - Path to the WAD file
-/// * `hashtable_state` - Hashtable state for path resolution
-/// * `wad_cache_state` - WAD cache state for metadata caching
-///
-/// # Returns
-/// * `Result<Vec<ChunkInfo>, String>` - List of chunk information or error message
-///
-/// # Requirements
-/// Validates: Requirements 3.2, 3.3, 3.4
+/// Uses LMDB for O(log N) point lookups — no full hashtable loaded into RAM.
 #[tauri::command]
 pub async fn get_wad_chunks(
     path: String,
-    hashtable_state: State<'_, HashtableState>,
+    lmdb: State<'_, LmdbCacheState>,
     wad_cache_state: State<'_, WadCacheState>,
 ) -> Result<Vec<ChunkInfo>, String> {
     let cache = wad_cache_state.get();
 
-    // Try cache first (avoids I/O and parsing)
+    // WAD metadata cache (avoids re-parsing headers)
     let chunks = if let Some(cached) = cache.get(&path) {
         tracing::debug!("WAD cache hit: {}", path);
         cached
@@ -82,38 +62,43 @@ pub async fn get_wad_chunks(
         let reader = WadReader::open(&path)?;
         let chunks: Vec<_> = reader.chunks().iter().cloned().collect();
         let chunks = Arc::new(chunks);
-
-        // Cache for next time (ignore errors - cache is best-effort)
         let _ = cache.insert(&path, Arc::clone(&chunks));
-
         chunks
     };
 
-    // Get hashtable for path resolution (lazy loaded on first use)
-    let hashtable = hashtable_state.get_hashtable();
+    // Bulk-resolve all hashes in a single LMDB read txn (microseconds)
+    let hash_u64s: Vec<u64> = chunks.iter().map(|c| c.path_hash()).collect();
+    let resolved: Vec<String> = if let Some(env) = lmdb.get_env(
+        // Determine hash dir from the LMDB cache (uses whatever was last primed)
+        &crate::core::hash::downloader::get_ritoshark_hash_dir()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    ) {
+        resolve_hashes_lmdb(&hash_u64s, &env)
+    } else {
+        hash_u64s.iter().map(|h| format!("{:016x}", h)).collect()
+    };
 
-    let mut chunk_infos = Vec::with_capacity(chunks.len());
-
-    for chunk in chunks.iter() {
-        let path_hash = chunk.path_hash();
-        let resolved_path = if let Some(ref ht) = hashtable {
-            let resolved = ht.resolve(path_hash);
-            // Only include as resolved if it's not a hex fallback
-            if !resolved.starts_with(|c: char| c.is_ascii_hexdigit()) || resolved.len() != 16 {
-                Some(resolved.to_string())
-            } else {
+    let chunk_infos = chunks
+        .iter()
+        .zip(resolved.into_iter())
+        .map(|(chunk, resolved_path)| {
+            let path_hash = chunk.path_hash();
+            // Hex-only 16-char strings are unresolved hashes — treat as None
+            let path = if resolved_path.len() == 16
+                && resolved_path.bytes().all(|b| b.is_ascii_hexdigit())
+            {
                 None
+            } else {
+                Some(resolved_path)
+            };
+            ChunkInfo {
+                hash: format!("{:016x}", path_hash),
+                path,
+                size: chunk.uncompressed_size() as u32,
             }
-        } else {
-            None
-        };
-
-        chunk_infos.push(ChunkInfo {
-            hash: format!("{:016x}", path_hash),
-            path: resolved_path,
-            size: chunk.uncompressed_size() as u32,
-        });
-    }
+        })
+        .collect();
 
     Ok(chunk_infos)
 }
@@ -121,81 +106,101 @@ pub async fn get_wad_chunks(
 /// Result of loading one WAD in a batch operation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WadChunkBatch {
-    /// Absolute path to the WAD file (matches the input path)
     pub path: String,
-    /// Chunk metadata list (empty on error)
     pub chunks: Vec<ChunkInfo>,
-    /// Set if this WAD failed to load
     pub error: Option<String>,
 }
 
-/// Loads chunk metadata for multiple WAD files in one call using parallel I/O + caching.
+/// Loads chunk metadata for multiple WAD files in one call.
 ///
-/// This is much faster than calling `get_wad_chunks` once per WAD because:
-/// - A single IPC round-trip instead of N
-/// - WADs are read in parallel via rayon
-/// - One combined JSON serialization
-/// - Cache hits avoid re-parsing WAD headers (~100x speedup per cached WAD)
+/// Phase 1: parallel WAD header parsing (I/O-bound, rayon).
+/// Phase 2: single LMDB read txn per WAD for hash resolution (μs per txn).
+///
+/// No full hashtable is ever loaded into memory.
 #[tauri::command]
 pub async fn load_all_wad_chunks(
     paths: Vec<String>,
-    hashtable_state: State<'_, HashtableState>,
+    lmdb: State<'_, LmdbCacheState>,
     wad_cache_state: State<'_, WadCacheState>,
 ) -> Result<Vec<WadChunkBatch>, String> {
-    // Clone the Arc so we can move it into the rayon closure
-    let hashtable = hashtable_state.get_hashtable();
     let cache = wad_cache_state.get();
 
-    let batches: Vec<WadChunkBatch> = paths
+    // Resolve hash dir once
+    let hash_dir = crate::core::hash::downloader::get_ritoshark_hash_dir()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let env_opt = lmdb.get_env(&hash_dir);
+
+    // Phase 1: parallel WAD header reads
+    let toc_results: Vec<(String, Result<Vec<_>, String>)> = paths
         .par_iter()
         .map(|wad_path| {
-            let result: Result<Vec<ChunkInfo>, String> = (|| {
-                // Try cache first
+            let result: Result<Vec<_>, String> = (|| {
                 let chunks = if let Some(cached) = cache.get(wad_path) {
                     cached
                 } else {
                     let reader = WadReader::open(wad_path).map_err(|e| e.to_string())?;
                     let chunks: Vec<_> = reader.chunks().iter().cloned().collect();
                     let chunks = Arc::new(chunks);
-                    // Cache for next time (ignore errors)
                     let _ = cache.insert(wad_path, Arc::clone(&chunks));
                     chunks
                 };
-
-                let mut chunk_infos = Vec::with_capacity(chunks.len());
-                for chunk in chunks.iter() {
-                    let path_hash = chunk.path_hash();
-                    let resolved = hashtable.as_ref().and_then(|ht| {
-                        let r = ht.resolve(path_hash);
-                        // Hex-only 16-char strings are unknown hashes — treat as None
-                        if r.len() == 16 && r.bytes().all(|b| b.is_ascii_hexdigit()) {
-                            None
-                        } else {
-                            Some(r.to_string())
-                        }
-                    });
-                    chunk_infos.push(ChunkInfo {
-                        hash: format!("{:016x}", path_hash),
-                        path: resolved,
-                        size: chunk.uncompressed_size() as u32,
-                    });
-                }
-                Ok(chunk_infos)
+                Ok((*chunks).clone())
             })();
-
-            match result {
-                Ok(chunks) => WadChunkBatch { path: wad_path.clone(), chunks, error: None },
-                Err(e) => WadChunkBatch { path: wad_path.clone(), chunks: vec![], error: Some(e) },
-            }
+            (wad_path.clone(), result)
         })
         .collect();
 
-    // Aggregate summary: group by parent directory (category)
+    // Phase 2: LMDB hash resolution (sequential — LMDB MVCC handles concurrency)
+    let mut batches: Vec<WadChunkBatch> = Vec::with_capacity(toc_results.len());
+    for (wad_path, result) in toc_results {
+        match result {
+            Err(e) => batches.push(WadChunkBatch {
+                path: wad_path,
+                chunks: vec![],
+                error: Some(e),
+            }),
+            Ok(chunks) => {
+                let hash_u64s: Vec<u64> = chunks.iter().map(|c| c.path_hash()).collect();
+                let resolved: Vec<String> = if let Some(ref env) = env_opt {
+                    resolve_hashes_lmdb(&hash_u64s, env)
+                } else {
+                    hash_u64s.iter().map(|h| format!("{:016x}", h)).collect()
+                };
+
+                let chunk_infos = chunks
+                    .iter()
+                    .zip(resolved.into_iter())
+                    .map(|(chunk, resolved_path)| {
+                        let path_hash = chunk.path_hash();
+                        let path = if resolved_path.len() == 16
+                            && resolved_path.bytes().all(|b| b.is_ascii_hexdigit())
+                        {
+                            None
+                        } else {
+                            Some(resolved_path)
+                        };
+                        ChunkInfo {
+                            hash: format!("{:016x}", path_hash),
+                            path,
+                            size: chunk.uncompressed_size() as u32,
+                        }
+                    })
+                    .collect();
+
+                batches.push(WadChunkBatch {
+                    path: wad_path,
+                    chunks: chunk_infos,
+                    error: None,
+                });
+            }
+        }
+    }
+
+    // Log category stats
     let mut category_stats: HashMap<String, (usize, usize)> = HashMap::new();
     for batch in &batches {
-        if batch.error.is_some() {
-            continue;
-        }
+        if batch.error.is_some() { continue; }
         let category = Path::new(&batch.path)
             .parent()
             .and_then(|p| p.file_name())
@@ -203,8 +208,8 @@ pub async fn load_all_wad_chunks(
             .unwrap_or("Other")
             .to_string();
         let entry = category_stats.entry(category).or_insert((0, 0));
-        entry.0 += 1;                // wad count
-        entry.1 += batch.chunks.len(); // chunk count
+        entry.0 += 1;
+        entry.1 += batch.chunks.len();
     }
     for (cat, (wads, chunks)) in &category_stats {
         tracing::info!("Loaded \"{}\" folder: {} wads, {} chunks", cat, wads, chunks);
@@ -213,64 +218,48 @@ pub async fn load_all_wad_chunks(
     Ok(batches)
 }
 
-/// Extracts chunks from a WAD archive to the specified output directory
+/// Extracts chunks from a WAD archive to the specified output directory.
 ///
-/// # Arguments
-/// * `wad_path` - Path to the WAD file
-/// * `output_dir` - Directory where chunks should be extracted
-/// * `chunk_hashes` - Optional list of chunk hashes to extract (None = extract all)
-/// * `state` - Hashtable state for path resolution
-/// 
-/// # Returns
-/// * `Result<ExtractionResult, String>` - Extraction statistics or error message
-/// 
-/// # Requirements
-/// Validates: Requirements 4.1, 4.2, 4.3, 4.4
+/// Uses LMDB for path resolution — no full hashtable loaded into memory.
 #[tauri::command]
 pub async fn extract_wad(
     wad_path: String,
     output_dir: String,
     chunk_hashes: Option<Vec<String>>,
-    state: State<'_, HashtableState>,
+    lmdb: State<'_, LmdbCacheState>,
 ) -> Result<ExtractionResult, String> {
     let mut reader = WadReader::open(&wad_path)?;
-    
-    // Get hashtable for path resolution (lazy loaded on first use)
-    let hashtable = state.get_hashtable();
-    let hashtable_ref = hashtable.as_ref().map(|h| h.as_ref());
-    
+
+    // Get resolver via LMDB (point lookup, no RAM spike)
+    let hash_dir = crate::core::hash::downloader::get_ritoshark_hash_dir()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let env_opt = lmdb.get_env(&hash_dir);
+
+    let resolve = |hash: u64| -> String {
+        if let Some(ref env) = env_opt {
+            let resolved = resolve_hashes_lmdb(&[hash], env);
+            resolved.into_iter().next().unwrap_or_else(|| format!("{:016x}", hash))
+        } else {
+            format!("{:016x}", hash)
+        }
+    };
+
     let mut extracted_count = 0;
     let mut failed_count = 0;
-    
+
     if let Some(hashes) = chunk_hashes {
-        // Extract specific chunks
         for hash_str in hashes {
-            // Parse the hash string
             let path_hash = u64::from_str_radix(&hash_str, 16)
                 .map_err(|e| format!("Invalid hash format '{}': {}", hash_str, e))?;
-            
-            // Check if the chunk exists and get its data
+
             let chunk_exists = reader.get_chunk(path_hash).is_some();
-            
             if chunk_exists {
-                // Get the chunk again (we need to release the previous borrow)
                 let chunk = reader.get_chunk(path_hash).unwrap();
-                
-                // Resolve the path
-                let resolved_path = if let Some(ht) = hashtable_ref {
-                    ht.resolve(path_hash).to_string()
-                } else {
-                    format!("{:016x}", path_hash)
-                };
-                
-                // Determine output path
+                let resolved_path = resolve(path_hash);
                 let output_path = std::path::Path::new(&output_dir).join(&resolved_path);
-
-                // Copy the chunk data we need before borrowing mutably
                 let chunk_copy = *chunk;
-
-                // Extract the chunk
-                match extract_chunk(reader.wad_mut(), &chunk_copy, &output_path, hashtable_ref) {
+                match extract_chunk(reader.wad_mut(), &chunk_copy, &output_path, None) {
                     Ok(_) => extracted_count += 1,
                     Err(_) => failed_count += 1,
                 }
@@ -279,17 +268,13 @@ pub async fn extract_wad(
             }
         }
     } else {
-        // Extract all chunks
-        match extract_all(reader.wad_mut(), &output_dir, hashtable_ref) {
+        match extract_all(reader.wad_mut(), &output_dir, resolve) {
             Ok(count) => extracted_count = count,
             Err(e) => return Err(e.into()),
         }
     }
-    
-    Ok(ExtractionResult {
-        extracted_count,
-        failed_count,
-    })
+
+    Ok(ExtractionResult { extracted_count, failed_count })
 }
 
 /// Info about a WAD file found on disk (for game WAD scanning)
@@ -297,19 +282,10 @@ pub async fn extract_wad(
 pub struct GameWadInfo {
     pub path: String,
     pub name: String,
-    /// Parent directory name used as a display category (e.g. "Champions", "Maps")
     pub category: String,
 }
 
 /// Read decompressed chunk data from a WAD archive into memory — no disk write.
-///
-/// # Arguments
-/// * `wad_path` - Path to the WAD file
-/// * `hash`     - Chunk path-hash as a 16-char lowercase hex string
-///
-/// # Returns
-/// * `Ok(Vec<u8>)` - Decompressed chunk bytes
-/// * `Err(String)` - Error message
 #[tauri::command]
 pub async fn read_wad_chunk_data(
     wad_path: String,
@@ -319,8 +295,6 @@ pub async fn read_wad_chunk_data(
         .map_err(|e| format!("Invalid hash '{}': {}", hash, e))?;
 
     let mut reader = WadReader::open(&wad_path)?;
-
-    // Clone the chunk to release the immutable borrow before decoding
     let chunk = *reader
         .get_chunk(path_hash)
         .ok_or_else(|| format!("Chunk {:016x} not found in WAD", path_hash))?;
@@ -333,16 +307,6 @@ pub async fn read_wad_chunk_data(
 }
 
 /// Scan a game installation directory for all WAD archive files.
-///
-/// Searches `{game_path}/DATA/FINAL/` recursively for `*.wad.client` and `*.wad`
-/// files, grouping them by their parent directory name.
-///
-/// # Arguments
-/// * `game_path` - Path to the League `Game/` directory
-///
-/// # Returns
-/// * `Ok(Vec<GameWadInfo>)` - Discovered WAD files sorted by category then name
-/// * `Err(String)`          - Error if the WAD root does not exist
 #[tauri::command]
 pub async fn scan_game_wads(game_path: String) -> Result<Vec<GameWadInfo>, String> {
     let root = std::path::Path::new(&game_path).join("DATA").join("FINAL");

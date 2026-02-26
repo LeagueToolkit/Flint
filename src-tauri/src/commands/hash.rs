@@ -1,102 +1,87 @@
-use crate::core::hash::{download_hashes as core_download_hashes, DownloadStats};
-use crate::core::hash::downloader::get_ritoshark_hash_dir;
-use crate::state::HashtableState;
+use crate::core::hash::{build_hash_db, downloader::get_ritoshark_hash_dir, download_hashes as core_download_hashes, DownloadStats};
+use crate::state::LmdbCacheState;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-/// Status information about the loaded hashtable
+/// Status information about the loaded hash database
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HashStatus {
+    /// Number of entries in the LMDB database (approximate, via file size heuristic)
     pub loaded_count: usize,
     pub last_updated: Option<String>,
 }
 
 /// Downloads hash files from CommunityDragon repository
-///
-/// # Arguments
-/// * `force` - If true, downloads all files regardless of age
-///
-/// # Returns
-/// * `Result<DownloadStats, String>` - Statistics about the download operation
 #[tauri::command]
 pub async fn download_hashes(force: bool) -> Result<DownloadStats, String> {
-    // Get the RitoShark hash directory
     let hash_dir = get_ritoshark_hash_dir()
         .map_err(|e| format!("Failed to get hash directory: {}", e))?;
-    
-    // Download hashes to the directory
     let stats = core_download_hashes(&hash_dir, force)
         .await
         .map_err(|e| format!("Failed to download hashes: {}", e))?;
-    
     Ok(stats)
 }
 
-/// Returns information about the currently loaded hashtable
-///
-/// # Arguments
-/// * `state` - The managed HashtableState
-///
-/// # Returns
-/// * `Result<HashStatus, String>` - Status information about the hashtable
+/// Returns information about the current LMDB hash database
 #[tauri::command]
-pub async fn get_hash_status(state: State<'_, HashtableState>) -> Result<HashStatus, String> {
-    let loaded_count = state.len();
-    
-    // Try to get last modified time of the hash directory
+pub async fn get_hash_status(lmdb: State<'_, LmdbCacheState>) -> Result<HashStatus, String> {
     let hash_dir = get_ritoshark_hash_dir()
         .map_err(|e| format!("Failed to get hash directory: {}", e))?;
-    
+
+    // Approximate entry count from data.mdb file size (heuristic: ~40 bytes/entry)
+    let lmdb_dir = hash_dir.join("hashes.lmdb");
+    let loaded_count = std::fs::metadata(lmdb_dir.join("data.mdb"))
+        .map(|m| (m.len() / 40) as usize)
+        .unwrap_or(0);
+
     let last_updated = if hash_dir.exists() {
         std::fs::metadata(&hash_dir)
             .ok()
-            .and_then(|metadata| metadata.modified().ok())
+            .and_then(|m| m.modified().ok())
             .and_then(|time| {
                 use std::time::SystemTime;
                 time.duration_since(SystemTime::UNIX_EPOCH)
                     .ok()
-                    .map(|duration| {
-                        // Format as ISO 8601 timestamp
-                        let secs = duration.as_secs();
-                        let datetime = chrono::DateTime::from_timestamp(secs as i64, 0)
-                            .unwrap_or_default();
-                        datetime.format("%Y-%m-%dT%H:%M:%SZ").to_string()
+                    .map(|d| {
+                        let secs = d.as_secs();
+                        chrono::DateTime::from_timestamp(secs as i64, 0)
+                            .unwrap_or_default()
+                            .format("%Y-%m-%dT%H:%M:%SZ")
+                            .to_string()
                     })
             })
     } else {
         None
     };
-    
-    Ok(HashStatus {
-        loaded_count,
-        last_updated,
-    })
+
+    // Warm the env (open if not already open)
+    let hash_dir_str = hash_dir.to_string_lossy().into_owned();
+    let _ = lmdb.get_env(&hash_dir_str);
+
+    Ok(HashStatus { loaded_count, last_updated })
 }
 
-/// Reloads the hashtable from disk
-///
-/// # Arguments
-/// * `state` - The managed HashtableState
-///
-/// # Returns
-/// * `Result<(), String>` - Ok if reload succeeded, error message otherwise
+/// Rebuild hashes.lmdb from .txt files if stale, then open the env
 #[tauri::command]
-pub async fn reload_hashes(state: State<'_, HashtableState>) -> Result<(), String> {
-    // Get the hash directory
+pub async fn reload_hashes(lmdb: State<'_, LmdbCacheState>) -> Result<(), String> {
     let hash_dir = get_ritoshark_hash_dir()
         .map_err(|e| format!("Failed to get hash directory: {}", e))?;
-    
-    // Ensure the directory is set (this doesn't load, just sets the path)
-    state.set_hash_dir(hash_dir);
-    
-    // Trigger a lazy load by calling get_hashtable
-    // Note: With OnceLock, the hashtable is only loaded once - subsequent reloads
-    // will return the cached version. For a true reload, the app would need to restart.
-    if state.get_hashtable().is_some() {
-        tracing::info!("Hashtable is loaded with {} entries", state.len());
+    let hash_dir_str = hash_dir.to_string_lossy().into_owned();
+
+    // Clear old env first (needed on Windows before deleting/overwriting LMDB files)
+    lmdb.clear();
+
+    // Rebuild LMDB from .txt files if any source is newer
+    if !build_hash_db(&hash_dir_str) {
+        return Err("Failed to build hash database".to_string());
+    }
+
+    // Open the fresh env
+    if lmdb.prime(&hash_dir_str).is_some() {
+        tracing::info!("LMDB hash database reloaded from {}", hash_dir_str);
         Ok(())
     } else {
-        Err("Failed to load hashtable".to_string())
+        Err("Failed to open hash database after rebuild".to_string())
     }
 }
 
@@ -110,7 +95,6 @@ mod tests {
             loaded_count: 100,
             last_updated: Some("2024-01-01T00:00:00Z".to_string()),
         };
-
         let json = serde_json::to_string(&status).unwrap();
         assert!(json.contains("loaded_count"));
         assert!(json.contains("100"));
@@ -124,7 +108,6 @@ mod tests {
             skipped: 2,
             errors: 1,
         };
-
         let json = serde_json::to_string(&stats).unwrap();
         assert!(json.contains("downloaded"));
         assert!(json.contains("5"));
@@ -133,22 +116,4 @@ mod tests {
         assert!(json.contains("errors"));
         assert!(json.contains("1"));
     }
-    
-    #[test]
-    fn test_hashtable_state_new() {
-        let state = HashtableState::new();
-        assert_eq!(state.len(), 0);
-        assert!(state.is_empty());
-    }
-
-    #[test]
-    fn test_hashtable_state_set_hash_dir() {
-        // set_hash_dir should not panic and the state should accept a path.
-        let state = HashtableState::new();
-        state.set_hash_dir(std::path::PathBuf::from("/test/path"));
-        // No get_hash_dir public API; verify by checking that get_hashtable
-        // attempts to load (and gracefully fails on a non-existent dir).
-        assert!(state.get_hashtable().is_some()); // returns empty table on failure
-    }
 }
-

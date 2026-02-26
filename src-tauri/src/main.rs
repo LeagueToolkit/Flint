@@ -8,7 +8,7 @@ mod state;
 
 use core::hash::get_ritoshark_hash_dir;
 use core::frontend_log::{FrontendLogLayer, set_app_handle};
-use state::{HashtableState, WadCacheState};
+use state::{LmdbCacheState, WadCacheState};
 use tauri::Manager;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
@@ -30,8 +30,8 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .manage(HashtableState::new())
         .manage(WadCacheState::new())
+        .manage(LmdbCacheState::new())
         .setup(|app| {
             // Set app handle for frontend logging
             set_app_handle(app.handle().clone());
@@ -47,14 +47,14 @@ fn main() {
             
             tracing::info!("Hash directory: {}", hash_dir.display());
             
-            // Set the hash directory for lazy loading (hashtable will load on first use)
-            let hashtable_state = app.state::<HashtableState>().inner().clone();
-            hashtable_state.set_hash_dir(hash_dir.clone());
-            
-            // Spawn background task to download hashes (but NOT load them - lazy loading handles that)
+            // Prime LMDB: build hashes.lmdb from .txt files if stale, then mmap it.
+            // This replaces the old in-memory Hashtable load (was 200-400 MB RAM, seconds).
+            // LMDB only pages in what's actually touched — typically 5-20 MB warm.
+            let hash_dir_str = hash_dir.to_string_lossy().into_owned();
+            let lmdb_state = app.state::<LmdbCacheState>().inner().clone();
             tauri::async_runtime::spawn(async move {
                 tracing::info!("Checking for hash updates...");
-                match core::hash::download_hashes(&hash_dir, false).await {
+                match crate::core::hash::download_hashes(&hash_dir, false).await {
                     Ok(stats) => {
                         if stats.downloaded > 0 {
                             tracing::info!(
@@ -69,7 +69,11 @@ fn main() {
                         tracing::warn!("Failed to update hashes (will use existing): {}", e);
                     }
                 }
-                // NOTE: Hashtable is NOT loaded here anymore - lazy loading on first use
+                // Prime LMDB after download completes (build if stale, then mmap)
+                match lmdb_state.prime(&hash_dir_str) {
+                    Some(_) => tracing::info!("LMDB hash env ready — point lookups active"),
+                    None    => tracing::warn!("LMDB hash env not available — hashes may not resolve"),
+                }
             });
             
             Ok(())

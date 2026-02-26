@@ -1,7 +1,5 @@
 use crate::core::bin::{bin_to_json, bin_to_text, json_to_bin, read_bin, text_to_bin, write_bin};
-use crate::state::HashtableState;
 use serde::{Deserialize, Serialize};
-use tauri::State;
 use std::fs;
 use std::path::Path;
 
@@ -25,7 +23,6 @@ pub struct BinInfo {
 pub async fn convert_bin_to_text(
     input_path: String,
     output_path: String,
-    state: State<'_, HashtableState>,
 ) -> Result<(), String> {
     tracing::info!("Converting bin to text: {} -> {}", input_path, output_path);
     
@@ -63,12 +60,8 @@ pub async fn convert_bin_to_text(
 
     tracing::debug!("Parsed bin file with {} objects", bin.objects.len());
 
-    // Get hashtable for resolution (lazy loaded on first use)
-    let hashtable = state.get_hashtable();
-    let hashtable_ref = hashtable.as_ref().map(|h| h.as_ref());
-
     // Convert to text format
-    let text = bin_to_text(&bin, hashtable_ref)
+    let text = bin_to_text(&bin, None)
         .map_err(|e| {
             tracing::error!("Failed to convert to text: {}", e);
             format!("Failed to convert to text: {}", e)
@@ -99,7 +92,6 @@ pub async fn convert_bin_to_text(
 pub async fn convert_bin_to_json(
     input_path: String,
     output_path: String,
-    state: State<'_, HashtableState>,
 ) -> Result<(), String> {
     // Validate input path
     if input_path.is_empty() {
@@ -122,12 +114,8 @@ pub async fn convert_bin_to_json(
     let bin = read_bin(&data)
         .map_err(|e| format!("Failed to parse bin file: {}", e))?;
 
-    // Get hashtable for resolution (lazy loaded on first use)
-    let hashtable = state.get_hashtable();
-    let hashtable_ref = hashtable.as_ref().map(|h| h.as_ref());
-
     // Convert to JSON format
-    let json = bin_to_json(&bin, hashtable_ref)
+    let json = bin_to_json(&bin, None)
         .map_err(|e| format!("Failed to convert to JSON: {}", e))?;
 
     // Write to output file
@@ -150,7 +138,6 @@ pub async fn convert_bin_to_json(
 pub async fn convert_text_to_bin(
     input_path: String,
     output_path: String,
-    state: State<'_, HashtableState>,
 ) -> Result<(), String> {
     tracing::info!("Converting text to bin: {} -> {}", input_path, output_path);
     
@@ -179,12 +166,8 @@ pub async fn convert_text_to_bin(
 
     tracing::debug!("Read {} characters from {}", text.len(), input_path);
 
-    // Get hashtable for conversion (lazy loaded on first use)
-    let hashtable = state.get_hashtable();
-    let hashtable_ref = hashtable.as_ref().map(|h| h.as_ref());
-
     // Parse text to bin
-    let bin = text_to_bin(&text, hashtable_ref)
+    let bin = text_to_bin(&text, None)
         .map_err(|e| {
             tracing::error!("Failed to parse text from '{}': {}", input_path, e);
             format!("Failed to parse text from '{}': {}", input_path, e)
@@ -224,7 +207,6 @@ pub async fn convert_text_to_bin(
 pub async fn convert_json_to_bin(
     input_path: String,
     output_path: String,
-    state: State<'_, HashtableState>,
 ) -> Result<(), String> {
     // Validate input path
     if input_path.is_empty() {
@@ -243,12 +225,8 @@ pub async fn convert_json_to_bin(
     let json = fs::read_to_string(input)
         .map_err(|e| format!("Failed to read input file: {}", e))?;
 
-    // Get hashtable for conversion (lazy loaded on first use)
-    let hashtable = state.get_hashtable();
-    let hashtable_ref = hashtable.as_ref().map(|h| h.as_ref());
-
     // Parse JSON to bin
-    let bin = json_to_bin(&json, hashtable_ref)
+    let bin = json_to_bin(&json, None)
         .map_err(|e| format!("Failed to parse JSON: {}", e))?;
 
     // Convert to binary
@@ -307,7 +285,6 @@ pub async fn read_bin_info(input_path: String) -> Result<BinInfo, String> {
 #[tauri::command]
 pub async fn convert_bin_bytes_to_text(
     bin_data: Vec<u8>,
-    state: State<'_, HashtableState>,
 ) -> Result<String, String> {
     tracing::debug!("Converting {} bytes of BIN data to text", bin_data.len());
 
@@ -320,12 +297,8 @@ pub async fn convert_bin_bytes_to_text(
 
     tracing::debug!("Parsed bin data with {} objects", bin.objects.len());
 
-    // Get hashtable for resolution (lazy loaded on first use)
-    let hashtable = state.get_hashtable();
-    let hashtable_ref = hashtable.as_ref().map(|h| h.as_ref());
-
     // Convert to text format
-    let text = bin_to_text(&bin, hashtable_ref)
+    let text = bin_to_text(&bin, None)
         .map_err(|e| {
             tracing::error!("Failed to convert to text: {}", e);
             format!("Failed to convert to text: {}", e)
@@ -347,7 +320,6 @@ pub async fn convert_bin_bytes_to_text(
 #[tauri::command]
 pub async fn convert_bin_bytes_to_json(
     bin_data: Vec<u8>,
-    state: State<'_, HashtableState>,
 ) -> Result<String, String> {
     tracing::debug!("Converting {} bytes of BIN data to JSON", bin_data.len());
 
@@ -360,12 +332,8 @@ pub async fn convert_bin_bytes_to_json(
 
     tracing::debug!("Parsed bin data with {} objects", bin.objects.len());
 
-    // Get hashtable for resolution (lazy loaded on first use)
-    let hashtable = state.get_hashtable();
-    let hashtable_ref = hashtable.as_ref().map(|h| h.as_ref());
-
     // Convert to JSON format
-    let json = bin_to_json(&bin, hashtable_ref)
+    let json = bin_to_json(&bin, None)
         .map_err(|e| {
             tracing::error!("Failed to convert to JSON: {}", e);
             format!("Failed to convert to JSON: {}", e)
@@ -387,7 +355,6 @@ pub async fn convert_bin_bytes_to_json(
 #[tauri::command]
 pub async fn parse_bin_file_to_text(
     path: String,
-    _state: State<'_, HashtableState>,
 ) -> Result<String, String> {
     tracing::info!("Parsing BIN file for editor: {}", path);
     
@@ -436,7 +403,6 @@ pub async fn parse_bin_file_to_text(
 #[tauri::command]
 pub async fn read_or_convert_bin(
     bin_path: String,
-    _state: State<'_, HashtableState>,
 ) -> Result<String, String> {
     tracing::info!("[BIN_READ] === Starting read_or_convert_bin ===");
     tracing::info!("[BIN_READ] Path: {}", bin_path);
@@ -527,7 +493,6 @@ pub async fn read_or_convert_bin(
 pub async fn save_ritobin_to_bin(
     bin_path: String,
     content: String,
-    _state: State<'_, HashtableState>,
 ) -> Result<(), String> {
     tracing::info!("Saving ritobin content to: {}", bin_path);
     

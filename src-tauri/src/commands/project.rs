@@ -11,7 +11,7 @@ use crate::core::project::{
 use crate::core::repath::{organize_project, OrganizerConfig};
 use crate::core::bin::{classify_bin, BinCategory};
 use crate::core::wad::extractor::{find_champion_wad, extract_skin_assets};
-use crate::state::HashtableState;
+use crate::state::LmdbCacheState;
 use league_toolkit::wad::Wad;
 use std::path::PathBuf;
 use tauri::Emitter;
@@ -38,7 +38,7 @@ pub async fn create_project(
     league_path: String,
     output_path: String,
     creator_name: Option<String>,
-    hashtable_state: tauri::State<'_, HashtableState>,
+    lmdb: tauri::State<'_, LmdbCacheState>,
     app: tauri::AppHandle,
 ) -> Result<Project, String> {
     tracing::info!(
@@ -49,17 +49,20 @@ pub async fn create_project(
     let league_path_buf = PathBuf::from(&league_path);
     let output_path_buf = PathBuf::from(&output_path);
 
-    // Get hashtable (lazy-loaded on first use)
+    // Prime LMDB and open the env (build from .txt files if stale, then mmap)
     let _ = app.emit("project-create-progress", serde_json::json!({
         "phase": "init",
         "message": "Initializing..."
     }));
 
-    let hashtable = hashtable_state.get_hashtable().ok_or_else(|| 
-        "Failed to load hashtable. Please check that hash files are available.".to_string()
+    let hash_dir = crate::core::hash::downloader::get_ritoshark_hash_dir()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let env_arc = lmdb.prime(&hash_dir).ok_or_else(|| 
+        "Failed to open hash database. Please check that hash files are available.".to_string()
     )?;
-    
-    tracing::info!("Hashtable ready with {} entries", hashtable.len());
+
+    tracing::info!("LMDB hash env ready for project creation");
 
     // 2. Validate WAD existence before creating project
     let wad_path = find_champion_wad(&league_path_buf, &champion)
@@ -94,25 +97,30 @@ pub async fn create_project(
     }));
 
     tracing::info!("Extracting assets for {} skin {}...", champion, skin_id);
-    
+
     let assets_path = project.assets_path();
     let champion_for_extract = champion.clone();
-    
+
     let extraction_result = tokio::task::spawn_blocking(move || {
-        let mut wad = Wad::mount(std::fs::File::open(&wad_path)
-            .map_err(|e| format!("Failed to open WAD: {}", e))?)
-            .map_err(|e| format!("Failed to mount WAD: {}", e))?;
-        
+        // Build LMDB resolver closure — point lookups only, no full table load
+        let env = env_arc;
+        let resolve = move |hash: u64| -> String {
+            crate::core::hash::resolve_hashes_lmdb(&[hash], &env)
+                .into_iter()
+                .next()
+                .unwrap_or_else(|| format!("{:016x}", hash))
+        };
+
         extract_skin_assets(
-            &mut wad,
+            &wad_path,
             &assets_path,
             &champion_for_extract,
             skin_id,
-            &hashtable,
+            resolve,
         ).map_err(|e| e.to_string())
     })
     .await;
-    
+
     let extraction_result = match extraction_result {
         Ok(Ok(result)) => {
             tracing::info!("Extracted {} assets to project", result.extracted_count);
