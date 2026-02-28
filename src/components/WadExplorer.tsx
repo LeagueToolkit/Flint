@@ -645,8 +645,8 @@ export const WadExplorer: React.FC = () => {
         if (wad?.status === 'idle') loadWad(wadPath);
     }, [dispatch, loadWad, wadExplorer.wads]);
 
-    // Progressive batch loading: load WADs in small batches (~30 at a time) so the
-    // UI updates incrementally instead of blocking for one massive IPC response.
+    // Load ALL WADs in a single IPC call — the Rust backend handles parallelism
+    // (rayon for I/O, single LMDB txn with deduplication for hash resolution).
     useEffect(() => {
         if (wadExplorer.scanStatus !== 'ready') return;
         const idlePaths = wadExplorer.wads.filter(w => w.status === 'idle').map(w => w.path);
@@ -658,30 +658,25 @@ export const WadExplorer: React.FC = () => {
             payload: idlePaths.map(p => ({ wadPath: p, status: 'loading' as const })),
         });
 
-        const BATCH_SIZE = 30;
-        const loadBatches = async () => {
-            for (let i = 0; i < idlePaths.length; i += BATCH_SIZE) {
-                const batch = idlePaths.slice(i, i + BATCH_SIZE);
-                try {
-                    const batches = await api.loadAllWadChunks(batch);
-                    dispatch({
-                        type: 'BATCH_SET_WAD_STATUSES',
-                        payload: batches.map(b => ({
-                            wadPath: b.path,
-                            status: (b.error ? 'error' : 'loaded') as WadExplorerWad['status'],
-                            chunks: b.chunks,
-                            error: b.error ?? undefined,
-                        })),
-                    });
-                } catch (e) {
-                    dispatch({
-                        type: 'BATCH_SET_WAD_STATUSES',
-                        payload: batch.map(p => ({ wadPath: p, status: 'error' as const, error: (e as Error).message })),
-                    });
-                }
+        (async () => {
+            try {
+                const batches = await api.loadAllWadChunks(idlePaths);
+                dispatch({
+                    type: 'BATCH_SET_WAD_STATUSES',
+                    payload: batches.map(b => ({
+                        wadPath: b.path,
+                        status: (b.error ? 'error' : 'loaded') as WadExplorerWad['status'],
+                        chunks: b.chunks,
+                        error: b.error ?? undefined,
+                    })),
+                });
+            } catch (e) {
+                dispatch({
+                    type: 'BATCH_SET_WAD_STATUSES',
+                    payload: idlePaths.map(p => ({ wadPath: p, status: 'error' as const, error: (e as Error).message })),
+                });
             }
-        };
-        loadBatches();
+        })();
     }, [wadExplorer.scanStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const handleToggleFolder = useCallback((key: string) => {

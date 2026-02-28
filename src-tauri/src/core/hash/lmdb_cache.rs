@@ -9,7 +9,7 @@
 /// ```
 ///
 /// # Memory characteristics
-/// - 512 MB virtual address space reserved (no physical RAM committed)
+/// - 1 GB virtual address space reserved (no physical RAM committed)
 /// - Only accessed B-tree pages are faulted in from disk
 /// - A typical resolve of ~4 000 hashes warms ≈ 5-20 MB of real RAM
 ///
@@ -17,6 +17,7 @@
 /// The inner `Mutex` serialises open/swap operations.
 /// Once an `Arc<heed::Env>` is cloned out, concurrent read transactions are
 /// lock-free (LMDB MVCC allows unlimited concurrent readers).
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 use heed::{EnvOpenOptions};
@@ -71,7 +72,7 @@ pub fn get_or_open_env(hash_dir: &str) -> Option<Arc<heed::Env>> {
     // Slow path — open (or swap to) a new env.
     let env = match unsafe {
         EnvOpenOptions::new()
-            .map_size(512 * 1024 * 1024) // 512 MB virtual — OS pages in only what's touched
+            .map_size(1024 * 1024 * 1024) // 1 GB virtual — OS pages in only what's touched
             .max_dbs(1)
             .open(&lmdb_dir)
     } {
@@ -95,6 +96,47 @@ pub fn drop_lmdb_cache() {
     let mut g = lmdb_mutex().lock().unwrap_or_else(|e| e.into_inner());
     *g = None;
     tracing::debug!("LMDB env cache cleared");
+}
+
+/// Resolve a deduplicated set of `u64` path hashes to a lookup map.
+///
+/// Opens *one* read transaction, *one* `open_database` call, then resolves
+/// every unique hash. Returns a `HashMap<u64, String>` so callers can look up
+/// results for any hash in O(1).
+///
+/// Use this for bulk operations (e.g. loading hundreds of WADs at once) where
+/// many WADs share the same asset hashes — deduplication avoids redundant
+/// B-tree traversals.
+pub fn resolve_hashes_lmdb_bulk(
+    hashes: &[u64],
+    env: &heed::Env,
+) -> HashMap<u64, String> {
+    let rtxn = match env.read_txn() {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::warn!("LMDB read_txn failed: {}", e);
+            return hashes.iter().map(|h| (*h, format!("{:016x}", h))).collect();
+        }
+    };
+
+    let db = match env.open_database::<Bytes, Str>(&rtxn, None) {
+        Ok(Some(d)) => d,
+        _ => return hashes.iter().map(|h| (*h, format!("{:016x}", h))).collect(),
+    };
+
+    hashes
+        .iter()
+        .map(|h| {
+            let key = h.to_be_bytes();
+            let resolved = db
+                .get(&rtxn, &key[..])
+                .ok()
+                .flatten()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| format!("{:016x}", h));
+            (*h, resolved)
+        })
+        .collect()
 }
 
 /// Resolve a slice of `u64` path hashes to path strings using a single LMDB
@@ -154,6 +196,11 @@ pub fn build_hash_db(hash_dir: &str) -> bool {
 }
 
 /// Inner implementation — must only be called while holding `BUILD_LOCK`.
+///
+/// Rebuilds in-place: opens the env, clears the DB, and reinserts all entries
+/// in a single write transaction. This avoids the `remove_dir_all` call that
+/// fails on Windows when the memory-mapped files are still held open by
+/// outstanding `Arc<heed::Env>` clones.
 fn build_hash_db_inner(hash_dir: &str) -> bool {
     let dir = Path::new(hash_dir);
     let lmdb_dir = dir.join("hashes.lmdb");
@@ -186,27 +233,29 @@ fn build_hash_db_inner(hash_dir: &str) -> bool {
 
     tracing::info!("Rebuilding LMDB hash DB at {}", lmdb_dir.display());
 
-    // Close cached env before deleting the directory (Windows won't delete open files).
+    // Ensure the directory exists (first-run case).
+    if !lmdb_dir.exists() {
+        if std::fs::create_dir_all(&lmdb_dir).is_err() {
+            tracing::error!("Failed to create LMDB directory");
+            return false;
+        }
+    }
+
+    // Drop the cached env so the next `get_or_open_env` picks up the fresh data.
+    // We do NOT delete the directory — rebuild in-place avoids Windows file-lock issues.
     drop_lmdb_cache();
 
-    if lmdb_dir.exists() && std::fs::remove_dir_all(&lmdb_dir).is_err() {
-        tracing::error!("Failed to remove old LMDB directory");
-        return false;
-    }
-    if std::fs::create_dir_all(&lmdb_dir).is_err() {
-        tracing::error!("Failed to create LMDB directory");
-        return false;
-    }
-
+    // Use 1 GB map for writes — 1.9M entries with B-tree overhead can exceed 512 MB.
+    // This is virtual address space only; the OS pages in what's actually touched.
     let env = match unsafe {
         EnvOpenOptions::new()
-            .map_size(512 * 1024 * 1024)
+            .map_size(1024 * 1024 * 1024)
             .max_dbs(1)
             .open(&lmdb_dir)
     } {
         Ok(e) => e,
         Err(e) => {
-            tracing::error!("Failed to open new LMDB env: {}", e);
+            tracing::error!("Failed to open LMDB env: {}", e);
             return false;
         }
     };
@@ -226,6 +275,12 @@ fn build_hash_db_inner(hash_dir: &str) -> bool {
             return false;
         }
     };
+
+    // Clear existing data in-place (no directory deletion needed).
+    if let Err(e) = db.clear(&mut wtxn) {
+        tracing::error!("Failed to clear LMDB DB: {}", e);
+        return false;
+    }
 
     // Collect all entries across all sources, sort by key for fast MDB_APPEND-style insert.
     let mut entries: Vec<([u8; 8], String)> = Vec::with_capacity(2_000_000);
@@ -249,9 +304,12 @@ fn build_hash_db_inner(hash_dir: &str) -> bool {
 
     tracing::info!("Inserting {} hash entries into LMDB", entries.len());
 
-    for (key, path) in &entries {
-        if db.put(&mut wtxn, key.as_slice(), path.as_str()).is_err() {
-            tracing::error!("LMDB put failed");
+    for (i, (key, path)) in entries.iter().enumerate() {
+        if let Err(e) = db.put(&mut wtxn, key.as_slice(), path.as_str()) {
+            tracing::error!(
+                "LMDB put failed at entry {}/{}: {} (path len={})",
+                i, entries.len(), e, path.len()
+            );
             return false;
         }
     }
