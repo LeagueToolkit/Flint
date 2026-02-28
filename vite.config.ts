@@ -1,9 +1,29 @@
-import { defineConfig } from 'vite';
+import { defineConfig, Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
+/**
+ * Strip `crossorigin` from <link rel="stylesheet"> tags in the built HTML.
+ *
+ * Tauri 2's `tauri://localhost` custom protocol does not send CORS headers,
+ * so the browser silently blocks CSS fetched with a CORS request.  Removing
+ * the attribute makes the browser use a normal (no-CORS) fetch instead.
+ */
+function tauriCSSFix(): Plugin {
+    return {
+        name: 'tauri-css-fix',
+        enforce: 'post',
+        transformIndexHtml(html) {
+            return html.replace(
+                /<link rel="stylesheet" crossorigin/g,
+                '<link rel="stylesheet"',
+            );
+        },
+    };
+}
+
 export default defineConfig({
-    plugins: [react()],
+    plugins: [react(), tauriCSSFix()],
     clearScreen: false,
     server: {
         port: 1420,
