@@ -2,7 +2,8 @@
  * Flint - BIN Editor Component (Monaco Editor)
  *
  * A full-featured code editor for viewing and editing Ritobin (.bin) files
- * using Monaco Editor with custom syntax highlighting.
+ * using Monaco Editor directly (no @monaco-editor/react wrapper — that
+ * library's internal loader breaks in Tauri production builds).
  *
  * Features:
  * - Custom Ritobin language with semantic tokenization
@@ -12,26 +13,10 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import Editor, { OnMount, BeforeMount, Monaco, loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import type { editor } from 'monaco-editor';
 import { useAppState } from '../../lib/state';
 import * as api from '../../lib/api';
-
-// Configure Monaco workers for Tauri's custom protocol (blob: workers for production builds)
-import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
-import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
-
-// @ts-ignore - MonacoEnvironment is a global
-window.MonacoEnvironment = {
-    getWorker(_: unknown, label: string) {
-        if (label === 'json') return new jsonWorker();
-        return new editorWorker();
-    },
-};
-
-// Use locally-bundled Monaco instead of CDN (critical for Tauri offline builds)
-loader.config({ monaco });
 import { getIcon } from '../../lib/fileIcons';
 import {
     RITOBIN_LANGUAGE_ID,
@@ -40,6 +25,29 @@ import {
     registerRitobinTheme
 } from '../../lib/ritobinLanguage';
 import { AssetPreviewTooltip } from './AssetPreviewTooltip';
+
+// Configure Monaco workers — wrap in try-catch so a broken worker doesn't
+// cascade and break the entire editor (Monarch tokenizer runs on main thread anyway)
+import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
+import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
+
+self.MonacoEnvironment = {
+    getWorker(_: unknown, label: string) {
+        try {
+            if (label === 'json') return new jsonWorker();
+            return new editorWorker();
+        } catch (e) {
+            console.warn('[Monaco] Worker creation failed, falling back to main thread:', e);
+            const blob = new Blob(['self.onmessage=function(){}'], { type: 'text/javascript' });
+            return new Worker(URL.createObjectURL(blob));
+        }
+    },
+};
+
+// Register language and theme at module level — guaranteed to run before
+// any editor.create() call since ES module imports are evaluated first.
+registerRitobinLanguage(monaco as any);
+registerRitobinTheme(monaco as any);
 
 /** Delay in milliseconds before showing the asset preview tooltip */
 const HOVER_DELAY_MS = 3000;
@@ -68,6 +76,65 @@ function extractStringAtPosition(line: string, column: number): string | null {
     return null;
 }
 
+/** Monaco editor options shared across create calls */
+const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
+    automaticLayout: true,
+    fontFamily: 'var(--font-mono), "Cascadia Code", "Fira Code", Consolas, "Courier New", monospace',
+    fontSize: 13,
+    lineHeight: 20,
+    lineNumbers: 'on',
+    lineNumbersMinChars: 5,
+    minimap: { enabled: false },
+    folding: false,
+    bracketPairColorization: { enabled: false },
+    matchBrackets: 'never',
+    maxTokenizationLineLength: 5000,
+    stopRenderingLineAfter: 10000,
+    scrollBeyondLastLine: false,
+    smoothScrolling: false,
+    fastScrollSensitivity: 5,
+    cursorBlinking: 'solid',
+    cursorSmoothCaretAnimation: 'off',
+    cursorStyle: 'line',
+    renderWhitespace: 'none',
+    renderControlCharacters: false,
+    renderLineHighlight: 'none',
+    renderValidationDecorations: 'off',
+    occurrencesHighlight: 'off',
+    selectionHighlight: false,
+    guides: {
+        indentation: false,
+        bracketPairs: false,
+        highlightActiveBracketPair: false,
+        highlightActiveIndentation: false,
+    },
+    scrollbar: {
+        vertical: 'auto',
+        horizontal: 'auto',
+        verticalScrollbarSize: 12,
+        horizontalScrollbarSize: 12,
+        useShadows: false,
+    },
+    tabSize: 4,
+    insertSpaces: true,
+    autoIndent: 'none',
+    formatOnPaste: false,
+    formatOnType: false,
+    wordWrap: 'off',
+    quickSuggestions: false,
+    suggestOnTriggerCharacters: false,
+    acceptSuggestionOnEnter: 'off',
+    parameterHints: { enabled: false },
+    wordBasedSuggestions: 'off',
+    hover: { enabled: false },
+    links: false,
+    colorDecorators: false,
+    codeLens: false,
+    inlineSuggest: { enabled: false },
+    contextmenu: false,
+    accessibilitySupport: 'off',
+};
+
 interface BinEditorProps {
     filePath: string;
 }
@@ -80,6 +147,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
     const [error, setError] = useState<string | null>(null);
     const [lineCount, setLineCount] = useState(0);
 
+    const editorContainerRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
 
     // Asset preview tooltip state
@@ -93,27 +161,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
     const isDirty = content !== originalContent;
     const basePath = filePath.split(/[/\\]/).slice(0, -1).join('\\');
 
-    /**
-     * Configure Monaco language and theme before the editor is created.
-     */
-    const handleEditorWillMount: BeforeMount = (_monaco: Monaco) => {
-        registerRitobinLanguage(_monaco);
-        registerRitobinTheme(_monaco);
-    };
-
-    const handleEditorDidMount: OnMount = (editor) => {
-        editorRef.current = editor;
-        const model = editor.getModel();
-        if (model) {
-            setLineCount(model.getLineCount());
-            model.onDidChangeContent(() => setLineCount(model.getLineCount()));
-        }
-    };
-
-    const handleEditorChange = useCallback((value: string | undefined) => {
-        setContent(value || '');
-    }, []);
-
+    // Load BIN file
     useEffect(() => {
         const loadBin = async () => {
             setLoading(true);
@@ -132,6 +180,36 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
         };
         loadBin();
     }, [filePath]);
+
+    // Create Monaco editor directly once content is loaded.
+    // Disposes and recreates when file changes (loading cycles false→true→false).
+    useEffect(() => {
+        if (loading || error || !editorContainerRef.current) return;
+
+        const ed = monaco.editor.create(editorContainerRef.current, {
+            ...EDITOR_OPTIONS,
+            value: content,
+            language: RITOBIN_LANGUAGE_ID,
+            theme: RITOBIN_THEME_ID,
+        });
+
+        editorRef.current = ed;
+
+        const model = ed.getModel();
+        if (model) {
+            setLineCount(model.getLineCount());
+            model.onDidChangeContent(() => {
+                setContent(ed.getValue());
+                setLineCount(model.getLineCount());
+            });
+        }
+
+        return () => {
+            ed.dispose();
+            editorRef.current = null;
+        };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [loading, error]);
 
     const handleSave = useCallback(async () => {
         try {
@@ -249,77 +327,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
                 onMouseLeave={handleMouseLeave}
                 onClick={handleClick}
             >
-                <Editor
-                    height="100%"
-                    language={RITOBIN_LANGUAGE_ID}
-                    theme={RITOBIN_THEME_ID}
-                    value={content}
-                    onChange={handleEditorChange}
-                    beforeMount={handleEditorWillMount}
-                    onMount={handleEditorDidMount}
-                    options={{
-                        fontFamily: 'var(--font-mono), "Cascadia Code", "Fira Code", Consolas, "Courier New", monospace',
-                        fontSize: 13,
-                        lineHeight: 20,
-                        lineNumbers: 'on',
-                        lineNumbersMinChars: 5,
-                        minimap: { enabled: false },
-                        folding: false,
-                        bracketPairColorization: { enabled: false },
-                        matchBrackets: 'never',
-                        maxTokenizationLineLength: 5000,
-                        stopRenderingLineAfter: 10000,
-                        scrollBeyondLastLine: false,
-                        smoothScrolling: false,
-                        fastScrollSensitivity: 5,
-                        cursorBlinking: 'solid',
-                        cursorSmoothCaretAnimation: 'off',
-                        cursorStyle: 'line',
-                        renderWhitespace: 'none',
-                        renderControlCharacters: false,
-                        renderLineHighlight: 'none',
-                        renderValidationDecorations: 'off',
-                        occurrencesHighlight: 'off',
-                        selectionHighlight: false,
-                        guides: {
-                            indentation: false,
-                            bracketPairs: false,
-                            highlightActiveBracketPair: false,
-                            highlightActiveIndentation: false,
-                        },
-                        scrollbar: {
-                            vertical: 'auto',
-                            horizontal: 'auto',
-                            verticalScrollbarSize: 12,
-                            horizontalScrollbarSize: 12,
-                            useShadows: false,
-                        },
-                        tabSize: 4,
-                        insertSpaces: true,
-                        autoIndent: 'none',
-                        formatOnPaste: false,
-                        formatOnType: false,
-                        wordWrap: 'off',
-                        quickSuggestions: false,
-                        suggestOnTriggerCharacters: false,
-                        acceptSuggestionOnEnter: 'off',
-                        parameterHints: { enabled: false },
-                        wordBasedSuggestions: 'off',
-                        hover: { enabled: false },
-                        links: false,
-                        colorDecorators: false,
-                        codeLens: false,
-                        inlineSuggest: { enabled: false },
-                        contextmenu: false,
-                        accessibilitySupport: 'off',
-                    }}
-                    loading={
-                        <div className="bin-editor__loading">
-                            <div className="spinner spinner--lg" />
-                            <span>Initializing editor...</span>
-                        </div>
-                    }
-                />
+                <div ref={editorContainerRef} style={{ width: '100%', height: '100%' }} />
             </div>
 
             {previewAsset && (
