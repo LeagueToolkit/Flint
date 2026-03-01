@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use tauri::{AppHandle, Emitter};
 
-const GITHUB_OWNER: &str = "RitoShark";
+const GITHUB_OWNER: &str = "LeagueToolkit";
 const GITHUB_REPO: &str = "Flint";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

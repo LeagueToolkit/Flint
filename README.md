@@ -227,7 +227,7 @@ flint/
 
 ```bash
 # Clone the repository
-git clone https://github.com/RitoShark/Flint
+git clone https://github.com/LeagueToolkit/Flint
 cd "Flint - Asset Extractor"
 
 # Install frontend dependencies

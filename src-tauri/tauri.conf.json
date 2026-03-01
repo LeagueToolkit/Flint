@@ -21,11 +21,12 @@
     "createUpdaterArtifacts": "v1Compatible"
   },
   "productName": "Flint",
-  "version": "1.4.0",
+  "version": "1.6.0",
   "identifier": "com.sirdexal.flint",
   "plugins": {
     "updater": {
       "endpoints": [
+        "https://github.com/LeagueToolkit/Flint/releases/latest/download/latest.json",
         "https://github.com/RitoShark/Flint/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVGMUU1NjcwOEREQkNBRTgKUldUb3l0dU5jRlllNzZXL2RxK2orU1RzOXVZdnZ3YlF3cTBQczZaS0pMWlpGM0RNR2pING1Cd2UK"
@@ -52,7 +53,9 @@
         "connect-src": "'self' http://ipc.localhost https://raw.communitydragon.org https://github.com",
         "worker-src": "'self' blob:"
       },
-      "dangerousDisableAssetCspModification": ["style-src"]
+      "dangerousDisableAssetCspModification": [
+        "style-src"
+      ]
     }
   }
 }

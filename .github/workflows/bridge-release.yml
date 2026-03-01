@@ -1,0 +1,48 @@
+name: Bridge Release
+
+# One-time workflow to redirect old RitoShark/Flint updater users to LeagueToolkit/Flint.
+# Run this manually from the OLD repo (RitoShark/Flint) after publishing a release on LeagueToolkit/Flint.
+# Old versions check RitoShark endpoint -> see newer version -> download from LeagueToolkit ->
+# install new version (with LeagueToolkit endpoints) -> all future updates from LeagueToolkit.
+
+on: workflow_dispatch
+
+permissions:
+  contents: write
+
+jobs:
+  bridge:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch latest.json from LeagueToolkit
+        run: |
+          curl -fL -o latest.json \
+            https://github.com/LeagueToolkit/Flint/releases/latest/download/latest.json
+
+      - name: Extract version
+        id: ver
+        run: |
+          VERSION=$(jq -r .version latest.json)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Bridging to LeagueToolkit/Flint v$VERSION"
+          cat latest.json
+
+      - name: Create bridge release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ steps.ver.outputs.version }}"
+          name: "v${{ steps.ver.outputs.version }} (Bridge to LeagueToolkit)"
+          files: latest.json
+          body: |
+            This is a bridge release that redirects the auto-updater to the new repository.
+
+            Flint has moved to **[LeagueToolkit/Flint](https://github.com/LeagueToolkit/Flint)**.
+
+            All future releases will be published there.
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
