@@ -8,7 +8,7 @@ import { initShortcuts, registerShortcut } from '../lib/utils';
 import * as api from '../lib/api';
 import * as updater from '../lib/updater';
 
-import { TopBar } from './TopBar';
+import { TitleBar } from './TitleBar';
 import { LeftPanel } from './FileTree';
 import { WadBrowserPanel } from './WadBrowser';
 import { WadExplorer } from './WadExplorer';
@@ -89,6 +89,9 @@ export const App: React.FC = () => {
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     const loadInitialData = async () => {
+        // Sync log level setting to Rust backend
+        api.setLogLevel(stateRef.current.verboseLogging).catch(() => {});
+
         try {
             const hashStatus = await api.getHashStatus();
             dispatch({
@@ -262,7 +265,7 @@ export const App: React.FC = () => {
 
     return (
         <>
-            <TopBar />
+            <TitleBar />
             <div className="main-content" id="main-content">
                 {/* Keep WadExplorer mounted when open — toggling display avoids the ~10s rescan on every switch */}
                 {state.wadExplorer.isOpen && (

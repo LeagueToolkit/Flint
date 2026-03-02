@@ -2,7 +2,7 @@
  * Flint - Welcome Screen Component
  */
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAppState } from '../lib/state';
 import { formatRelativeTime } from '../lib/utils';
 import * as api from '../lib/api';
@@ -11,22 +11,12 @@ import { getIcon } from '../lib/fileIcons';
 import type { RecentProject } from '../lib/types';
 
 /**
- * Flint flame logo SVG (larger version for welcome screen)
+ * Clock icon for recent projects
  */
-const FlintLogoLarge: React.FC = () => (
-    <svg className="welcome__logo" viewBox="0 0 24 24">
-        <path
-            d="M12 2C8.5 6 8 10 8 12c0 3.5 1.5 6 4 8 2.5-2 4-4.5 4-8 0-2-.5-6-4-10z"
-            fill="currentColor"
-        />
-        <path
-            d="M12 5c-2 3-2.5 5.5-2.5 7 0 2 .8 3.5 2.5 5 1.7-1.5 2.5-3 2.5-5 0-1.5-.5-4-2.5-7z"
-            fill="var(--bg-primary)"
-        />
-        <path
-            d="M12 8c-1 1.5-1.5 3-1.5 4 0 1.2.5 2.2 1.5 3 1-.8 1.5-1.8 1.5-3 0-1-.5-2.5-1.5-4z"
-            fill="currentColor"
-        />
+const ClockIcon: React.FC = () => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
+        <path d="M12 6v6l4 2" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
     </svg>
 );
 
@@ -37,6 +27,22 @@ const FlintLogoLarge: React.FC = () => (
 
 export const WelcomeScreen: React.FC = () => {
     const { state, dispatch, openModal, setWorking, setReady, setError, showToast } = useAppState();
+    const [greeting, setGreeting] = useState('');
+
+    // Calculate time-based greeting
+    useEffect(() => {
+        const getGreeting = () => {
+            const hour = new Date().getHours();
+            if (hour < 12) return 'Good morning';
+            if (hour < 18) return 'Good afternoon';
+            return 'Good evening';
+        };
+        setGreeting(getGreeting());
+
+        // Update greeting if app stays open across time boundaries
+        const interval = setInterval(() => setGreeting(getGreeting()), 60000);
+        return () => clearInterval(interval);
+    }, []);
 
     const openRecentProject = async (projectPath: string) => {
         try {
@@ -136,54 +142,90 @@ export const WelcomeScreen: React.FC = () => {
         dispatch({ type: 'OPEN_WAD_EXPLORER' });
     };
 
+    // Get creator name or use default
+    const creatorName = state.creatorName || 'Creator';
+
     return (
         <div className="welcome">
-            <FlintLogoLarge />
-            <h1 className="welcome__title">FLINT</h1>
-            <p className="welcome__subtitle">League of Legends Modding IDE</p>
-
-            <div className="welcome__actions">
-                <button className="btn btn--primary" onClick={() => openModal('newProject')}>
-                    <span dangerouslySetInnerHTML={{ __html: getIcon('plus') }} />
-                    <span>Create New Project</span>
-                </button>
-                <button className="btn btn--secondary" onClick={handleOpenProject}>
-                    <span dangerouslySetInnerHTML={{ __html: getIcon('folderOpen2') }} />
-                    <span>Open Existing Project</span>
-                </button>
-                <button className="btn btn--secondary" onClick={handleOpenWad}>
-                    <span dangerouslySetInnerHTML={{ __html: getIcon('package') }} />
-                    <span>Browse WAD File</span>
-                </button>
-                <button className="btn btn--secondary" onClick={handleOpenWadExplorer}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="2"/>
-                        <path d="M3 9h18M8 5V3m8 2V3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                    </svg>
-                    <span>WAD Explorer</span>
-                </button>
+            {/* Header Section with Dynamic Greeting */}
+            <div className="welcome__header">
+                <h1 className="welcome__greeting">
+                    {greeting}, <span className="welcome__creator-name">{creatorName}</span>
+                </h1>
+                <p className="welcome__subtitle">League of Legends Modding IDE</p>
             </div>
 
-            {state.recentProjects.length > 0 && (
-                <div className="welcome__recent">
-                    <h3 className="welcome__recent-title">Recent Projects</h3>
-                    {state.recentProjects.slice(0, 5).map((project: RecentProject) => (
-                        <div
-                            key={project.path}
-                            className="welcome__recent-item"
-                            onClick={() => openRecentProject(project.path)}
-                        >
-                            <span className="welcome__recent-icon" dangerouslySetInnerHTML={{ __html: getIcon('folder') }} />
-                            <span className="welcome__recent-name">
-                                {project.champion} - {project.name}
-                            </span>
-                            <span className="welcome__recent-date">
-                                {formatRelativeTime(project.lastOpened)}
-                            </span>
+            {/* Two Column Layout */}
+            <div className="welcome__columns">
+                {/* Left Column: Create Project */}
+                <div className="welcome__column welcome__column--left">
+                    <h2 className="welcome__column-title">Create Project</h2>
+
+                    <div className="welcome__actions">
+                        <button className="btn btn--primary btn--large" onClick={() => openModal('newProject')}>
+                            <span>Create New Project</span>
+                            <span dangerouslySetInnerHTML={{ __html: getIcon('plus') }} />
+                        </button>
+
+                        <button className="btn btn--secondary btn--large" onClick={handleOpenProject}>
+                            <span>Open Existing Project</span>
+                            <span dangerouslySetInnerHTML={{ __html: getIcon('folderOpen2') }} />
+                        </button>
+                    </div>
+
+                    {/* Recent Projects sub-section */}
+                    {state.recentProjects.length > 0 && (
+                        <div className="welcome__recent">
+                            <h3 className="welcome__recent-title">
+                                <ClockIcon />
+                                <span>Recent Projects</span>
+                            </h3>
+                            <div className="welcome__recent-list">
+                                {state.recentProjects.slice(0, 5).map((project: RecentProject) => (
+                                    <div
+                                        key={project.path}
+                                        className="welcome__recent-item"
+                                        onClick={() => openRecentProject(project.path)}
+                                    >
+                                        <div className="welcome__recent-info">
+                                            <span className="welcome__recent-icon" dangerouslySetInnerHTML={{ __html: getIcon('folder') }} />
+                                            <span className="welcome__recent-name">
+                                                {project.champion} - {project.name}
+                                            </span>
+                                        </div>
+                                        <span className="welcome__recent-date">
+                                            {formatRelativeTime(project.lastOpened)}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
-                    ))}
+                    )}
                 </div>
-            )}
+
+                {/* Vertical Divider */}
+                <div className="welcome__divider"></div>
+
+                {/* Right Column: Explore Files */}
+                <div className="welcome__column welcome__column--right">
+                    <h2 className="welcome__column-title">Explore Files</h2>
+
+                    <div className="welcome__actions">
+                        <button className="btn btn--secondary btn--large" onClick={handleOpenWad}>
+                            <span dangerouslySetInnerHTML={{ __html: getIcon('package') }} />
+                            <span>Browse WAD File</span>
+                        </button>
+
+                        <button className="btn btn--secondary btn--large" onClick={handleOpenWadExplorer}>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="2"/>
+                                <path d="M3 9h18M8 5V3m8 2V3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                            </svg>
+                            <span>WAD Explorer</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
         </div>
     );
 };
