@@ -68,6 +68,9 @@ const initialState: AppState = {
     // Auto-update settings
     autoUpdateEnabled: true,
     skippedUpdateVersion: null,
+
+    // Logging settings
+    verboseLogging: false,
 };
 
 // =============================================================================
@@ -737,6 +740,7 @@ export function AppProvider({ children }: AppProviderProps) {
                     creatorName: settings.creatorName || null,
                     autoUpdateEnabled: settings.autoUpdateEnabled !== undefined ? settings.autoUpdateEnabled : true,
                     skippedUpdateVersion: settings.skippedUpdateVersion || null,
+                    verboseLogging: settings.verboseLogging || false,
                 };
             }
         } catch (error) {
@@ -754,12 +758,13 @@ export function AppProvider({ children }: AppProviderProps) {
                 creatorName: state.creatorName,
                 autoUpdateEnabled: state.autoUpdateEnabled,
                 skippedUpdateVersion: state.skippedUpdateVersion,
+                verboseLogging: state.verboseLogging,
             };
             localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
         } catch (error) {
             console.error('[Flint] Failed to save settings:', error);
         }
-    }, [state.leaguePath, state.recentProjects, state.creatorName, state.autoUpdateEnabled, state.skippedUpdateVersion]);
+    }, [state.leaguePath, state.recentProjects, state.creatorName, state.autoUpdateEnabled, state.skippedUpdateVersion, state.verboseLogging]);
 
     // Toast ID counter
     const toastIdRef = React.useRef(0);

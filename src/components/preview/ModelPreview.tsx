@@ -351,6 +351,13 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ meshData, visibleMaterials, wir
         return geometries;
     }, [meshData]);
 
+    // Dispose geometries on unmount to free GPU memory
+    useEffect(() => {
+        return () => {
+            materialGeometries.forEach(({ geo }) => geo.dispose());
+        };
+    }, [materialGeometries]);
+
     // Update positions when animation pose changes
     useEffect(() => {
         if (!isSknMeshDataType(meshData) || !boneMatrices) return;
@@ -402,8 +409,6 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ meshData, visibleMaterials, wir
                 : (meshData as ScbMeshData).material_data;
 
         if (matData && Object.keys(matData).length > 0) {
-            console.log('Material data from backend:', Object.keys(matData));
-
             for (const [materialName, data] of Object.entries(matData)) {
                 try {
                     const dataUrl = `data:image/png;base64,${data.texture}`;
@@ -437,9 +442,8 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ meshData, visibleMaterials, wir
                     texture.needsUpdate = true;
 
                     cache.set(materialName, texture);
-                    console.log(`✓ Loaded material data for "${materialName}"`);
-                } catch (error) {
-                    console.warn(`✗ Failed to load material data for "${materialName}":`, error);
+                } catch {
+                    // Texture decode failed - material will show as magenta
                 }
             }
         } else if (isSknMeshDataType(meshData) && meshData.textures) {
@@ -454,8 +458,8 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ meshData, visibleMaterials, wir
                     texture.wrapT = THREE.RepeatWrapping;
 
                     cache.set(materialName, texture);
-                } catch (error) {
-                    console.warn(`✗ Failed to load texture for "${materialName}":`, error);
+                } catch {
+                    // Texture decode failed
                 }
             }
         }
@@ -463,27 +467,45 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ meshData, visibleMaterials, wir
         return cache;
     }, [meshData]);
 
-    // Create materials with proper texture assignment
-    console.log('=== Material Assignment ===');
-    const findTextureForMaterial = (materialName: string): THREE.Texture | null => {
-        // Direct lookup - backend already resolved the naming
-        const texture = textureCache.get(materialName);
+    // Dispose textures on unmount/change to free GPU memory
+    useEffect(() => {
+        return () => {
+            textureCache.forEach(texture => texture.dispose());
+        };
+    }, [textureCache]);
 
-        if (texture) {
-            return texture;
-        }
+    // Memoized texture lookup with fuzzy matching (mirrors backend strategies)
+    const materialTextureMap = useMemo(() => {
+        const map = new Map<string, THREE.Texture>();
+        const materialNames = isSknMeshDataType(meshData)
+            ? meshData.materials.map(m => m.name)
+            : [meshData.materials[0] || 'default'];
 
-        // Fallback: Try stripping "mesh_" prefix for compatibility
-        if (materialName.startsWith("mesh_")) {
-            const stripped = materialName.substring(5);
-            const strippedTexture = textureCache.get(stripped);
-            if (strippedTexture) {
-                return strippedTexture;
+        for (const name of materialNames) {
+            // Direct lookup
+            let texture = textureCache.get(name);
+            // Try stripping "mesh_" prefix
+            if (!texture && name.startsWith("mesh_")) {
+                texture = textureCache.get(name.substring(5));
             }
+            // Try adding "mesh_" prefix
+            if (!texture) {
+                texture = textureCache.get(`mesh_${name}`);
+            }
+            // Case-insensitive fallback
+            if (!texture) {
+                const lower = name.toLowerCase();
+                for (const [key, tex] of textureCache) {
+                    if (key.toLowerCase() === lower) {
+                        texture = tex;
+                        break;
+                    }
+                }
+            }
+            if (texture) map.set(name, texture);
         }
-
-        return null;
-    };
+        return map;
+    }, [meshData, textureCache]);
 
     // Center camera on mesh
     useEffect(() => {
@@ -501,23 +523,6 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ meshData, visibleMaterials, wir
         }
     }, [meshData.bounding_box, camera]);
 
-    // Debug: Log material matching on first render
-    useEffect(() => {
-        if (isSknMeshDataType(meshData)) {
-            console.log('=== Material Texture Matching ===');
-            meshData.materials.forEach((mat, idx) => {
-                const texture = textureCache.get(mat.name);
-
-                if (texture) {
-                    console.log(`  ${idx}. "${mat.name}" → ✓ Texture assigned`);
-                } else {
-                    console.warn(`  ${idx}. "${mat.name}" → ✗ NO TEXTURE (using magenta)`);
-                }
-            });
-            console.log('===========================');
-        }
-    }, [meshData, textureCache]);
-
     return (
         <group ref={groupRef}>
             {materialGroups.map((mat, index) => {
@@ -526,8 +531,7 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ meshData, visibleMaterials, wir
                 const geoData = materialGeometries.get(mat.name);
                 if (!geoData) return null;
 
-                // Use fuzzy matching to find the texture for this material
-                const matchedTexture = findTextureForMaterial(mat.name);
+                const matchedTexture = materialTextureMap.get(mat.name) || null;
 
                 return (
                     <mesh
@@ -584,13 +588,6 @@ const SkeletonViewer: React.FC<SkeletonViewerProps> = ({ skeletonData, animation
             map.set(bone.id, hash);
         });
 
-        // Debug: log first time to check hash matching
-        if (skeletonData.bones.length > 0) {
-            const firstBone = skeletonData.bones[0];
-            const firstHash = elfHash(firstBone.name);
-            console.log('[SkeletonViewer] First bone:', firstBone.name, 'hash:', firstHash);
-        }
-
         return map;
     }, [skeletonData]);
 
@@ -599,20 +596,6 @@ const SkeletonViewer: React.FC<SkeletonViewerProps> = ({ skeletonData, animation
         const positions: Record<number, THREE.Vector3> = {};
 
         if (animationPose && Object.keys(animationPose.joints).length > 0) {
-            // Debug: log animation joint hashes on first pose
-            const jointHashes = Object.keys(animationPose.joints).map(k => parseInt(k));
-            console.log('[SkeletonViewer] Animation joint hashes (first 5):', jointHashes.slice(0, 5));
-
-            // Check how many bones match
-            let matchCount = 0;
-            skeletonData.bones.forEach(bone => {
-                const boneHash = boneIdToHash.get(bone.id);
-                if (boneHash !== undefined && animationPose.joints[boneHash]) {
-                    matchCount++;
-                }
-            });
-            console.log('[SkeletonViewer] Bones with animation data:', matchCount, '/', skeletonData.bones.length);
-
             // Build hierarchy of animated transforms
             const worldTransforms = new Map<number, THREE.Matrix4>();
 
@@ -782,6 +765,16 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             typeof (data as SknMeshData).materials[0] === 'object';
     };
 
+    // Clean up animation on unmount to prevent leaked RAF
+    useEffect(() => {
+        return () => {
+            if (animationRef.current) {
+                cancelAnimationFrame(animationRef.current);
+                animationRef.current = null;
+            }
+        };
+    }, []);
+
     // Load mesh data
     useEffect(() => {
         let cancelled = false;
@@ -798,7 +791,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 if (meshType === 'static') {
                     // Load SCB/SCO static mesh
                     data = await api.readScbMesh(filePath);
-                    console.log('[ModelPreview] Loaded static mesh:', (data as ScbMeshData).name);
                 } else {
                     // Load SKN skinned mesh AND skeleton/animations in parallel
                     // This significantly reduces loading time by parallelizing independent requests
@@ -813,14 +805,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                     // Handle mesh result (required)
                     if (meshResult.status === 'fulfilled') {
                         data = meshResult.value;
-
-                        // Debug: log texture loading
-                        const sknData = data as SknMeshData;
-                        if (sknData.textures && Object.keys(sknData.textures).length > 0) {
-                            console.log('[ModelPreview] Loaded textures:', Object.keys(sknData.textures));
-                        } else {
-                            console.log('[ModelPreview] No textures found in mesh data');
-                        }
                     } else {
                         throw meshResult.reason;
                     }
@@ -831,20 +815,13 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                     if (animResult.status === 'fulfilled') {
                         const animList = animResult.value;
                         if (animList.clips && animList.clips.length > 0) {
-                            console.log('[ModelPreview] Found animations:', animList.clips.length);
                             setAnimations(animList.clips);
                         }
-                    } else {
-                        console.log('[ModelPreview] No animations found:', animResult.reason);
                     }
 
                     // Handle skeleton result (optional)
                     if (sklResult.status === 'fulfilled') {
-                        const skeleton = sklResult.value;
-                        console.log('[ModelPreview] Loaded skeleton with', skeleton.bones.length, 'bones');
-                        setSkeletonData(skeleton);
-                    } else {
-                        console.log('[ModelPreview] No skeleton found:', sklResult.reason);
+                        setSkeletonData(sklResult.value);
                     }
                 }
 
@@ -861,7 +838,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 }
             } catch (err) {
                 if (cancelled) return;
-                console.error('[ModelPreview] Failed to load mesh:', err);
                 setError((err as Error).message || 'Failed to load mesh');
             } finally {
                 if (!cancelled) {
@@ -884,14 +860,11 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         }
 
         const loadAnimation = async () => {
-            console.log('[ModelPreview] Loading animation:', selectedAnimation);
             try {
                 const animData = await api.readAnimation(selectedAnimation, filePath);
-                console.log('[ModelPreview] Loaded animation:', animData);
                 setAnimationData(animData);
                 setCurrentTime(0);
-            } catch (err) {
-                console.error('[ModelPreview] Failed to load animation:', err);
+            } catch {
                 setAnimationData(null);
             }
         };
@@ -930,25 +903,44 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         };
     }, [isPlaying, animationData]);
 
-    // Evaluate animation at current time
+    // Evaluate animation at current time (throttled to avoid IPC spam)
+    const lastEvalTimeRef = useRef<number>(0);
+    const pendingEvalRef = useRef<number | null>(null);
+
     useEffect(() => {
         if (!selectedAnimation || !animationData) return;
 
-        const evaluatePose = async () => {
-            try {
-                const pose = await api.evaluateAnimation(
-                    selectedAnimation,
-                    filePath,
-                    currentTime
-                );
-                setCurrentPose(pose);
-                console.log('[ModelPreview] Pose at', currentTime.toFixed(3), 's:', Object.keys(pose.joints).length, 'joints');
-            } catch (err) {
-                console.error('[ModelPreview] Failed to evaluate pose:', err);
+        // Throttle: only evaluate every ~33ms (30fps) to avoid IPC overload
+        const now = performance.now();
+        const elapsed = now - lastEvalTimeRef.current;
+
+        if (elapsed < 33) {
+            // Schedule evaluation after remaining throttle time
+            if (pendingEvalRef.current) cancelAnimationFrame(pendingEvalRef.current);
+            pendingEvalRef.current = requestAnimationFrame(() => {
+                pendingEvalRef.current = null;
+                lastEvalTimeRef.current = performance.now();
+                api.evaluateAnimation(selectedAnimation, filePath, currentTime)
+                    .then(pose => setCurrentPose(pose))
+                    .catch(() => {});
+            });
+            return;
+        }
+
+        lastEvalTimeRef.current = now;
+        let cancelled = false;
+
+        api.evaluateAnimation(selectedAnimation, filePath, currentTime)
+            .then(pose => { if (!cancelled) setCurrentPose(pose); })
+            .catch(() => {});
+
+        return () => {
+            cancelled = true;
+            if (pendingEvalRef.current) {
+                cancelAnimationFrame(pendingEvalRef.current);
+                pendingEvalRef.current = null;
             }
         };
-
-        evaluatePose();
     }, [selectedAnimation, currentTime, filePath, animationData]);
 
     // Toggle material visibility
@@ -1007,7 +999,15 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         <div className="model-preview">
             {/* 3D Canvas */}
             <div className="model-preview__canvas">
-                <Canvas>
+                <Canvas onCreated={({ gl }) => {
+                    const canvas = gl.domElement;
+                    canvas.addEventListener('webglcontextlost', (e) => {
+                        e.preventDefault();
+                    });
+                    canvas.addEventListener('webglcontextrestored', () => {
+                        gl.clear();
+                    });
+                }}>
                     <PerspectiveCamera makeDefault fov={50} position={[0, 0, 5]} />
                     {/* Improved lighting setup for better model visibility */}
                     <ambientLight intensity={0.8} />

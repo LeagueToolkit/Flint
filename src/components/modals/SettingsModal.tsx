@@ -16,6 +16,7 @@ export const SettingsModal: React.FC = () => {
     const [leaguePath, setLeaguePath] = useState(state.leaguePath || '');
     const [creatorName, setCreatorName] = useState(state.creatorName || '');
     const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(state.autoUpdateEnabled);
+    const [verboseLogging, setVerboseLogging] = useState(state.verboseLogging);
     const [isValidating, setIsValidating] = useState(false);
 
     // Update checker state
@@ -31,11 +32,12 @@ export const SettingsModal: React.FC = () => {
             setLeaguePath(state.leaguePath || '');
             setCreatorName(state.creatorName || '');
             setAutoUpdateEnabled(state.autoUpdateEnabled);
+            setVerboseLogging(state.verboseLogging);
 
             // Load current version
             getVersion().then(setCurrentVersion).catch(() => setCurrentVersion('0.0.0'));
         }
-    }, [isVisible, state.leaguePath, state.creatorName, state.autoUpdateEnabled]);
+    }, [isVisible, state.leaguePath, state.creatorName, state.autoUpdateEnabled, state.verboseLogging]);
 
     const handleBrowseLeague = async () => {
         const selected = await open({
@@ -130,8 +132,12 @@ export const SettingsModal: React.FC = () => {
                 leaguePath: leaguePath || null,
                 creatorName: creatorName || null,
                 autoUpdateEnabled,
+                verboseLogging,
             },
         });
+
+        // Apply log level to Rust backend
+        api.setLogLevel(verboseLogging).catch(() => {});
 
         showToast('success', 'Settings saved');
         closeModal();
@@ -268,6 +274,19 @@ export const SettingsModal: React.FC = () => {
                                 </>
                             )}
                         </div>
+                    </div>
+
+                    <div className="form-group">
+                        <label className="form-label">Logging</label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                            <input
+                                type="checkbox"
+                                checked={verboseLogging}
+                                onChange={(e) => setVerboseLogging(e.target.checked)}
+                                style={{ width: 'auto', margin: 0 }}
+                            />
+                            <span>Verbose logging (show detailed debug output)</span>
+                        </label>
                     </div>
                 </div>
 

@@ -121,6 +121,14 @@ async function invokeCommand<T>(command: string, args: Record<string, unknown> =
 }
 
 // =============================================================================
+// Logging Commands
+// =============================================================================
+
+export async function setLogLevel(verbose: boolean): Promise<void> {
+    return invokeCommand('set_log_level', { verbose });
+}
+
+// =============================================================================
 // Hash Management Commands
 // =============================================================================
 

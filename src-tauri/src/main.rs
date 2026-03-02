@@ -10,18 +10,28 @@ use core::hash::get_ritoshark_hash_dir;
 use core::frontend_log::{FrontendLogLayer, set_app_handle};
 use state::{LmdbCacheState, WadCacheState};
 use tauri::Manager;
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tracing_subscriber::{fmt, prelude::*, reload, EnvFilter};
 
 fn main() {
     // Initialize tracing/logging with frontend layer
-    // Set RUST_LOG environment variable to control log level (e.g., RUST_LOG=debug)
+    // Use reload layer so log level can be changed at runtime via set_log_level command
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("info"));
-    
+
+    let (filter_layer, reload_handle) = reload::Layer::new(filter);
+
+    // Store a closure that captures the reload handle — avoids spelling out the full type
+    commands::logging::set_reload_fn(Box::new(move |filter_str: &str| {
+        let new_filter = EnvFilter::try_new(filter_str)
+            .map_err(|e| format!("Invalid filter: {}", e))?;
+        reload_handle.reload(new_filter)
+            .map_err(|e| format!("Failed to reload filter: {}", e))
+    }));
+
     tracing_subscriber::registry()
         .with(fmt::layer())
         .with(FrontendLogLayer)
-        .with(filter)
+        .with(filter_layer)
         .init();
 
     tracing::info!("Starting Flint");
@@ -171,6 +181,8 @@ fn main() {
             commands::fixer::analyze_project,
             commands::fixer::fix_project,
             commands::fixer::batch_fix_projects,
+            // Logging commands
+            commands::logging::set_log_level,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

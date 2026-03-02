@@ -18,7 +18,7 @@ use crate::commands::file::decode_dds_to_png;
 /// Uses .ritobin text parsing to discover textures for static meshes.
 #[tauri::command]
 pub async fn read_scb_mesh(path: String) -> Result<ScbMeshData, String> {
-    tracing::info!("🗿 Reading SCB/SCO mesh: {}", path);
+    tracing::debug!("🗿 Reading SCB/SCO mesh: {}", path);
 
     let scb_path = Path::new(&path);
 
@@ -29,13 +29,13 @@ pub async fn read_scb_mesh(path: String) -> Result<ScbMeshData, String> {
             format!("Failed to parse SCB file: {}", e)
         })?;
 
-    tracing::info!("✓ SCB parsed successfully. Materials: {:?}", mesh_data.materials);
+    tracing::debug!("✓ SCB parsed successfully. Materials: {:?}", mesh_data.materials);
 
     // Try to find .ritobin text for texture discovery
     let ritobin_text = find_ritobin_text(scb_path);
 
     if let Some(bin_text) = ritobin_text {
-        tracing::info!("📄 Loaded ritobin text ({} bytes) for SCB texture lookup", bin_text.len());
+        tracing::debug!("📄 Loaded ritobin text ({} bytes) for SCB texture lookup", bin_text.len());
 
         use crate::core::mesh::texture::extract_texture_mapping_from_text;
         use crate::core::mesh::bin_texture_discovery::TextureHints;
@@ -43,7 +43,7 @@ pub async fn read_scb_mesh(path: String) -> Result<ScbMeshData, String> {
         #[allow(deprecated)]
         match extract_texture_mapping_from_text(&bin_text) {
             Ok(mapping) => {
-                tracing::info!("✓ Extracted texture mapping from .ritobin for SCB");
+                tracing::debug!("✓ Extracted texture mapping from .ritobin for SCB");
 
                 let mut hints = TextureHints::default();
                 hints.default_texture = mapping.default_texture;
@@ -51,7 +51,7 @@ pub async fn read_scb_mesh(path: String) -> Result<ScbMeshData, String> {
                     hints.material_hints.insert(mat_name, props);
                 }
 
-                tracing::info!("📊 SCB discovery: {} material hints, default={:?}",
+                tracing::debug!("📊 SCB discovery: {} material hints, default={:?}",
                     hints.material_hints.len(),
                     hints.default_texture.as_deref().unwrap_or("none"));
 
@@ -112,7 +112,7 @@ pub async fn read_scb_mesh(path: String) -> Result<ScbMeshData, String> {
                 }
 
                 // Load textures in parallel
-                tracing::info!("⬇ Loading {} unique textures for SCB...", texture_tasks.len());
+                tracing::debug!("⬇ Loading {} unique textures for SCB...", texture_tasks.len());
                 let start_time = std::time::Instant::now();
 
                 let load_futures: Vec<_> = texture_tasks.into_iter()
@@ -184,11 +184,11 @@ fn find_ritobin_text(mesh_path: &Path) -> Option<String> {
             let ritobin_path = std::path::PathBuf::from(format!("{}.ritobin", bin_path.display()));
             if ritobin_path.exists() {
                 if let Ok(text) = std::fs::read_to_string(&ritobin_path) {
-                    tracing::info!("✓ Found .ritobin cache next to BIN: {}", ritobin_path.display());
+                    tracing::debug!("✓ Found .ritobin cache next to BIN: {}", ritobin_path.display());
                     return Some(text);
                 }
             }
-            tracing::info!("Found .bin at {} but no .ritobin cache — open this BIN in the editor to create the cache",
+            tracing::debug!("Found .bin at {} but no .ritobin cache — open this BIN in the editor to create the cache",
                 bin_path.display());
         }
     }
@@ -231,7 +231,7 @@ fn find_ritobin_in_dir(dir: &Path) -> Option<String> {
             // Prefer Concat
             if name.contains("concat") {
                 if let Ok(text) = std::fs::read_to_string(&path) {
-                    tracing::info!("✓ Found concat .ritobin directly: {}", path.display());
+                    tracing::debug!("✓ Found concat .ritobin directly: {}", path.display());
                     return Some(text);
                 }
             } else if fallback.is_none() {
@@ -243,7 +243,7 @@ fn find_ritobin_in_dir(dir: &Path) -> Option<String> {
     // Use non-concat .ritobin if no concat found
     if let Some(fb_path) = fallback {
         if let Ok(text) = std::fs::read_to_string(&fb_path) {
-            tracing::info!("✓ Found .ritobin directly: {}", fb_path.display());
+            tracing::debug!("✓ Found .ritobin directly: {}", fb_path.display());
             return Some(text);
         }
     }
@@ -259,7 +259,7 @@ fn find_ritobin_in_dir(dir: &Path) -> Option<String> {
 /// Uses .ritobin text parsing for robust texture discovery.
 #[tauri::command]
 pub async fn read_skn_mesh(path: String) -> Result<SknMeshData, String> {
-    tracing::info!("🎨 Reading SKN mesh: {}", path);
+    tracing::debug!("🎨 Reading SKN mesh: {}", path);
 
     let skn_path = Path::new(&path);
 
@@ -270,14 +270,14 @@ pub async fn read_skn_mesh(path: String) -> Result<SknMeshData, String> {
             format!("Failed to parse SKN file: {}", e)
         })?;
 
-    tracing::info!("✓ SKN parsed successfully. Materials: {:?}",
+    tracing::debug!("✓ SKN parsed successfully. Materials: {:?}",
         mesh_data.materials.iter().map(|m| &m.name).collect::<Vec<_>>());
 
     // Try to find .ritobin text for texture discovery
     let ritobin_text = find_ritobin_text(skn_path);
 
     if let Some(bin_text) = ritobin_text {
-        tracing::info!("📄 Loaded ritobin text ({} bytes) for SKN texture lookup", bin_text.len());
+        tracing::debug!("📄 Loaded ritobin text ({} bytes) for SKN texture lookup", bin_text.len());
 
         use crate::core::mesh::texture::extract_texture_mapping_from_text;
         use crate::core::mesh::bin_texture_discovery::TextureHints;
@@ -285,7 +285,7 @@ pub async fn read_skn_mesh(path: String) -> Result<SknMeshData, String> {
         #[allow(deprecated)]
         match extract_texture_mapping_from_text(&bin_text) {
             Ok(mapping) => {
-                tracing::info!("✓ Extracted texture mapping from .ritobin");
+                tracing::debug!("✓ Extracted texture mapping from .ritobin");
 
                 let mut hints = TextureHints::default();
                 hints.default_texture = mapping.default_texture;
@@ -293,7 +293,7 @@ pub async fn read_skn_mesh(path: String) -> Result<SknMeshData, String> {
                     hints.material_hints.insert(mat_name, props);
                 }
 
-                tracing::info!("📊 Discovery complete: {} material hints, default={:?}",
+                tracing::debug!("📊 Discovery complete: {} material hints, default={:?}",
                     hints.material_hints.len(),
                     hints.default_texture.as_deref().unwrap_or("none"));
 
@@ -357,7 +357,7 @@ pub async fn read_skn_mesh(path: String) -> Result<SknMeshData, String> {
                 }
 
                 // Load textures in parallel
-                tracing::info!("⬇ Loading {} unique textures...", texture_tasks.len());
+                tracing::debug!("⬇ Loading {} unique textures...", texture_tasks.len());
                 let start_time = std::time::Instant::now();
 
                 let load_futures: Vec<_> = texture_tasks.into_iter()
@@ -705,7 +705,7 @@ pub async fn evaluate_animation(
 
 /// Extract character folder name from a file path
 ///
-/// Looks for patterns like: .../characters/{champion}/...
+/// Tries multiple strategies: characters/ pattern, WAD folder name, path structure, filename.
 fn extract_character_folder(file_path: &Path) -> Option<String> {
     let path_str = file_path.to_string_lossy().to_lowercase();
     let components: Vec<&str> = path_str.split(&['/', '\\'][..]).collect();
@@ -717,13 +717,15 @@ fn extract_character_folder(file_path: &Path) -> Option<String> {
         }
     }
 
-    // Strategy 2: Extract from filename (e.g., "galio.skn" -> "galio")
-    if let Some(file_name) = file_path.file_stem() {
-        let name = file_name.to_string_lossy().to_lowercase();
-        // Skip generic names like "skin0", "base", etc.
-        if !name.starts_with("skin") && name != "base" && !name.is_empty() {
-            tracing::debug!("Extracted champion name from filename: {}", name);
-            return Some(name);
+    // Strategy 2: Extract from WAD folder name (e.g., "aurora.wad.client" → "aurora")
+    for part in &components {
+        if let Some(name) = part.strip_suffix(".wad.client")
+            .or_else(|| part.strip_suffix(".wad"))
+        {
+            if !name.is_empty() {
+                tracing::debug!("Extracted champion from WAD folder: {}", name);
+                return Some(name.to_string());
+            }
         }
     }
 
@@ -738,6 +740,15 @@ fn extract_character_folder(file_path: &Path) -> Option<String> {
                 tracing::debug!("Extracted champion name from path structure: {}", potential_name);
                 return Some(potential_name.to_string());
             }
+        }
+    }
+
+    // Strategy 4: Extract from filename (skip generic/compound names) — last resort
+    if let Some(file_name) = file_path.file_stem() {
+        let name = file_name.to_string_lossy().to_lowercase();
+        if !name.starts_with("skin") && name != "base" && !name.is_empty() && !name.contains('.') {
+            tracing::debug!("Extracted champion name from filename: {}", name);
+            return Some(name);
         }
     }
 
@@ -775,6 +786,7 @@ fn extract_skin_folder(path: &Path) -> Option<String> {
     let path_str = path.to_string_lossy().to_lowercase();
     let components: Vec<&str> = path_str.split(&['/', '\\'][..]).collect();
 
+    // Strategy 1: Look for skins/{skinN} pattern
     for (i, part) in components.iter().enumerate() {
         if *part == "skins" && i + 1 < components.len() {
             let next = components[i + 1];
@@ -785,29 +797,56 @@ fn extract_skin_folder(path: &Path) -> Option<String> {
             }
         }
     }
+
+    // Strategy 2: Look for any directory component matching "skinN" pattern
+    // (handles WAD-extracted paths like .../skin11/champion.skn)
+    for part in components.iter().rev() {
+        if part.starts_with("skin") && part.len() > 4 && part[4..].chars().all(|c| c.is_ascii_digit()) {
+            return Some(part.to_string());
+        }
+    }
+
     None
 }
 
 /// Find the project root by walking up the directory tree until we find
 /// a directory that contains a `data/` subdirectory.
 ///
-/// This handles both direct project structures and extracted WAD paths:
-/// - `project/base/champion.wad.client/assets/characters/...` → finds `project/`
-/// - `project/assets/characters/...` → finds `project/`
+/// Skips `.wad.client` / `.wad` folders — those are extracted WAD content,
+/// not the actual project root.
 fn find_project_root(file_path: &Path) -> Option<std::path::PathBuf> {
     let mut current = file_path.parent()?;
+    let mut best: Option<std::path::PathBuf> = None;
 
     for _ in 0..15 {
         let data_dir = current.join("data");
         if data_dir.exists() && data_dir.is_dir() {
-            tracing::debug!("Found project root (has data/): {}", current.display());
-            return Some(current.to_path_buf());
+            let dir_name = current.file_name()
+                .map(|n| n.to_string_lossy().to_lowercase())
+                .unwrap_or_default();
+
+            // Skip WAD folders — keep searching upward for the real project root
+            if dir_name.ends_with(".wad.client") || dir_name.ends_with(".wad") {
+                tracing::debug!("Skipping WAD folder as project root: {}", current.display());
+                if best.is_none() {
+                    best = Some(current.to_path_buf());
+                }
+            } else {
+                tracing::debug!("Found project root (has data/): {}", current.display());
+                return Some(current.to_path_buf());
+            }
         }
-        current = current.parent()?;
+        current = match current.parent() {
+            Some(p) => p,
+            None => break,
+        };
     }
 
-    tracing::debug!("No project root with data/ found for: {}", file_path.display());
-    None
+    // Fall back to WAD folder if no better root found
+    if let Some(ref fallback) = best {
+        tracing::debug!("Using WAD folder as fallback project root: {}", fallback.display());
+    }
+    best
 }
 
 /// Search a skins directory for BIN files, trying multiple strategies.

@@ -62,18 +62,18 @@ pub struct TextureMapping {
 /// Uses smart root detection: walks up from the mesh path to find a directory
 /// containing `data/`, then searches `data/characters/{champion}/skins/`.
 pub fn find_skin_bin(skn_path: &Path) -> Option<PathBuf> {
-    tracing::info!("Looking for skin BIN relative to: {}", skn_path.display());
+    tracing::debug!("Looking for skin BIN relative to: {}", skn_path.display());
 
     let champion_name = extract_champion_name(skn_path);
     let skin_folder = extract_skin_folder_from_path(skn_path);
 
-    tracing::info!("Extracted: champion={:?}, skin_folder={:?}", champion_name, skin_folder);
+    tracing::debug!("Extracted: champion={:?}, skin_folder={:?}", champion_name, skin_folder);
 
     let champion_name = champion_name?;
 
     // Find project root by walking up to find a directory with `data/` child
     if let Some(root) = find_project_root_from_path(skn_path) {
-        tracing::info!("Project root: {}", root.display());
+        tracing::debug!("Project root: {}", root.display());
 
         let skins_dir = root
             .join("data")
@@ -91,7 +91,7 @@ pub fn find_skin_bin(skn_path: &Path) -> Option<PathBuf> {
 }
 
 /// Extract champion name from a file path.
-/// Looks for `characters/{champion}` pattern, then falls back to filename.
+/// Tries multiple strategies: characters/ pattern, WAD folder name, filename.
 fn extract_champion_name(path: &Path) -> Option<String> {
     let path_str = path.to_string_lossy().to_lowercase();
     let components: Vec<&str> = path_str.split(&['/', '\\'][..]).collect();
@@ -103,12 +103,15 @@ fn extract_champion_name(path: &Path) -> Option<String> {
         }
     }
 
-    // Strategy 2: Filename (skip generic names)
-    if let Some(file_name) = path.file_stem() {
-        let name = file_name.to_string_lossy().to_lowercase();
-        if !name.starts_with("skin") && name != "base" && !name.is_empty() {
-            tracing::debug!("Using filename as champion name: {}", name);
-            return Some(name);
+    // Strategy 2: Extract from WAD folder name (e.g., "aurora.wad.client" → "aurora")
+    for part in &components {
+        if let Some(name) = part.strip_suffix(".wad.client")
+            .or_else(|| part.strip_suffix(".wad"))
+        {
+            if !name.is_empty() {
+                tracing::debug!("Extracted champion from WAD folder: {}", name);
+                return Some(name.to_string());
+            }
         }
     }
 
@@ -126,6 +129,16 @@ fn extract_champion_name(path: &Path) -> Option<String> {
         }
     }
 
+    // Strategy 4: Filename (skip generic names) — last resort
+    if let Some(file_name) = path.file_stem() {
+        let name = file_name.to_string_lossy().to_lowercase();
+        // Only use if it looks like a simple champion name (no dots/underscores suggesting compound names)
+        if !name.starts_with("skin") && name != "base" && !name.is_empty() && !name.contains('.') {
+            tracing::debug!("Using filename as champion name: {}", name);
+            return Some(name);
+        }
+    }
+
     None
 }
 
@@ -134,6 +147,7 @@ fn extract_skin_folder_from_path(path: &Path) -> Option<String> {
     let path_str = path.to_string_lossy().to_lowercase();
     let components: Vec<&str> = path_str.split(&['/', '\\'][..]).collect();
 
+    // Strategy 1: Look for skins/{skinN} pattern
     for (i, part) in components.iter().enumerate() {
         if *part == "skins" && i + 1 < components.len() {
             let next = components[i + 1];
@@ -144,24 +158,56 @@ fn extract_skin_folder_from_path(path: &Path) -> Option<String> {
             }
         }
     }
+
+    // Strategy 2: Look for any directory component matching "skinN" pattern
+    // (handles WAD-extracted paths like .../skin11/champion.skn)
+    for part in components.iter().rev() {
+        if part.starts_with("skin") && part.len() > 4 && part[4..].chars().all(|c| c.is_ascii_digit()) {
+            return Some(part.to_string());
+        }
+    }
+
     None
 }
 
 /// Find the project root by walking up the directory tree until we find
 /// a directory that contains a `data/` subdirectory.
+///
+/// Skips `.wad.client` / `.wad` folders — those are extracted WAD content,
+/// not the actual project root.
 fn find_project_root_from_path(file_path: &Path) -> Option<PathBuf> {
     let mut current = file_path.parent()?;
+    let mut best: Option<PathBuf> = None;
 
     for _ in 0..15 {
         let data_dir = current.join("data");
         if data_dir.exists() && data_dir.is_dir() {
-            tracing::debug!("Found project root (has data/): {}", current.display());
-            return Some(current.to_path_buf());
+            let dir_name = current.file_name()
+                .map(|n| n.to_string_lossy().to_lowercase())
+                .unwrap_or_default();
+
+            // Skip WAD folders — keep searching upward for the real project root
+            if dir_name.ends_with(".wad.client") || dir_name.ends_with(".wad") {
+                tracing::debug!("Skipping WAD folder as project root: {}", current.display());
+                if best.is_none() {
+                    best = Some(current.to_path_buf());
+                }
+            } else {
+                tracing::debug!("Found project root (has data/): {}", current.display());
+                return Some(current.to_path_buf());
+            }
         }
-        current = current.parent()?;
+        current = match current.parent() {
+            Some(p) => p,
+            None => break,
+        };
     }
 
-    None
+    // Fall back to WAD folder if no better root found
+    if let Some(ref fallback) = best {
+        tracing::debug!("Using WAD folder as fallback project root: {}", fallback.display());
+    }
+    best
 }
 
 /// Search a skins directory for BIN files, trying multiple strategies.
@@ -175,7 +221,7 @@ fn search_skins_dir(skins_dir: &Path, skin_folder: Option<&str>) -> Option<PathB
         for entry in entries.filter_map(|e| e.ok()) {
             let name = entry.file_name().to_string_lossy().to_lowercase();
             if name.contains("concat") && name.ends_with(".bin") {
-                tracing::info!("Found concat BIN: {}", entry.path().display());
+                tracing::debug!("Found concat BIN: {}", entry.path().display());
                 return Some(entry.path());
             }
         }
@@ -185,12 +231,12 @@ fn search_skins_dir(skins_dir: &Path, skin_folder: Option<&str>) -> Option<PathB
     if let Some(skin) = skin_folder {
         let nested = skins_dir.join(skin).join(format!("{}.bin", skin));
         if nested.exists() {
-            tracing::info!("Found nested skin BIN: {}", nested.display());
+            tracing::debug!("Found nested skin BIN: {}", nested.display());
             return Some(nested);
         }
         let flat = skins_dir.join(format!("{}.bin", skin));
         if flat.exists() {
-            tracing::info!("Found flat skin BIN: {}", flat.display());
+            tracing::debug!("Found flat skin BIN: {}", flat.display());
             return Some(flat);
         }
     }
@@ -198,7 +244,7 @@ fn search_skins_dir(skins_dir: &Path, skin_folder: Option<&str>) -> Option<PathB
     // Strategy 3: Fallback to skin0.bin
     let skin0 = skins_dir.join("skin0.bin");
     if skin0.exists() {
-        tracing::info!("Found fallback skin0.bin");
+        tracing::debug!("Found fallback skin0.bin");
         return Some(skin0);
     }
 
@@ -207,7 +253,7 @@ fn search_skins_dir(skins_dir: &Path, skin_folder: Option<&str>) -> Option<PathB
         for entry in entries.filter_map(|e| e.ok()) {
             let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) == Some("bin") {
-                tracing::info!("Found fallback BIN: {}", path.display());
+                tracing::debug!("Found fallback BIN: {}", path.display());
                 return Some(path);
             }
         }
@@ -285,13 +331,13 @@ pub fn extract_texture_mapping_from_text(content: &str) -> anyhow::Result<Textur
                         let submesh_regex = Regex::new(r#"submesh:\s*string\s*=\s*"([^"]+)""#).unwrap();
                         if let Some(sub_captures) = submesh_regex.captures(part) {
                             let submesh_name = sub_captures.get(1).unwrap().as_str().to_string();
-                            tracing::info!("Found materialOverride[{}]: submesh='{}'", idx, submesh_name);
+                            tracing::debug!("Found materialOverride[{}]: submesh='{}'", idx, submesh_name);
                             
                             // Check for direct texture
                             let tex_regex = Regex::new(r#"texture:\s*string\s*=\s*"([^"]+)""#).unwrap();
                             if let Some(tex_match) = tex_regex.captures(part) {
                                 let tex_path = tex_match.get(1).unwrap().as_str().to_string();
-                                tracing::info!("  -> Direct texture: {}", tex_path);
+                                tracing::debug!("  -> Direct texture: {}", tex_path);
                                 // Direct textures have no UV transforms
                                 let props = MaterialProperties {
                                     texture_path: tex_path,
@@ -306,11 +352,11 @@ pub fn extract_texture_mapping_from_text(content: &str) -> anyhow::Result<Textur
                             let mat_link_regex = Regex::new(r#"(?i)material:\s*link\s*=\s*"([^"]+)""#).unwrap();
                             if let Some(mat_match) = mat_link_regex.captures(part) {
                                 let mat_path = mat_match.get(1).unwrap().as_str().to_string();
-                                tracing::info!("  -> Material link (string): {}", mat_path);
+                                tracing::debug!("  -> Material link (string): {}", mat_path);
                                 
                                 // Resolve material link - now returns MaterialProperties with UV transforms
                                 if let Some(props) = resolve_material_texture(content, &mat_path) {
-                                    tracing::info!("  -> RESOLVED to: {}", props.texture_path);
+                                    tracing::debug!("  -> RESOLVED to: {}", props.texture_path);
                                     mapping.material_properties.insert(submesh_name.clone(), props);
                                 } else {
                                     tracing::warn!("  -> FAILED to resolve material link!");
@@ -324,11 +370,11 @@ pub fn extract_texture_mapping_from_text(content: &str) -> anyhow::Result<Textur
                             let mat_hash_regex = Regex::new(r#"material:\s*link\s*=\s*(0x[0-9a-fA-F]+)"#).unwrap();
                             if let Some(hash_match) = mat_hash_regex.captures(part) {
                                 let mat_hash = hash_match.get(1).unwrap().as_str();
-                                tracing::info!("  -> Material link (hash): {}", mat_hash);
+                                tracing::debug!("  -> Material link (hash): {}", mat_hash);
                                 
                                 // Try to resolve hex hash to MaterialProperties
                                 if let Some(props) = resolve_material_texture_by_hash(content, mat_hash) {
-                                    tracing::info!("  -> RESOLVED to: {}", props.texture_path);
+                                    tracing::debug!("  -> RESOLVED to: {}", props.texture_path);
                                     mapping.material_properties.insert(submesh_name.clone(), props);
                                 } else {
                                     tracing::warn!("  -> FAILED to resolve material hash!");
@@ -523,7 +569,7 @@ fn extract_param_values(material_block: &str) -> (Option<[f32; 2]>, Option<[f32;
 /// 
 /// Returns texture path AND UV transform parameters
 fn resolve_material_texture(content: &str, material_path: &str) -> Option<MaterialProperties> {
-    tracing::info!("Resolving material link: '{}'", material_path);
+    tracing::debug!("Resolving material link: '{}'", material_path);
     
     // Escape special characters in material path for regex
     let escaped_path = regex::escape(material_path);
@@ -541,7 +587,7 @@ fn resolve_material_texture(content: &str, material_path: &str) -> Option<Materi
     };
     
     if let Some(def_match) = def_regex.find(content) {
-        tracing::info!("Found StaticMaterialDef for '{}' at position {}", material_path, def_match.start());
+        tracing::debug!("Found StaticMaterialDef for '{}' at position {}", material_path, def_match.start());
         
         // Use brace counting to extract the full block
         if let Some(block) = extract_braced_block(content, def_match.end() - 1) {
@@ -549,7 +595,7 @@ fn resolve_material_texture(content: &str, material_path: &str) -> Option<Materi
             
             // Extract texture path
             if let Some(texture_path) = extract_diffuse_texture_from_block(&block) {
-                tracing::info!("Found texture: {}", texture_path);
+                tracing::debug!("Found texture: {}", texture_path);
                 
                 // Extract UV transform parameters
                 let (uv_scale, uv_offset, flipbook_size, flipbook_frame) = extract_param_values(&block);
@@ -562,7 +608,7 @@ fn resolve_material_texture(content: &str, material_path: &str) -> Option<Materi
                     flipbook_frame,
                 };
                 
-                tracing::info!("SUCCESS: '{}' resolved with transforms", material_path);
+                tracing::debug!("SUCCESS: '{}' resolved with transforms", material_path);
                 return Some(props);
             } else {
                 tracing::warn!("FAILED: Could not find diffuse texture in StaticMaterialDef block for '{}'", material_path);

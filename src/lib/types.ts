@@ -196,6 +196,9 @@ export interface AppState {
     // Auto-update settings (persisted)
     autoUpdateEnabled: boolean;
     skippedUpdateVersion: string | null;
+
+    // Logging settings (persisted)
+    verboseLogging: boolean;
 }
 
 // =============================================================================

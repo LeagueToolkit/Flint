@@ -77,7 +77,7 @@ pub fn extract_animation_graph_path(skin_bin_path: &Path) -> Option<PathBuf> {
         
         // Type 2: Animation BINs - in the animations folder
         if normalized.contains("/animations/") && normalized.ends_with(".bin") {
-            tracing::info!("Found animation BIN in dependencies: {}", dep_path);
+            tracing::debug!("Found animation BIN in dependencies: {}", dep_path);
             return resolve_animation_bin_from_reference(skin_bin_path, dep_path);
         }
     }
@@ -110,7 +110,7 @@ fn resolve_animation_bin_from_reference(skin_bin_path: &Path, reference_path: &s
     tracing::debug!("Looking for animation BIN at: {}", anim_bin_path.display());
     
     if anim_bin_path.exists() {
-        tracing::info!("Found animation BIN: {}", anim_bin_path.display());
+        tracing::debug!("Found animation BIN: {}", anim_bin_path.display());
         return Some(anim_bin_path);
     }
     
@@ -118,7 +118,7 @@ fn resolve_animation_bin_from_reference(skin_bin_path: &Path, reference_path: &s
     let filename_lower = filename.to_lowercase();
     let anim_bin_path_lower = animations_folder.join(&filename_lower);
     if anim_bin_path_lower.exists() {
-        tracing::info!("Found animation BIN (lowercase): {}", anim_bin_path_lower.display());
+        tracing::debug!("Found animation BIN (lowercase): {}", anim_bin_path_lower.display());
         return Some(anim_bin_path_lower);
     }
     
@@ -136,7 +136,7 @@ pub fn find_animation_bin(skn_path: &Path) -> Option<PathBuf> {
     if let Some(skin_bin_path) = crate::core::mesh::texture::find_skin_bin(skn_path) {
         tracing::debug!("Found skin BIN, checking for animation graph reference: {}", skin_bin_path.display());
         if let Some(anim_bin) = extract_animation_graph_path(&skin_bin_path) {
-            tracing::info!("Found animation BIN via skin BIN reference: {}", anim_bin.display());
+            tracing::debug!("Found animation BIN via skin BIN reference: {}", anim_bin.display());
             return Some(anim_bin);
         }
     }
@@ -173,38 +173,86 @@ pub fn find_animation_bin(skn_path: &Path) -> Option<PathBuf> {
     }
     
     // Strategy 3: Look for data/characters/{champion}/animations/ structure
+    // Extract champion name from path (characters/ pattern or WAD folder name)
     let path_str = skn_path.to_string_lossy().to_lowercase();
-    if path_str.contains("characters") {
-        // Extract champion name from path
-        if let Some(char_idx) = path_str.find("characters") {
-            let after_char = &path_str[char_idx + "characters/".len()..];
-            if let Some(slash_idx) = after_char.find(&['/', '\\'][..]) {
-                let champion = &after_char[..slash_idx];
-                
-                // Search up for content/wad folder
-                let mut current = skn_path.parent();
-                while let Some(dir) = current {
-                    let dir_name = dir.file_name().map(|n| n.to_string_lossy().to_lowercase());
-                    
-                    if dir_name.as_ref().map(|n| n.contains("content") || n.contains("wad")).unwrap_or(false) {
-                        // Look for data/characters/{champion}/animations/skin0.bin
-                        let data_path = dir
-                            .join("data")
-                            .join("characters")
-                            .join(champion)
-                            .join("animations")
-                            .join("skin0.bin");
-                        
-                        tracing::debug!("Checking data animations path: {}", data_path.display());
-                        if data_path.exists() {
-                            tracing::debug!("Found animation BIN in data folder!");
-                            return Some(data_path);
-                        }
+    let components: Vec<&str> = path_str.split(&['/', '\\'][..]).collect();
+
+    let champion_name: Option<String> = {
+        // Try characters/{champion} pattern
+        let mut found = None;
+        for (i, part) in components.iter().enumerate() {
+            if *part == "characters" && i + 1 < components.len() {
+                found = Some(components[i + 1].to_string());
+                break;
+            }
+        }
+        // Try WAD folder name (e.g., "aurora.wad.client" → "aurora")
+        if found.is_none() {
+            for part in &components {
+                if let Some(name) = part.strip_suffix(".wad.client")
+                    .or_else(|| part.strip_suffix(".wad"))
+                {
+                    if !name.is_empty() {
+                        found = Some(name.to_string());
                         break;
                     }
-                    current = dir.parent();
                 }
             }
+        }
+        found
+    };
+
+    // Also extract skin folder (e.g., "skin11") for targeted lookup
+    let skin_folder: Option<String> = {
+        let mut found = None;
+        for part in components.iter().rev() {
+            if part.starts_with("skin") && part.len() > 4 && part[4..].chars().all(|c| c.is_ascii_digit()) {
+                found = Some(part.to_string());
+                break;
+            }
+        }
+        found
+    };
+
+    if let Some(ref champion) = champion_name {
+        // Search up for project root (skip WAD folders)
+        let mut current = skn_path.parent();
+        while let Some(dir) = current {
+            let data_dir = dir.join("data");
+            if data_dir.exists() && data_dir.is_dir() {
+                let dir_name = dir.file_name()
+                    .map(|n| n.to_string_lossy().to_lowercase())
+                    .unwrap_or_default();
+
+                // Skip WAD folders, keep going up
+                if dir_name.ends_with(".wad.client") || dir_name.ends_with(".wad") {
+                    current = dir.parent();
+                    continue;
+                }
+
+                let anim_dir = data_dir
+                    .join("characters")
+                    .join(champion)
+                    .join("animations");
+
+                // Try specific skin first (e.g., skin11.bin)
+                if let Some(ref skin) = skin_folder {
+                    let skin_anim = anim_dir.join(format!("{}.bin", skin));
+                    if skin_anim.exists() {
+                        tracing::debug!("Found animation BIN for {}: {}", skin, skin_anim.display());
+                        return Some(skin_anim);
+                    }
+                }
+
+                // Fall back to skin0.bin
+                let skin0_anim = anim_dir.join("skin0.bin");
+                if skin0_anim.exists() {
+                    tracing::debug!("Found animation BIN (skin0): {}", skin0_anim.display());
+                    return Some(skin0_anim);
+                }
+                break;
+            }
+            current = dir.parent();
         }
     }
     
