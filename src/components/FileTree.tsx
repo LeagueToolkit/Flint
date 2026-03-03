@@ -167,7 +167,7 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
     renamingPath,
     setRenamingPath,
 }) => {
-    const { state, dispatch, openModal, openContextMenu, showToast } = useAppState();
+    const { state, dispatch, openModal, openContextMenu, openConfirmDialog, showToast } = useAppState();
     const renameInputRef = useRef<HTMLInputElement>(null);
 
     // Apply compact-folder merging
@@ -322,15 +322,23 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
                 icon: getIcon('trash'),
                 danger: true,
                 separator: true,
-                onClick: async () => {
-                    try {
-                        await api.deleteFile(projectPath, effectiveNode.path);
-                        await refreshFileTree();
-                        showToast('success', 'Folder deleted');
-                    } catch (err) {
-                        const flintError = err as api.FlintError;
-                        showToast('error', flintError.getUserMessage?.() || 'Failed to delete folder');
-                    }
+                onClick: () => {
+                    openConfirmDialog({
+                        title: 'Delete Folder',
+                        message: `Are you sure you want to delete "${fileName}" and all its contents? This cannot be undone.`,
+                        confirmLabel: 'Delete',
+                        danger: true,
+                        onConfirm: async () => {
+                            try {
+                                await api.deleteFile(projectPath, effectiveNode.path);
+                                await refreshFileTree();
+                                showToast('success', 'Folder deleted');
+                            } catch (err) {
+                                const flintError = err as api.FlintError;
+                                showToast('error', flintError.getUserMessage?.() || 'Failed to delete folder');
+                            }
+                        },
+                    });
                 },
             });
         } else {
@@ -394,15 +402,23 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
                 icon: getIcon('trash'),
                 danger: true,
                 separator: true,
-                onClick: async () => {
-                    try {
-                        await api.deleteFile(projectPath, effectiveNode.path);
-                        await refreshFileTree();
-                        showToast('success', 'File deleted');
-                    } catch (err) {
-                        const flintError = err as api.FlintError;
-                        showToast('error', flintError.getUserMessage?.() || 'Failed to delete file');
-                    }
+                onClick: () => {
+                    openConfirmDialog({
+                        title: 'Delete File',
+                        message: `Are you sure you want to delete "${fileName}"? This cannot be undone.`,
+                        confirmLabel: 'Delete',
+                        danger: true,
+                        onConfirm: async () => {
+                            try {
+                                await api.deleteFile(projectPath, effectiveNode.path);
+                                await refreshFileTree();
+                                showToast('success', 'File deleted');
+                            } catch (err) {
+                                const flintError = err as api.FlintError;
+                                showToast('error', flintError.getUserMessage?.() || 'Failed to delete file');
+                            }
+                        },
+                    });
                 },
             });
         }

@@ -4,7 +4,7 @@
  */
 
 import React, { createContext, useContext, useReducer, useCallback, useEffect, useMemo, ReactNode } from 'react';
-import type { AppState, ModalType, Toast, RecentProject, Project, FileTreeNode, Champion, LogEntry, ContextMenuState, ContextMenuOption, ProjectTab, WadChunk, ExtractSession, WadExplorerState, WadExplorerWad, GameWadInfo } from './types';
+import type { AppState, ModalType, Toast, RecentProject, Project, FileTreeNode, Champion, LogEntry, ContextMenuState, ContextMenuOption, ConfirmDialogState, ProjectTab, WadChunk, ExtractSession, WadExplorerState, WadExplorerWad, GameWadInfo } from './types';
 
 // =============================================================================
 // Initial State
@@ -17,6 +17,9 @@ const initialState: AppState = {
 
     // Context menu
     contextMenu: null,
+
+    // Confirm dialog
+    confirmDialog: null,
 
     // Creator info (for repathing)
     creatorName: null,
@@ -106,6 +109,8 @@ type Action =
     | { type: 'TOGGLE_LOG_PANEL' }
     | { type: 'OPEN_CONTEXT_MENU'; payload: ContextMenuState }
     | { type: 'CLOSE_CONTEXT_MENU' }
+    | { type: 'OPEN_CONFIRM_DIALOG'; payload: ConfirmDialogState }
+    | { type: 'CLOSE_CONFIRM_DIALOG' }
     // WAD Explorer actions
     | { type: 'OPEN_WAD_EXPLORER' }
     | { type: 'CLOSE_WAD_EXPLORER' }
@@ -406,6 +411,18 @@ function appReducer(state: AppState, action: Action): AppState {
             return {
                 ...state,
                 contextMenu: null,
+            };
+
+        case 'OPEN_CONFIRM_DIALOG':
+            return {
+                ...state,
+                confirmDialog: action.payload,
+            };
+
+        case 'CLOSE_CONFIRM_DIALOG':
+            return {
+                ...state,
+                confirmDialog: null,
             };
 
         // =====================================================================
@@ -714,6 +731,8 @@ interface AppContextValue {
     toggleLogPanel: () => void;
     openContextMenu: (x: number, y: number, options: ContextMenuOption[]) => void;
     closeContextMenu: () => void;
+    openConfirmDialog: (dialog: ConfirmDialogState) => void;
+    closeConfirmDialog: () => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -857,6 +876,14 @@ export function AppProvider({ children }: AppProviderProps) {
         dispatch({ type: 'CLOSE_CONTEXT_MENU' });
     }, []);
 
+    const openConfirmDialog = useCallback((dialog: ConfirmDialogState) => {
+        dispatch({ type: 'OPEN_CONFIRM_DIALOG', payload: dialog });
+    }, []);
+
+    const closeConfirmDialog = useCallback(() => {
+        dispatch({ type: 'CLOSE_CONFIRM_DIALOG' });
+    }, []);
+
     const value = useMemo<AppContextValue>(() => ({
         state,
         dispatch,
@@ -873,7 +900,9 @@ export function AppProvider({ children }: AppProviderProps) {
         toggleLogPanel,
         openContextMenu,
         closeContextMenu,
-    }), [state, dispatch, setStatus, setWorking, setReady, setError, openModal, closeModal, showToast, dismissToast, addLog, clearLogs, toggleLogPanel, openContextMenu, closeContextMenu]);
+        openConfirmDialog,
+        closeConfirmDialog,
+    }), [state, dispatch, setStatus, setWorking, setReady, setError, openModal, closeModal, showToast, dismissToast, addLog, clearLogs, toggleLogPanel, openContextMenu, closeContextMenu, openConfirmDialog, closeConfirmDialog]);
 
     return React.createElement(AppContext.Provider, { value }, children);
 }

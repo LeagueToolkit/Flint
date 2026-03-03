@@ -15,6 +15,7 @@ import { WadExplorer } from './WadExplorer';
 import { CenterPanel } from './CenterPanel';
 import { StatusBar } from './StatusBar';
 import { ContextMenu } from './ContextMenu';
+import { ConfirmDialog } from './ConfirmDialog';
 import { NewProjectModal } from './modals/NewProjectModal';
 import { SettingsModal } from './modals/SettingsModal';
 import { ExportModal } from './modals/ExportModal';
@@ -310,6 +311,9 @@ export const App: React.FC = () => {
 
             {/* Context Menu */}
             <ContextMenu />
+
+            {/* Confirm Dialog */}
+            <ConfirmDialog />
         </>
     );
 };

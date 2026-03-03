@@ -68,6 +68,15 @@ export interface Chroma {
     name: string;
 }
 
+export interface ConfirmDialogState {
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    cancelLabel?: string;
+    danger?: boolean;
+    onConfirm: () => void;
+}
+
 export interface ContextMenuState {
     x: number;
     y: number;
@@ -196,6 +205,9 @@ export interface AppState {
 
     // Context menu
     contextMenu: ContextMenuState | null;
+
+    // Confirm dialog
+    confirmDialog: ConfirmDialogState | null;
 
     // Auto-update settings (persisted)
     autoUpdateEnabled: boolean;
