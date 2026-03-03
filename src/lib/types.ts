@@ -161,6 +161,8 @@ export interface AppState {
 
     // League installation
     leaguePath: string | null;
+    leaguePathPbe: string | null;
+    defaultProjectPath: string | null;
 
     // Project state (tab-based)
     openTabs: ProjectTab[];

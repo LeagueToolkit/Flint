@@ -224,7 +224,13 @@ export const TitleBar: React.FC = () => {
     return (
         <div className="titlebar" data-tauri-drag-region>
             <div className="titlebar__left" data-tauri-drag-region>
-                <div className="titlebar__logo" data-tauri-drag-region>
+                <div
+                    className="titlebar__logo"
+                    onClick={() => dispatch({ type: 'SET_STATE', payload: { currentView: 'welcome' } })}
+                    style={{ cursor: 'pointer' }}
+                    title="Go to Home"
+                    data-tauri-drag-region="false"
+                >
                     <FlintLogo />
                     <span className="titlebar__app-name">Flint</span>
                 </div>

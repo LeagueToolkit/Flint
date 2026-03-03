@@ -62,30 +62,53 @@ const HASH_FILES: &[&str] = &[
 /// Statistics about the download operation
 pub async fn download_hashes(output_dir: impl AsRef<Path>, force: bool) -> Result<DownloadStats> {
     let output_dir = output_dir.as_ref();
-    
+
     tracing::info!("Downloading hash files to: {}", output_dir.display());
     if force {
         tracing::info!("Force download enabled - will download all files");
     }
-    
+
     // Create output directory if it doesn't exist
     fs::create_dir_all(output_dir).await
         .map_err(|e| {
             tracing::error!("Failed to create output directory '{}': {}", output_dir.display(), e);
             e
         })?;
-    
+
+    // Fast path: if not forcing, check whether ALL local files are fresh.
+    // If every required hash file exists and is younger than 14 days,
+    // skip the GitHub API call entirely — no network needed.
+    if !force {
+        let mut all_fresh = true;
+        for file_name in HASH_FILES {
+            let path = output_dir.join(file_name);
+            match needs_update(&path).await {
+                Ok(true) => { all_fresh = false; break; }
+                Err(_)   => { all_fresh = false; break; }
+                Ok(false) => {}
+            }
+        }
+        if all_fresh {
+            tracing::info!("All {} hash files are up-to-date, skipping GitHub API", HASH_FILES.len());
+            return Ok(DownloadStats {
+                downloaded: 0,
+                skipped: HASH_FILES.len(),
+                errors: 0,
+            });
+        }
+    }
+
     let client = Client::builder()
         .user_agent("flint")
         .build()
         .map_err(Error::Network)?;
-    
+
     let mut stats = DownloadStats {
         downloaded: 0,
         skipped: 0,
         errors: 0,
     };
-    
+
     // Get list of files from GitHub API
     tracing::debug!("Fetching file list from GitHub API");
     let files = fetch_file_list(&client).await?;

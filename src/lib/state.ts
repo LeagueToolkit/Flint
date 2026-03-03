@@ -27,6 +27,8 @@ const initialState: AppState = {
 
     // League installation
     leaguePath: null,
+    leaguePathPbe: null,
+    defaultProjectPath: null,
 
     // Project state (tab-based)
     openTabs: [],
@@ -736,6 +738,8 @@ export function AppProvider({ children }: AppProviderProps) {
                 return {
                     ...initial,
                     leaguePath: settings.leaguePath || null,
+                    leaguePathPbe: settings.leaguePathPbe || null,
+                    defaultProjectPath: settings.defaultProjectPath || null,
                     recentProjects: settings.recentProjects || [],
                     creatorName: settings.creatorName || null,
                     autoUpdateEnabled: settings.autoUpdateEnabled !== undefined ? settings.autoUpdateEnabled : true,
@@ -754,6 +758,8 @@ export function AppProvider({ children }: AppProviderProps) {
         try {
             const settings = {
                 leaguePath: state.leaguePath,
+                leaguePathPbe: state.leaguePathPbe,
+                defaultProjectPath: state.defaultProjectPath,
                 recentProjects: state.recentProjects,
                 creatorName: state.creatorName,
                 autoUpdateEnabled: state.autoUpdateEnabled,
@@ -764,7 +770,7 @@ export function AppProvider({ children }: AppProviderProps) {
         } catch (error) {
             console.error('[Flint] Failed to save settings:', error);
         }
-    }, [state.leaguePath, state.recentProjects, state.creatorName, state.autoUpdateEnabled, state.skippedUpdateVersion, state.verboseLogging]);
+    }, [state.leaguePath, state.leaguePathPbe, state.defaultProjectPath, state.recentProjects, state.creatorName, state.autoUpdateEnabled, state.skippedUpdateVersion, state.verboseLogging]);
 
     // Toast ID counter
     const toastIdRef = React.useRef(0);

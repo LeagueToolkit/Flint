@@ -137,6 +137,13 @@ export const WelcomeScreen: React.FC = () => {
         }
     };
 
+    /** Remove a recent project from the list */
+    const handleRemoveRecent = (e: React.MouseEvent, projectPath: string) => {
+        e.stopPropagation();
+        const filtered = state.recentProjects.filter(p => p.path !== projectPath);
+        dispatch({ type: 'SET_RECENT_PROJECTS', payload: filtered });
+    };
+
     /** Open the WAD Explorer workspace */
     const handleOpenWadExplorer = () => {
         dispatch({ type: 'OPEN_WAD_EXPLORER' });
@@ -152,7 +159,7 @@ export const WelcomeScreen: React.FC = () => {
                 <h1 className="welcome__greeting">
                     {greeting}, <span className="welcome__creator-name">{creatorName}</span>
                 </h1>
-                <p className="welcome__subtitle">League of Legends Modding IDE</p>
+                <p className="welcome__subtitle">Create what you imagine</p>
             </div>
 
             {/* Two Column Layout */}
@@ -193,9 +200,20 @@ export const WelcomeScreen: React.FC = () => {
                                                 {project.champion} - {project.name}
                                             </span>
                                         </div>
-                                        <span className="welcome__recent-date">
-                                            {formatRelativeTime(project.lastOpened)}
-                                        </span>
+                                        <div className="welcome__recent-actions">
+                                            <span className="welcome__recent-date">
+                                                {formatRelativeTime(project.lastOpened)}
+                                            </span>
+                                            <button
+                                                className="welcome__recent-delete"
+                                                onClick={(e) => handleRemoveRecent(e, project.path)}
+                                                title="Remove from recent"
+                                            >
+                                                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                                    <path d="M4.5 4.5l7 7m0-7l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                                                </svg>
+                                            </button>
+                                        </div>
                                     </div>
                                 ))}
                             </div>
