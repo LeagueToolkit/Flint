@@ -838,3 +838,50 @@ export async function batchFixProjects(
 ): Promise<BatchFixResult> {
     return invokeCommand('batch_fix_projects', { projectPaths, selectedFixIds });
 }
+
+// =============================================================================
+// File Management Commands (rename, delete, open, create, duplicate)
+// =============================================================================
+
+interface RenameResult {
+    old_path: string;
+    new_path: string;
+    bin_updates: number;
+}
+
+export async function renameFile(
+    projectPath: string,
+    filePath: string,
+    newName: string
+): Promise<RenameResult> {
+    return invokeCommand('rename_file', { projectPath, filePath, newName });
+}
+
+export async function deleteFile(
+    projectPath: string,
+    filePath: string
+): Promise<void> {
+    return invokeCommand('delete_file', { projectPath, filePath });
+}
+
+export async function openInExplorer(path: string): Promise<void> {
+    return invokeCommand('open_in_explorer', { path });
+}
+
+export async function openWithDefaultApp(path: string): Promise<void> {
+    return invokeCommand('open_with_default_app', { path });
+}
+
+export async function createDirectory(
+    projectPath: string,
+    dirPath: string
+): Promise<string> {
+    return invokeCommand('create_directory', { projectPath, dirPath });
+}
+
+export async function duplicateFile(
+    projectPath: string,
+    filePath: string
+): Promise<string> {
+    return invokeCommand('duplicate_file', { projectPath, filePath });
+}

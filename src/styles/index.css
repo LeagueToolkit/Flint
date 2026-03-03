@@ -1610,6 +1610,160 @@ input.search-box__input {
   margin-top: var(--space-sm);
 }
 
+/* --------------------------------------------------------------------------
+   Project Type Selector (New Project Modal)
+   -------------------------------------------------------------------------- */
+.project-type-selector {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-md);
+}
+
+.project-type-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  background-color: var(--bg-tertiary);
+  border: 2px solid var(--border);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+  color: var(--text-secondary);
+}
+
+.project-type-card:hover {
+  border-color: #333;
+  background-color: var(--bg-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.project-type-card--selected {
+  border-color: var(--accent-primary);
+  background-color: rgba(14, 99, 156, 0.08);
+  color: var(--text-primary);
+}
+
+.project-type-card--selected:hover {
+  border-color: var(--accent-hover);
+  background-color: rgba(14, 99, 156, 0.12);
+}
+
+.project-type-card__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+  background-color: rgba(255, 255, 255, 0.03);
+  transition: color 0.2s ease;
+}
+
+.project-type-card--selected .project-type-card__icon {
+  color: var(--accent-secondary);
+  background-color: rgba(14, 99, 156, 0.12);
+}
+
+.project-type-card__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.project-type-card__title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.project-type-card__desc {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.project-type-card__badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background-color: rgba(88, 166, 255, 0.12);
+  color: var(--accent-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+/* Project Type Form - Animated transitions */
+.project-type-form {
+  display: none;
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.project-type-form--active {
+  display: block;
+  animation: projectFormIn 0.25s ease forwards;
+}
+
+@keyframes projectFormIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Loading Screen Placeholder */
+.project-type-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  padding: var(--space-2xl) var(--space-xl);
+  text-align: center;
+  min-height: 200px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+  background-color: var(--bg-tertiary);
+}
+
+.project-type-placeholder__title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.project-type-placeholder__desc {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  max-width: 340px;
+  line-height: 1.5;
+}
+
+/* Footer split layout */
+.modal__footer--split {
+  justify-content: space-between;
+}
+
+.modal__footer-actions {
+  display: flex;
+  gap: var(--space-sm);
+}
+
 .modal__header {
   display: flex;
   align-items: center;
@@ -4217,6 +4371,43 @@ input.search-box__input {
 
 .context-menu__label {
   flex: 1;
+}
+
+.context-menu__separator {
+  height: 1px;
+  background-color: var(--border);
+  margin: 4px 0;
+}
+
+.context-menu__item--disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.context-menu__item--disabled:hover {
+  background-color: transparent;
+}
+
+/* --------------------------------------------------------------------------
+   File Tree: Inline Rename Input
+   -------------------------------------------------------------------------- */
+.file-tree__rename-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0 4px;
+  font-size: var(--text-sm);
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--accent-primary);
+  border-radius: 2px;
+  outline: none;
+  height: 20px;
+  line-height: 20px;
+}
+
+.file-tree__rename-input:focus {
+  box-shadow: 0 0 0 1px var(--accent-primary);
 }
 
 /* --------------------------------------------------------------------------

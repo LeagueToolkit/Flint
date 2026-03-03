@@ -2,11 +2,11 @@
  * Flint - File Tree Component
  */
 
-import React, { useState, useMemo, useCallback, CSSProperties } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect, CSSProperties } from 'react';
 import { useAppState } from '../lib/state';
 import { getFileIcon, getExpanderIcon, getIcon } from '../lib/fileIcons';
 import * as api from '../lib/api';
-import type { FileTreeNode, ProjectTab } from '../lib/types';
+import type { FileTreeNode, ProjectTab, ContextMenuOption } from '../lib/types';
 
 // Helper to get active tab
 function getActiveTab(state: { activeTabId: string | null; openTabs: ProjectTab[] }): ProjectTab | null {
@@ -58,6 +58,9 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
     const selectedFile = activeTab?.selectedFile || null;
     const expandedFolders = activeTab?.expandedFolders || new Set<string>();
 
+    // Rename state — shared across all tree nodes
+    const [renamingPath, setRenamingPath] = useState<string | null>(null);
+
     const handleItemClick = useCallback((path: string, isFolder: boolean) => {
         if (isFolder) {
             dispatch({ type: 'TOGGLE_FOLDER', payload: path });
@@ -99,6 +102,8 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
                 expandedFolders={expandedFolders}
                 onItemClick={handleItemClick}
                 onDeepToggle={handleDeepToggle}
+                renamingPath={renamingPath}
+                setRenamingPath={setRenamingPath}
             />
         </div>
     );
@@ -111,6 +116,8 @@ interface TreeNodeProps {
     expandedFolders: Set<string>;
     onItemClick: (path: string, isFolder: boolean) => void;
     onDeepToggle: (paths: string[], expand: boolean) => void;
+    renamingPath: string | null;
+    setRenamingPath: (path: string | null) => void;
 }
 
 // Compact folders: merge single-child directory chains into one label
@@ -138,6 +145,18 @@ function collectAllFolderPaths(node: FileTreeNode): string[] {
     return result;
 }
 
+// Check if a path is the "content" folder (root layer folder for the project)
+function isContentFolder(path: string): boolean {
+    const normalized = path.replace(/\\/g, '/');
+    return normalized === 'content' || normalized.endsWith('/content');
+}
+
+// Get just the filename from a path
+function getFileName(path: string): string {
+    const parts = path.replace(/\\/g, '/').split('/');
+    return parts[parts.length - 1] || path;
+}
+
 const TreeNode: React.FC<TreeNodeProps> = React.memo(({
     node,
     depth,
@@ -145,16 +164,46 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
     expandedFolders,
     onItemClick,
     onDeepToggle,
+    renamingPath,
+    setRenamingPath,
 }) => {
-    const { openModal, openContextMenu } = useAppState();
+    const { state, dispatch, openModal, openContextMenu, showToast } = useAppState();
+    const renameInputRef = useRef<HTMLInputElement>(null);
 
     // Apply compact-folder merging
     const { displayPath, effectiveNode } = node.isDirectory ? compactNode(node) : { displayPath: node.name, effectiveNode: node };
     const isExpanded = expandedFolders.has(effectiveNode.path);
     const isSelected = selectedFile === effectiveNode.path;
+    const isRenaming = renamingPath === effectiveNode.path;
+
+    const activeTab = getActiveTab(state);
+    const projectPath = activeTab?.projectPath || '';
+
+    // Focus rename input when it appears
+    useEffect(() => {
+        if (isRenaming && renameInputRef.current) {
+            const input = renameInputRef.current;
+            input.focus();
+            // Select filename without extension for files
+            const name = getFileName(effectiveNode.path);
+            const dotIdx = name.lastIndexOf('.');
+            if (!effectiveNode.isDirectory && dotIdx > 0) {
+                input.setSelectionRange(0, dotIdx);
+            } else {
+                input.select();
+            }
+        }
+    }, [isRenaming]);
+
+    const refreshFileTree = async () => {
+        if (!activeTab) return;
+        const files = await api.listProjectFiles(activeTab.projectPath);
+        dispatch({ type: 'SET_FILE_TREE', payload: files });
+    };
 
     const handleClick = (e: React.MouseEvent) => {
         e.stopPropagation();
+        if (isRenaming) return;
         if (e.shiftKey && effectiveNode.isDirectory) {
             // Deep expand/collapse
             const allPaths = collectAllFolderPaths(effectiveNode);
@@ -164,19 +213,201 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
         }
     };
 
+    const handleRenameSubmit = async (newName: string) => {
+        setRenamingPath(null);
+        const currentName = getFileName(effectiveNode.path);
+        if (!newName || newName === currentName) return;
+
+        try {
+            const result = await api.renameFile(projectPath, effectiveNode.path, newName);
+            await refreshFileTree();
+            if (result.bin_updates > 0) {
+                showToast('success', `Renamed and updated ${result.bin_updates} BIN file${result.bin_updates > 1 ? 's' : ''}`);
+            } else {
+                showToast('success', 'File renamed');
+            }
+        } catch (err) {
+            const flintError = err as api.FlintError;
+            showToast('error', flintError.getUserMessage?.() || 'Failed to rename');
+        }
+    };
+
+    const handleRenameKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter') {
+            handleRenameSubmit(e.currentTarget.value.trim());
+        } else if (e.key === 'Escape') {
+            setRenamingPath(null);
+        }
+    };
+
     const handleContextMenu = (e: React.MouseEvent) => {
         e.preventDefault();
         e.stopPropagation();
 
+        const fullPath = projectPath
+            ? `${projectPath.replace(/\\/g, '/')}/${effectiveNode.path}`
+            : effectiveNode.path;
+        const fileName = getFileName(effectiveNode.path);
+        const ext = fileName.includes('.') ? fileName.split('.').pop()?.toLowerCase() || '' : '';
+
+        const options: ContextMenuOption[] = [];
+
         if (effectiveNode.isDirectory) {
-            openContextMenu(e.clientX, e.clientY, [
-                {
+            // --- Directory context menu ---
+
+            // Content folder gets "Create New Layer" placeholder
+            if (isContentFolder(effectiveNode.path)) {
+                options.push({
+                    label: 'Create New Layer',
+                    icon: getIcon('plus'),
+                    onClick: () => showToast('info', 'Layer creation coming soon!'),
+                    disabled: true,
+                });
+                options.push({
                     label: 'Batch Recolor',
                     icon: getIcon('texture'),
-                    onClick: () => openModal('recolor', { filePath: effectiveNode.path, isFolder: true })
-                }
-            ]);
+                    separator: true,
+                    onClick: () => openModal('recolor', { filePath: effectiveNode.path, isFolder: true }),
+                });
+            } else {
+                options.push({
+                    label: 'Batch Recolor',
+                    icon: getIcon('texture'),
+                    onClick: () => openModal('recolor', { filePath: effectiveNode.path, isFolder: true }),
+                });
+            }
+
+            options.push({
+                label: 'New Folder',
+                icon: getIcon('folder'),
+                separator: true,
+                onClick: async () => {
+                    const newDir = `${effectiveNode.path}/New Folder`;
+                    try {
+                        await api.createDirectory(projectPath, newDir);
+                        await refreshFileTree();
+                    } catch (err) {
+                        const flintError = err as api.FlintError;
+                        showToast('error', flintError.getUserMessage?.() || 'Failed to create folder');
+                    }
+                },
+            });
+
+            options.push({
+                label: 'Rename',
+                icon: getIcon('text'),
+                onClick: () => setRenamingPath(effectiveNode.path),
+            });
+
+            options.push({
+                label: 'Copy Path',
+                icon: getIcon('code'),
+                separator: true,
+                onClick: () => navigator.clipboard.writeText(fullPath.replace(/\//g, '\\')),
+            });
+            options.push({
+                label: 'Copy Relative Path',
+                onClick: () => navigator.clipboard.writeText(effectiveNode.path),
+            });
+
+            options.push({
+                label: 'Reveal in Explorer',
+                icon: getIcon('folderOpen2'),
+                separator: true,
+                onClick: () => api.openInExplorer(fullPath.replace(/\//g, '\\')).catch(() => {}),
+            });
+
+            options.push({
+                label: 'Delete',
+                icon: getIcon('trash'),
+                danger: true,
+                separator: true,
+                onClick: async () => {
+                    try {
+                        await api.deleteFile(projectPath, effectiveNode.path);
+                        await refreshFileTree();
+                        showToast('success', 'Folder deleted');
+                    } catch (err) {
+                        const flintError = err as api.FlintError;
+                        showToast('error', flintError.getUserMessage?.() || 'Failed to delete folder');
+                    }
+                },
+            });
+        } else {
+            // --- File context menu ---
+
+            options.push({
+                label: 'Rename',
+                icon: getIcon('text'),
+                onClick: () => setRenamingPath(effectiveNode.path),
+            });
+
+            options.push({
+                label: 'Duplicate',
+                icon: getIcon('file'),
+                onClick: async () => {
+                    try {
+                        await api.duplicateFile(projectPath, effectiveNode.path);
+                        await refreshFileTree();
+                        showToast('success', 'File duplicated');
+                    } catch (err) {
+                        const flintError = err as api.FlintError;
+                        showToast('error', flintError.getUserMessage?.() || 'Failed to duplicate');
+                    }
+                },
+            });
+
+            // Recolor option for texture files
+            if (ext === 'dds' || ext === 'tex') {
+                options.push({
+                    label: 'Recolor',
+                    icon: getIcon('texture'),
+                    separator: true,
+                    onClick: () => openModal('recolor', { filePath: effectiveNode.path, isFolder: false }),
+                });
+            }
+
+            options.push({
+                label: 'Copy Path',
+                icon: getIcon('code'),
+                separator: true,
+                onClick: () => navigator.clipboard.writeText(fullPath.replace(/\//g, '\\')),
+            });
+            options.push({
+                label: 'Copy Relative Path',
+                onClick: () => navigator.clipboard.writeText(effectiveNode.path),
+            });
+
+            options.push({
+                label: 'Reveal in Explorer',
+                icon: getIcon('folderOpen2'),
+                separator: true,
+                onClick: () => api.openInExplorer(fullPath.replace(/\//g, '\\')).catch(() => {}),
+            });
+            options.push({
+                label: 'Open with Default App',
+                onClick: () => api.openWithDefaultApp(fullPath.replace(/\//g, '\\')).catch(() => {}),
+            });
+
+            options.push({
+                label: 'Delete',
+                icon: getIcon('trash'),
+                danger: true,
+                separator: true,
+                onClick: async () => {
+                    try {
+                        await api.deleteFile(projectPath, effectiveNode.path);
+                        await refreshFileTree();
+                        showToast('success', 'File deleted');
+                    } catch (err) {
+                        const flintError = err as api.FlintError;
+                        showToast('error', flintError.getUserMessage?.() || 'Failed to delete file');
+                    }
+                },
+            });
         }
+
+        openContextMenu(e.clientX, e.clientY, options);
     };
 
     const icon = getFileIcon(effectiveNode.name, effectiveNode.isDirectory, isExpanded);
@@ -202,18 +433,29 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
                     className="file-tree__icon"
                     dangerouslySetInnerHTML={{ __html: icon }}
                 />
-                <span className="file-tree__name">
-                    {displayPath.includes('/') ? (
-                        displayPath.split('/').map((segment, idx, arr) => (
-                            <React.Fragment key={idx}>
-                                <span className="file-tree__compact-segment">{segment}</span>
-                                {idx < arr.length - 1 && <span className="file-tree__compact-separator">/</span>}
-                            </React.Fragment>
-                        ))
-                    ) : (
-                        displayPath
-                    )}
-                </span>
+                {isRenaming ? (
+                    <input
+                        ref={renameInputRef}
+                        className="file-tree__rename-input"
+                        defaultValue={getFileName(effectiveNode.path)}
+                        onBlur={(e) => handleRenameSubmit(e.currentTarget.value.trim())}
+                        onKeyDown={handleRenameKeyDown}
+                        onClick={(e) => e.stopPropagation()}
+                    />
+                ) : (
+                    <span className="file-tree__name">
+                        {displayPath.includes('/') ? (
+                            displayPath.split('/').map((segment, idx, arr) => (
+                                <React.Fragment key={idx}>
+                                    <span className="file-tree__compact-segment">{segment}</span>
+                                    {idx < arr.length - 1 && <span className="file-tree__compact-separator">/</span>}
+                                </React.Fragment>
+                            ))
+                        ) : (
+                            displayPath
+                        )}
+                    </span>
+                )}
             </div>
             {effectiveNode.isDirectory && isExpanded && effectiveNode.children && (
                 <div className="file-tree__children">
@@ -226,6 +468,8 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
                             expandedFolders={expandedFolders}
                             onItemClick={onItemClick}
                             onDeepToggle={onDeepToggle}
+                            renamingPath={renamingPath}
+                            setRenamingPath={setRenamingPath}
                         />
                     ))}
                 </div>

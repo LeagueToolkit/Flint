@@ -79,6 +79,8 @@ export interface ContextMenuOption {
     icon?: string;
     onClick: () => void;
     danger?: boolean;
+    separator?: boolean;
+    disabled?: boolean;
 }
 
 export interface ProjectTab {

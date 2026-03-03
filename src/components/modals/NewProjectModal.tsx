@@ -1,6 +1,6 @@
 /**
  * Flint - New Project Modal Component
- * 
+ *
  * Uses DataDragon/CommunityDragon API for champion/skin selection
  */
 
@@ -11,9 +11,12 @@ import * as datadragon from '../../lib/datadragon';
 import { appDataDir } from '@tauri-apps/api/path';
 import type { DDragonChampion, DDragonSkin } from '../../lib/datadragon';
 
+type ProjectType = 'skin' | 'loading-screen';
+
 export const NewProjectModal: React.FC = () => {
     const { state, dispatch, closeModal, showToast, setWorking, setReady } = useAppState();
 
+    const [projectType, setProjectType] = useState<ProjectType>('skin');
     const [projectName, setProjectName] = useState('');
     const [projectPath, setProjectPath] = useState('');
     const [selectedChampion, setSelectedChampion] = useState<DDragonChampion | null>(null);
@@ -189,6 +192,9 @@ export const NewProjectModal: React.FC = () => {
         ? champions.filter(c => c.name.toLowerCase().includes(championSearch.toLowerCase()))
         : champions;
 
+    const canCreate = projectType === 'skin'
+        && !!projectName && !!projectPath && !!selectedChampion && !!selectedSkin && !isCreating;
+
     if (!isVisible) return null;
 
     return (
@@ -210,109 +216,178 @@ export const NewProjectModal: React.FC = () => {
                 </div>
 
                 <div className="modal__body">
+                    {/* Project Type Selector */}
                     <div className="form-group">
-                        <label className="form-label">Project Name</label>
-                        <input
-                            type="text"
-                            className="form-input"
-                            placeholder="e.g., Ahri Base Rework"
-                            value={projectName}
-                            onChange={(e) => setProjectName(e.target.value)}
-                        />
-                    </div>
+                        <label className="form-label">Project Type</label>
+                        <div className="project-type-selector">
+                            <button
+                                className={`project-type-card${projectType === 'skin' ? ' project-type-card--selected' : ''}`}
+                                onClick={() => setProjectType('skin')}
+                            >
+                                <div className="project-type-card__icon">
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+                                        <path d="M7 12.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zM10 8.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zM14 8.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zM17 12.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3z" fill="currentColor"/>
+                                        <path d="M16.36 14.64a3 3 0 01-2.83 2.36c-.55 0-1-.45-1-1v-1a1 1 0 00-1-1h-1a1 1 0 00-1 1v1c0 .55-.45 1-1 1a3 3 0 01-2.83-2.36" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/>
+                                    </svg>
+                                </div>
+                                <div className="project-type-card__text">
+                                    <span className="project-type-card__title">Skin Project</span>
+                                    <span className="project-type-card__desc">Modify champion skins, textures, and models</span>
+                                </div>
+                            </button>
 
-                    <div className="form-group">
-                        <label className="form-label">Project Location</label>
-                        <div className="form-input--with-button">
-                            <input
-                                type="text"
-                                className="form-input"
-                                placeholder="Select folder..."
-                                value={projectPath}
-                                onChange={(e) => setProjectPath(e.target.value)}
-                            />
-                            <button className="btn btn--secondary" onClick={handleBrowsePath}>
-                                Browse
+                            <button
+                                className={`project-type-card${projectType === 'loading-screen' ? ' project-type-card--selected' : ''}`}
+                                onClick={() => setProjectType('loading-screen')}
+                            >
+                                <div className="project-type-card__icon">
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                                        <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+                                        <polygon points="10,9 10,15 15,12" fill="currentColor"/>
+                                    </svg>
+                                </div>
+                                <div className="project-type-card__text">
+                                    <span className="project-type-card__title">
+                                        Animated Loading Screen
+                                        <span className="project-type-card__badge">Coming Soon</span>
+                                    </span>
+                                    <span className="project-type-card__desc">Create custom animated loading screens</span>
+                                </div>
                             </button>
                         </div>
                     </div>
 
-                    <div className="form-group">
-                        <label className="form-label">Champion</label>
-                        <input
-                            type="text"
-                            className="form-input form-input--search"
-                            placeholder="Search champions..."
-                            value={championSearch}
-                            onChange={(e) => setChampionSearch(e.target.value)}
-                        />
-                        <div className="champion-grid">
-                            {filteredChampions.map((champ) => (
-                                <div
-                                    key={champ.id}
-                                    className={`champion-card ${selectedChampion?.id === champ.id ? 'champion-card--selected' : ''}`}
-                                    onClick={() => {
-                                        setSelectedChampion(champ);
-                                        setChampionSearch('');
-                                    }}
-                                    title={champ.name}
-                                >
-                                    <img
-                                        src={datadragon.getChampionIconUrl(champ.id)}
-                                        alt={champ.name}
-                                        className="champion-card__icon"
-                                        onError={(e) => {
-                                            (e.target as HTMLImageElement).style.display = 'none';
-                                        }}
-                                    />
-                                    <span className="champion-card__name">{champ.name}</span>
-                                </div>
-                            ))}
-                        </div>
-                        {selectedChampion && (
-                            <div className="form-hint">Selected: {selectedChampion.name}</div>
-                        )}
-                    </div>
-
-                    {selectedChampion && (
+                    {/* Skin Project Form */}
+                    <div className={`project-type-form${projectType === 'skin' ? ' project-type-form--active' : ''}`}>
                         <div className="form-group">
-                            <label className="form-label">Skin</label>
-                            <div className="skin-grid">
-                                {skins.map((skin) => (
+                            <label className="form-label">Project Name</label>
+                            <input
+                                type="text"
+                                className="form-input"
+                                placeholder="e.g., Ahri Base Rework"
+                                value={projectName}
+                                onChange={(e) => setProjectName(e.target.value)}
+                            />
+                        </div>
+
+                        <div className="form-group">
+                            <label className="form-label">Project Location</label>
+                            <div className="form-input--with-button">
+                                <input
+                                    type="text"
+                                    className="form-input"
+                                    placeholder="Select folder..."
+                                    value={projectPath}
+                                    onChange={(e) => setProjectPath(e.target.value)}
+                                />
+                                <button className="btn btn--secondary" onClick={handleBrowsePath}>
+                                    Browse
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="form-group">
+                            <label className="form-label">Champion</label>
+                            <input
+                                type="text"
+                                className="form-input form-input--search"
+                                placeholder="Search champions..."
+                                value={championSearch}
+                                onChange={(e) => setChampionSearch(e.target.value)}
+                            />
+                            <div className="champion-grid">
+                                {filteredChampions.map((champ) => (
                                     <div
-                                        key={skin.id}
-                                        className={`skin-card ${selectedSkin?.id === skin.id ? 'skin-card--selected' : ''}`}
-                                        onClick={() => setSelectedSkin(skin)}
+                                        key={champ.id}
+                                        className={`champion-card ${selectedChampion?.id === champ.id ? 'champion-card--selected' : ''}`}
+                                        onClick={() => {
+                                            setSelectedChampion(champ);
+                                            setChampionSearch('');
+                                        }}
+                                        title={champ.name}
                                     >
                                         <img
-                                            src={datadragon.getSkinSplashUrl(selectedChampion.alias, skin.num)}
-                                            alt={skin.name}
-                                            className="skin-card__splash"
+                                            src={datadragon.getChampionIconUrl(champ.id)}
+                                            alt={champ.name}
+                                            className="champion-card__icon"
                                             onError={(e) => {
-                                                // Fallback to CommunityDragon
-                                                (e.target as HTMLImageElement).src =
-                                                    datadragon.getSkinSplashCDragonUrl(selectedChampion.id, skin.id);
+                                                (e.target as HTMLImageElement).style.display = 'none';
                                             }}
                                         />
-                                        <span className="skin-card__name">{skin.name}</span>
+                                        <span className="champion-card__name">{champ.name}</span>
                                     </div>
                                 ))}
                             </div>
+                            {selectedChampion && (
+                                <div className="form-hint">Selected: {selectedChampion.name}</div>
+                            )}
                         </div>
-                    )}
+
+                        {selectedChampion && (
+                            <div className="form-group">
+                                <label className="form-label">Skin</label>
+                                <div className="skin-grid">
+                                    {skins.map((skin) => (
+                                        <div
+                                            key={skin.id}
+                                            className={`skin-card ${selectedSkin?.id === skin.id ? 'skin-card--selected' : ''}`}
+                                            onClick={() => setSelectedSkin(skin)}
+                                        >
+                                            <img
+                                                src={datadragon.getSkinSplashUrl(selectedChampion.alias, skin.num)}
+                                                alt={skin.name}
+                                                className="skin-card__splash"
+                                                onError={(e) => {
+                                                    (e.target as HTMLImageElement).src =
+                                                        datadragon.getSkinSplashCDragonUrl(selectedChampion.id, skin.id);
+                                                }}
+                                            />
+                                            <span className="skin-card__name">{skin.name}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Loading Screen Placeholder */}
+                    <div className={`project-type-form${projectType === 'loading-screen' ? ' project-type-form--active' : ''}`}>
+                        <div className="project-type-placeholder">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
+                                <rect x="3" y="5" width="18" height="14" rx="2" stroke="var(--text-muted)" strokeWidth="1.5" fill="none"/>
+                                <polygon points="10,9 10,15 15,12" fill="var(--text-muted)"/>
+                            </svg>
+                            <span className="project-type-placeholder__title">Animated Loading Screens</span>
+                            <span className="project-type-placeholder__desc">
+                                Create and customize animated loading screens for League of Legends.
+                                This feature is currently in development.
+                            </span>
+                        </div>
+                    </div>
                 </div>
 
-                <div className="modal__footer">
-                    <button className="btn btn--secondary" onClick={closeModal}>
-                        Cancel
-                    </button>
+                <div className="modal__footer modal__footer--split">
                     <button
-                        className="btn btn--primary"
-                        onClick={handleCreate}
-                        disabled={!projectName || !projectPath || !selectedChampion || !selectedSkin || isCreating}
+                        className="btn btn--secondary"
+                        onClick={() => showToast('info', 'Launcher sync coming soon!')}
+                        title="Sync project with launcher"
                     >
-                        Create Project
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13.65 2.35A7 7 0 1014.25 8h-1.5a5.5 5.5 0 11-1.1-3.4l1.1 1.1.9-2.35z" fill="currentColor"/></svg>
+                        Sync with Launcher
                     </button>
+                    <div className="modal__footer-actions">
+                        <button className="btn btn--secondary" onClick={closeModal}>
+                            Cancel
+                        </button>
+                        <button
+                            className="btn btn--primary"
+                            onClick={handleCreate}
+                            disabled={!canCreate}
+                        >
+                            Create Project
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

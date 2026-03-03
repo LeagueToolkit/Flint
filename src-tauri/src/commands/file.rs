@@ -7,6 +7,7 @@ use walkdir::WalkDir;
 use image::{RgbaImage, Rgba};
 use ltk_texture::Texture;
 use std::io::Cursor;
+use std::process::Command;
 
 /// Information about a file
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -655,4 +656,247 @@ pub async fn colorize_folder(
     }
 
     Ok(RecolorFolderResult { processed, failed })
+}
+
+// =============================================================================
+// File Management Commands (rename, delete, open, create directory)
+// =============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RenameResult {
+    pub old_path: String,
+    pub new_path: String,
+    pub bin_updates: u32,
+}
+
+/// Rename a file or directory, optionally updating references in .bin files
+#[tauri::command]
+pub async fn rename_file(
+    project_path: String,
+    file_path: String,
+    new_name: String,
+) -> Result<RenameResult, String> {
+    let full_path = PathBuf::from(&project_path).join(&file_path);
+    if !full_path.exists() {
+        return Err(format!("Path does not exist: {}", file_path));
+    }
+
+    let parent = full_path.parent().ok_or("Cannot get parent directory")?;
+    let new_full_path = parent.join(&new_name);
+
+    if new_full_path.exists() {
+        return Err(format!("A file or folder named '{}' already exists", new_name));
+    }
+
+    // Compute new relative path
+    let project_root = PathBuf::from(&project_path);
+    let new_rel_path = new_full_path
+        .strip_prefix(&project_root)
+        .map_err(|_| "Failed to compute relative path")?
+        .to_string_lossy()
+        .replace('\\', "/");
+
+    // Rename on disk
+    fs::rename(&full_path, &new_full_path)
+        .map_err(|e| format!("Failed to rename: {}", e))?;
+
+    // Update references in .bin files if the renamed item is inside content/
+    let bin_updates = if file_path.starts_with("content/") || file_path.starts_with("content\\") {
+        update_bin_references(&project_root, &file_path, &new_rel_path)
+    } else {
+        0
+    };
+
+    Ok(RenameResult {
+        old_path: file_path,
+        new_path: new_rel_path,
+        bin_updates,
+    })
+}
+
+/// Walk all .bin files in the project and replace old path references with new path
+fn update_bin_references(project_root: &Path, old_rel: &str, new_rel: &str) -> u32 {
+    // Extract the asset-relative portion (after content/base/ or content/{layer}/)
+    let extract_asset_path = |rel: &str| -> Option<String> {
+        // content/base/assets/... → assets/...
+        let parts: Vec<&str> = rel.splitn(3, '/').collect();
+        if parts.len() >= 3 {
+            Some(parts[2].to_string())
+        } else {
+            None
+        }
+    };
+
+    let old_asset = match extract_asset_path(old_rel) {
+        Some(p) => p,
+        None => return 0,
+    };
+    let new_asset = match extract_asset_path(new_rel) {
+        Some(p) => p,
+        None => return 0,
+    };
+
+    let mut count = 0u32;
+    for entry in WalkDir::new(project_root).into_iter().filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default().to_lowercase();
+        if ext != "bin" {
+            continue;
+        }
+
+        // Read as bytes and do a simple substring replacement on the raw data.
+        // BIN files store path strings as UTF-8 inline, so byte-level replace works.
+        if let Ok(data) = fs::read(path) {
+            let old_bytes = old_asset.as_bytes();
+            let new_bytes = new_asset.as_bytes();
+            if old_bytes.len() == new_bytes.len() {
+                // Same-length: safe in-place replacement
+                let mut modified = data.clone();
+                let mut found = false;
+                let mut i = 0;
+                while i + old_bytes.len() <= modified.len() {
+                    if &modified[i..i + old_bytes.len()] == old_bytes {
+                        modified[i..i + old_bytes.len()].copy_from_slice(new_bytes);
+                        found = true;
+                        i += old_bytes.len();
+                    } else {
+                        i += 1;
+                    }
+                }
+                if found && fs::write(path, &modified).is_ok() {
+                    count += 1;
+                }
+            }
+            // Different-length names: skip binary patching (would corrupt BIN structure).
+            // A future version could use proper BIN parsing for length-changing renames.
+        }
+    }
+    count
+}
+
+/// Delete a file or directory
+#[tauri::command]
+pub async fn delete_file(
+    project_path: String,
+    file_path: String,
+) -> Result<(), String> {
+    let full_path = PathBuf::from(&project_path).join(&file_path);
+    if !full_path.exists() {
+        return Err(format!("Path does not exist: {}", file_path));
+    }
+
+    if full_path.is_dir() {
+        fs::remove_dir_all(&full_path)
+            .map_err(|e| format!("Failed to delete directory: {}", e))?;
+    } else {
+        fs::remove_file(&full_path)
+            .map_err(|e| format!("Failed to delete file: {}", e))?;
+    }
+
+    Ok(())
+}
+
+/// Open a path in the system file explorer (Windows Explorer)
+#[tauri::command]
+pub async fn open_in_explorer(path: String) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    if !p.exists() {
+        return Err(format!("Path does not exist: {}", path));
+    }
+
+    // On Windows, use explorer /select to highlight the file
+    if p.is_file() {
+        Command::new("explorer")
+            .arg("/select,")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to open explorer: {}", e))?;
+    } else {
+        Command::new("explorer")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to open explorer: {}", e))?;
+    }
+
+    Ok(())
+}
+
+/// Open a file with the system's preferred/default application
+#[tauri::command]
+pub async fn open_with_default_app(path: String) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    if !p.exists() {
+        return Err(format!("Path does not exist: {}", path));
+    }
+
+    Command::new("cmd")
+        .args(["/C", "start", "", &path])
+        .spawn()
+        .map_err(|e| format!("Failed to open file: {}", e))?;
+
+    Ok(())
+}
+
+/// Create a new directory inside the project
+#[tauri::command]
+pub async fn create_directory(
+    project_path: String,
+    dir_path: String,
+) -> Result<String, String> {
+    let full_path = PathBuf::from(&project_path).join(&dir_path);
+    if full_path.exists() {
+        return Err(format!("Directory already exists: {}", dir_path));
+    }
+
+    fs::create_dir_all(&full_path)
+        .map_err(|e| format!("Failed to create directory: {}", e))?;
+
+    Ok(dir_path)
+}
+
+/// Duplicate a file (copy to same directory with " (copy)" suffix)
+#[tauri::command]
+pub async fn duplicate_file(
+    project_path: String,
+    file_path: String,
+) -> Result<String, String> {
+    let full_path = PathBuf::from(&project_path).join(&file_path);
+    if !full_path.is_file() {
+        return Err(format!("Not a file: {}", file_path));
+    }
+
+    let stem = full_path.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
+    let ext = full_path.extension().and_then(|e| e.to_str());
+
+    let parent = full_path.parent().ok_or("Cannot get parent directory")?;
+    let mut copy_name = match ext {
+        Some(e) => format!("{} (copy).{}", stem, e),
+        None => format!("{} (copy)", stem),
+    };
+
+    let mut dest = parent.join(&copy_name);
+    let mut counter = 2;
+    while dest.exists() {
+        copy_name = match ext {
+            Some(e) => format!("{} (copy {}).{}", stem, counter, e),
+            None => format!("{} (copy {})", stem, counter),
+        };
+        dest = parent.join(&copy_name);
+        counter += 1;
+    }
+
+    fs::copy(&full_path, &dest)
+        .map_err(|e| format!("Failed to duplicate file: {}", e))?;
+
+    let project_root = PathBuf::from(&project_path);
+    let new_rel = dest
+        .strip_prefix(&project_root)
+        .map_err(|_| "Failed to compute relative path")?
+        .to_string_lossy()
+        .replace('\\', "/");
+
+    Ok(new_rel)
 }

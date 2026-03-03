@@ -46,22 +46,27 @@ export const ContextMenu: React.FC = () => {
             onClick={(e) => e.stopPropagation()}
         >
             {menu.options.map((option, index) => (
-                <div
-                    key={index}
-                    className={`context-menu__item ${option.danger ? 'context-menu__item--danger' : ''}`}
-                    onClick={() => {
-                        option.onClick();
-                        closeContextMenu();
-                    }}
-                >
-                    {option.icon && (
-                        <span
-                            className="context-menu__icon"
-                            dangerouslySetInnerHTML={{ __html: option.icon }}
-                        />
+                <React.Fragment key={index}>
+                    {option.separator && index > 0 && (
+                        <div className="context-menu__separator" />
                     )}
-                    <span className="context-menu__label">{option.label}</span>
-                </div>
+                    <div
+                        className={`context-menu__item${option.danger ? ' context-menu__item--danger' : ''}${option.disabled ? ' context-menu__item--disabled' : ''}`}
+                        onClick={() => {
+                            if (option.disabled) return;
+                            option.onClick();
+                            closeContextMenu();
+                        }}
+                    >
+                        {option.icon && (
+                            <span
+                                className="context-menu__icon"
+                                dangerouslySetInnerHTML={{ __html: option.icon }}
+                            />
+                        )}
+                        <span className="context-menu__label">{option.label}</span>
+                    </div>
+                </React.Fragment>
             ))}
         </div>
     );

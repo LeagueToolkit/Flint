@@ -135,6 +135,13 @@ fn main() {
             commands::file::recolor_folder,
             commands::file::colorize_image,
             commands::file::colorize_folder,
+            // File management commands
+            commands::file::rename_file,
+            commands::file::delete_file,
+            commands::file::open_in_explorer,
+            commands::file::open_with_default_app,
+            commands::file::create_directory,
+            commands::file::duplicate_file,
             // Export commands
             commands::export::repath_project_cmd,
             commands::export::export_fantome,
