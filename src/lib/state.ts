@@ -52,6 +52,7 @@ const initialState: AppState = {
         expandedWads: new Set<string>(),
         expandedFolders: new Set<string>(),
         searchQuery: '',
+        checkedFiles: new Set<string>(),
     },
 
     // UI state
@@ -122,6 +123,8 @@ type Action =
     | { type: 'TOGGLE_WAD_EXPLORER_FOLDER'; payload: string }
     | { type: 'BULK_SET_WAD_EXPLORER_FOLDERS'; payload: { keys: string[]; expand: boolean } }
     | { type: 'SET_WAD_EXPLORER_SEARCH'; payload: string }
+    | { type: 'WAD_EXPLORER_TOGGLE_CHECK'; payload: { keys: string[]; checked: boolean } }
+    | { type: 'WAD_EXPLORER_CLEAR_CHECKS' }
     // Extract session actions
     | { type: 'OPEN_EXTRACT_SESSION'; payload: { id: string; wadPath: string } }
     | { type: 'CLOSE_EXTRACT_SESSION'; payload: string }
@@ -473,6 +476,7 @@ function appReducer(state: AppState, action: Action): AppState {
                     scanStatus: status,
                     scanError: error ?? null,
                     wads: newWads,
+                    checkedFiles: new Set<string>(),
                 },
             };
         }
@@ -557,6 +561,24 @@ function appReducer(state: AppState, action: Action): AppState {
             return {
                 ...state,
                 wadExplorer: { ...state.wadExplorer, searchQuery: action.payload },
+            };
+
+        case 'WAD_EXPLORER_TOGGLE_CHECK': {
+            const { keys, checked } = action.payload;
+            const next = new Set(state.wadExplorer.checkedFiles);
+            for (const k of keys) {
+                if (checked) next.add(k); else next.delete(k);
+            }
+            return {
+                ...state,
+                wadExplorer: { ...state.wadExplorer, checkedFiles: next },
+            };
+        }
+
+        case 'WAD_EXPLORER_CLEAR_CHECKS':
+            return {
+                ...state,
+                wadExplorer: { ...state.wadExplorer, checkedFiles: new Set<string>() },
             };
 
         // =====================================================================

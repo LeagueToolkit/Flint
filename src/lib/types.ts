@@ -156,6 +156,8 @@ export interface WadExplorerState {
     /** Set of `${wadPath}::${folderPath}` keys for expanded sub-folders */
     expandedFolders: Set<string>;
     searchQuery: string;
+    /** Set of `${wadPath}::${hash}` keys for checked files (multi-select for extraction) */
+    checkedFiles: Set<string>;
 }
 
 export interface AppState {
