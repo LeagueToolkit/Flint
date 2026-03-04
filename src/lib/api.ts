@@ -313,10 +313,10 @@ export async function loadAllWadChunks(paths: string[]): Promise<WadChunkBatch[]
 
 export async function extractWad(
     wadPath: string,
-    outputPath: string,
-    hashes: string[] | null = null
+    outputDir: string,
+    chunkHashes: string[] | null = null
 ): Promise<{ extracted: number }> {
-    return invokeCommand('extract_wad', { wadPath, outputPath, hashes });
+    return invokeCommand('extract_wad', { wadPath, outputDir, chunkHashes });
 }
 
 /**

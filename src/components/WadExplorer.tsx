@@ -192,16 +192,22 @@ function getFolderCheckState(node: VFSFolder, wadPath: string, checkedFiles: Set
     return 'none';
 }
 
-/** Get checkbox state for a WAD based on its loaded chunks */
 function getWadCheckState(wad: WadExplorerWad, checkedFiles: Set<string>): 'none' | 'some' | 'all' {
     if (wad.status !== 'loaded' || wad.chunks.length === 0) return 'none';
+    const keys = wad.chunks.map(c => makeFileKey(wad.path, c.hash));
+    return getCheckStateForKeys(keys, checkedFiles);
+}
+
+/** Get check state for an arbitrary list of file keys */
+function getCheckStateForKeys(keys: string[], checkedFiles: Set<string>): 'none' | 'some' | 'all' {
+    if (keys.length === 0) return 'none';
     let checked = 0;
-    for (const c of wad.chunks) {
-        if (checkedFiles.has(makeFileKey(wad.path, c.hash))) checked++;
+    for (const k of keys) {
+        if (checkedFiles.has(k)) checked++;
     }
-    if (checked === wad.chunks.length) return 'all';
-    if (checked > 0) return 'some';
-    return 'none';
+    if (checked === 0) return 'none';
+    if (checked === keys.length) return 'all';
+    return 'some';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -814,12 +820,18 @@ export const WadExplorer: React.FC = () => {
 
     const handleSelectAll = useCallback(() => {
         const keys: string[] = [];
+        // If search is active, only select matches. Otherwise, select everything in loaded WADs.
+        const activeSearch = searchRe || plainLower;
+
         for (const w of wadExplorer.wads) {
             if (w.status !== 'loaded') continue;
-            for (const c of w.chunks) keys.push(makeFileKey(w.path, c.hash));
+            for (const c of w.chunks) {
+                if (activeSearch && !matchChunk(c, searchRe, plainLower)) continue;
+                keys.push(makeFileKey(w.path, c.hash));
+            }
         }
         dispatch({ type: 'WAD_EXPLORER_TOGGLE_CHECK', payload: { keys, checked: true } });
-    }, [dispatch, wadExplorer.wads]);
+    }, [dispatch, wadExplorer.wads, searchRe, plainLower]);
 
     const handleDeselectAll = useCallback(() => {
         dispatch({ type: 'WAD_EXPLORER_CLEAR_CHECKS' });
@@ -1154,19 +1166,37 @@ export const WadExplorer: React.FC = () => {
                         <span
                             style={{ cursor: 'pointer', display: 'inline-flex', flexShrink: 0 }}
                             dangerouslySetInnerHTML={{
-                                __html: checkboxSvg(
-                                    wadExplorer.checkedFiles.size === 0 ? 'none'
-                                        : wadExplorer.wads.every(w => w.status !== 'loaded' || w.chunks.every(c => wadExplorer.checkedFiles.has(makeFileKey(w.path, c.hash)))) ? 'all'
-                                            : 'some'
-                                )
+                                __html: checkboxSvg((() => {
+                                    const activeSearch = searchRe || plainLower;
+                                    const allLoaded = wadExplorer.wads.filter(w => w.status === 'loaded');
+                                    let visibleKeys: string[] = [];
+                                    for (const w of allLoaded) {
+                                        for (const c of w.chunks) {
+                                            if (activeSearch && !matchChunk(c, searchRe, plainLower)) continue;
+                                            visibleKeys.push(makeFileKey(w.path, c.hash));
+                                        }
+                                    }
+                                    return getCheckStateForKeys(visibleKeys, wadExplorer.checkedFiles);
+                                })())
                             }}
                             onClick={() => {
+                                const activeSearch = searchRe || plainLower;
                                 const allLoaded = wadExplorer.wads.filter(w => w.status === 'loaded');
-                                const totalFiles = allLoaded.reduce((s, w) => s + w.chunks.length, 0);
-                                if (wadExplorer.checkedFiles.size === totalFiles) handleDeselectAll();
-                                else handleSelectAll();
+                                let visibleKeys: string[] = [];
+                                for (const w of allLoaded) {
+                                    for (const c of w.chunks) {
+                                        if (activeSearch && !matchChunk(c, searchRe, plainLower)) continue;
+                                        visibleKeys.push(makeFileKey(w.path, c.hash));
+                                    }
+                                }
+                                const state = getCheckStateForKeys(visibleKeys, wadExplorer.checkedFiles);
+                                if (state === 'all') {
+                                    handleToggleCheck(visibleKeys, false);
+                                } else {
+                                    handleSelectAll();
+                                }
                             }}
-                            title={wadExplorer.checkedFiles.size > 0 ? 'Deselect all' : 'Select all'}
+                            title={wadExplorer.checkedFiles.size > 0 ? 'Deselect matching' : 'Select matching'}
                         />
                         {wadExplorer.checkedFiles.size > 0 ? (
                             <>
@@ -1248,19 +1278,17 @@ export const WadExplorer: React.FC = () => {
                                                 style={{ cursor: 'pointer', display: 'inline-flex', flexShrink: 0 }}
                                                 dangerouslySetInnerHTML={{
                                                     __html: checkboxSvg(
-                                                        wadExplorer.wads.find(w => w.path === group.wadPath)
-                                                            ? getWadCheckState(wadExplorer.wads.find(w => w.path === group.wadPath)!, wadExplorer.checkedFiles)
-                                                            : 'none'
+                                                        (() => {
+                                                            const matchKeys = group.folders.flatMap(f => f.files.map(m => makeFileKey(group.wadPath, m.chunk.hash)));
+                                                            return getCheckStateForKeys(matchKeys, wadExplorer.checkedFiles);
+                                                        })()
                                                     )
                                                 }}
                                                 onClick={e => {
                                                     e.stopPropagation();
-                                                    const wad = wadExplorer.wads.find(w => w.path === group.wadPath);
-                                                    if (wad?.status === 'loaded') {
-                                                        const keys = wad.chunks.map(c => makeFileKey(wad.path, c.hash));
-                                                        const state = getWadCheckState(wad, wadExplorer.checkedFiles);
-                                                        handleToggleCheck(keys, state !== 'all');
-                                                    }
+                                                    const matchKeys = group.folders.flatMap(f => f.files.map(m => makeFileKey(group.wadPath, m.chunk.hash)));
+                                                    const state = getCheckStateForKeys(matchKeys, wadExplorer.checkedFiles);
+                                                    handleToggleCheck(matchKeys, state !== 'all');
                                                 }}
                                             />
                                             <span className="file-tree__icon" dangerouslySetInnerHTML={{ __html: getIcon('wad') }} />
