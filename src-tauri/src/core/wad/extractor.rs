@@ -143,7 +143,7 @@ pub fn extract_all(
     let results: Vec<(usize, usize)> = extraction_plan
         .par_chunks((extraction_plan.len() / rayon::current_num_threads().max(1)).max(1))
         .map(|slice| {
-            let mut extracted = 0usize;
+            let extracted = 0usize;
             let mut skipped  = 0usize;
             // Each rayon worker needs its own read handle into the WAD.
             // We do this by holding a per-chunk File pointer from the original.

@@ -45,11 +45,11 @@ pub async fn read_scb_mesh(path: String) -> Result<ScbMeshData, String> {
             Ok(mapping) => {
                 tracing::debug!("✓ Extracted texture mapping from .ritobin for SCB");
 
-                let mut hints = TextureHints::default();
-                hints.default_texture = mapping.default_texture;
-                for (mat_name, props) in mapping.material_properties {
-                    hints.material_hints.insert(mat_name, props);
-                }
+                let hints = TextureHints {
+                    default_texture: mapping.default_texture,
+                    material_hints: mapping.material_properties.into_iter().collect(),
+                    ..Default::default()
+                };
 
                 tracing::debug!("📊 SCB discovery: {} material hints, default={:?}",
                     hints.material_hints.len(),
@@ -287,11 +287,11 @@ pub async fn read_skn_mesh(path: String) -> Result<SknMeshData, String> {
             Ok(mapping) => {
                 tracing::debug!("✓ Extracted texture mapping from .ritobin");
 
-                let mut hints = TextureHints::default();
-                hints.default_texture = mapping.default_texture;
-                for (mat_name, props) in mapping.material_properties {
-                    hints.material_hints.insert(mat_name, props);
-                }
+                let hints = TextureHints {
+                    default_texture: mapping.default_texture,
+                    material_hints: mapping.material_properties.into_iter().collect(),
+                    ..Default::default()
+                };
 
                 tracing::debug!("📊 Discovery complete: {} material hints, default={:?}",
                     hints.material_hints.len(),

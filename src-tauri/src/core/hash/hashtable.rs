@@ -14,6 +14,7 @@ use crate::error::{Error, Result};
 /// Memory vs HashMap at ~4 M entries / ~50-char avg path:
 ///   HashMap  ≈ 420 MB (128 MB buckets + 96 MB String headers + ~200 MB data)
 ///   This     ≈ 264 MB ( 32 MB keys   + 32 MB offsets        + ~200 MB data)
+#[allow(dead_code)]
 pub struct Hashtable {
     /// Sorted hash keys (index aligns with `values`).
     keys:   Vec<u64>,
@@ -23,6 +24,7 @@ pub struct Hashtable {
     arena:  Vec<u8>,
 }
 
+#[allow(dead_code)]
 impl Hashtable {
     /// Empty table used as a no-op fallback.
     pub fn empty() -> Self {

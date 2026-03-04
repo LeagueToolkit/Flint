@@ -12,7 +12,6 @@ use crate::core::repath::{organize_project, OrganizerConfig};
 use crate::core::bin::{classify_bin, BinCategory};
 use crate::core::wad::extractor::{find_champion_wad, extract_skin_assets};
 use crate::state::LmdbCacheState;
-use league_toolkit::wad::Wad;
 use std::path::PathBuf;
 use tauri::Emitter;
 

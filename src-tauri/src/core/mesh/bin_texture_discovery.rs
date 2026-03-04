@@ -11,6 +11,7 @@ use super::texture::MaterialProperties;
 
 /// Result of texture discovery from BIN files
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
 pub struct TextureHints {
     /// Default texture for meshes without specific material
     pub default_texture: Option<String>,
@@ -435,6 +436,7 @@ fn scan_for_skin_mesh_defaults(
 }
 
 /// Extract UV parameters from StaticMaterialDef paramValues
+#[allow(clippy::type_complexity)]
 fn extract_param_values_from_fields(fields: &[Value]) -> (Option<[f32; 2]>, Option<[f32; 2]>, Option<[u32; 2]>, Option<f32>) {
     let mut uv_scale = None;
     let mut uv_offset = None;

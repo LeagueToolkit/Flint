@@ -26,6 +26,7 @@ use heed::types::{Bytes, Str};
 // ── Statics ─────────────────────────────────────────────────────────────────────
 
 /// Cache of the currently-open heed::Env.
+#[allow(clippy::type_complexity)]
 static LMDB_CACHE: OnceLock<Mutex<Option<(String, Arc<heed::Env>)>>> = OnceLock::new();
 
 /// Serialises concurrent `build_hash_db` callers.
@@ -234,11 +235,9 @@ fn build_hash_db_inner(hash_dir: &str) -> bool {
     tracing::info!("Rebuilding LMDB hash DB at {}", lmdb_dir.display());
 
     // Ensure the directory exists (first-run case).
-    if !lmdb_dir.exists() {
-        if std::fs::create_dir_all(&lmdb_dir).is_err() {
-            tracing::error!("Failed to create LMDB directory");
-            return false;
-        }
+    if !lmdb_dir.exists() && std::fs::create_dir_all(&lmdb_dir).is_err() {
+        tracing::error!("Failed to create LMDB directory");
+        return false;
     }
 
     // Drop the cached env so the next `get_or_open_env` picks up the fresh data.

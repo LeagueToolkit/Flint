@@ -1,4 +1,3 @@
-use parking_lot::Mutex;
 use std::sync::Arc;
 use crate::core::hash::{get_or_open_env, drop_lmdb_cache, build_hash_db};
 use crate::core::wad::cache::WadCache;

@@ -269,7 +269,7 @@ fn search_skins_dir(skins_dir: &Path, skin_folder: Option<&str>) -> Option<PathB
 ///
 /// DEPRECATED: Use bin_texture_discovery::discover_material_textures instead
 #[deprecated(note = "Use bin_texture_discovery::discover_material_textures instead")]
-#[allow(dead_code)]
+#[allow(dead_code, deprecated)]
 pub fn extract_texture_mapping(bin_path: &Path) -> anyhow::Result<TextureMapping> {
     let data = fs::read(bin_path)?;
     let tree = ltk_bridge::read_bin(&data)
@@ -288,7 +288,7 @@ pub fn extract_texture_mapping(bin_path: &Path) -> anyhow::Result<TextureMapping
 /// 1. valid skinMeshProperties block (with default texture)
 /// 2. materialOverride blocks (with submesh -> texture/material mappings)
 /// 3. StaticMaterialDef blocks (to resolve material links)
-#[allow(clippy::regex_creation_in_loops)]
+#[allow(clippy::regex_creation_in_loops, deprecated)]
 pub fn extract_texture_mapping_from_text(content: &str) -> anyhow::Result<TextureMapping> {
     let mut mapping = TextureMapping {
         ritobin_content: content.to_string(),
