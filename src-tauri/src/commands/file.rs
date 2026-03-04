@@ -714,27 +714,50 @@ pub async fn rename_file(
     })
 }
 
-/// Walk all .bin files in the project and replace old path references with new path
+/// Replace a filename in path strings (case-insensitive).
+/// Searches for `/old_name` (with leading slash) so only exact filenames match —
+/// e.g. renaming `white.tex` won't touch `blablabla_white.tex`.
+fn replace_filename_in_paths(text: &str, old_name: &str, new_name: &str) -> String {
+    let search = format!("/{}", old_name).to_lowercase();
+    let replace = format!("/{}", new_name);
+    let text_lower = text.to_lowercase();
+    let mut result = String::with_capacity(text.len());
+    let mut last_end = 0;
+
+    for (start, _) in text_lower.match_indices(&search) {
+        result.push_str(&text[last_end..start]);
+        result.push_str(&replace);
+        last_end = start + search.len();
+    }
+    result.push_str(&text[last_end..]);
+    result
+}
+
+/// Walk all .bin files in the project and update filename references after a rename.
+///
+/// Uses the BIN parse→text→modify→write pipeline so that different-length renames
+/// are handled correctly (string length prefixes are updated by the serializer).
+/// Matches by filename only (case-insensitive) because BIN text uses mixed-case
+/// game paths (e.g. `ASSETS/Characters/...`) that differ from the project's lowercase paths.
 fn update_bin_references(project_root: &Path, old_rel: &str, new_rel: &str) -> u32 {
-    // Extract the asset-relative portion (after content/base/ or content/{layer}/)
-    let extract_asset_path = |rel: &str| -> Option<String> {
-        // content/base/assets/... → assets/...
-        let parts: Vec<&str> = rel.splitn(3, '/').collect();
-        if parts.len() >= 3 {
-            Some(parts[2].to_string())
-        } else {
-            None
-        }
+    use crate::core::bin::{read_bin_ltk, write_bin_ltk, tree_to_text_cached, text_to_tree};
+
+    // Extract just the filename — BIN text paths have different casing/prefixes than
+    // the project structure, so matching the full path would miss everything.
+    let old_name = match Path::new(old_rel).file_name().and_then(|n| n.to_str()) {
+        Some(n) => n.to_string(),
+        None => return 0,
+    };
+    let new_name = match Path::new(new_rel).file_name().and_then(|n| n.to_str()) {
+        Some(n) => n.to_string(),
+        None => return 0,
     };
 
-    let old_asset = match extract_asset_path(old_rel) {
-        Some(p) => p,
-        None => return 0,
-    };
-    let new_asset = match extract_asset_path(new_rel) {
-        Some(p) => p,
-        None => return 0,
-    };
+    if old_name.eq_ignore_ascii_case(&new_name) {
+        return 0; // filename didn't change (only directory moved)
+    }
+
+    let old_name_lower = old_name.to_lowercase();
 
     let mut count = 0u32;
     for entry in WalkDir::new(project_root).into_iter().filter_map(|e| e.ok()) {
@@ -747,32 +770,72 @@ fn update_bin_references(project_root: &Path, old_rel: &str, new_rel: &str) -> u
             continue;
         }
 
-        // Read as bytes and do a simple substring replacement on the raw data.
-        // BIN files store path strings as UTF-8 inline, so byte-level replace works.
-        if let Ok(data) = fs::read(path) {
-            let old_bytes = old_asset.as_bytes();
-            let new_bytes = new_asset.as_bytes();
-            if old_bytes.len() == new_bytes.len() {
-                // Same-length: safe in-place replacement
-                let mut modified = data.clone();
-                let mut found = false;
-                let mut i = 0;
-                while i + old_bytes.len() <= modified.len() {
-                    if &modified[i..i + old_bytes.len()] == old_bytes {
-                        modified[i..i + old_bytes.len()].copy_from_slice(new_bytes);
-                        found = true;
-                        i += old_bytes.len();
-                    } else {
-                        i += 1;
-                    }
-                }
-                if found && fs::write(path, &modified).is_ok() {
-                    count += 1;
-                }
-            }
-            // Different-length names: skip binary patching (would corrupt BIN structure).
-            // A future version could use proper BIN parsing for length-changing renames.
+        let data = match fs::read(path) {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
+
+        // Quick byte-level check: skip BIN files that don't contain the old filename at all
+        let old_bytes = old_name_lower.as_bytes();
+        let data_lower: Vec<u8> = data.iter().map(|b| b.to_ascii_lowercase()).collect();
+        if !data_lower.windows(old_bytes.len()).any(|w| w == old_bytes) {
+            continue;
         }
+
+        // Parse BIN → text
+        let tree = match read_bin_ltk(&data) {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::warn!("Skipping BIN (parse failed) {}: {}", path.display(), e);
+                continue;
+            }
+        };
+
+        let text = match tree_to_text_cached(&tree) {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::warn!("Skipping BIN (text conv failed) {}: {}", path.display(), e);
+                continue;
+            }
+        };
+
+        // Case-insensitive replacement of old filename → new filename in the text,
+        // only matching complete filenames (not substrings like dark_white.tex)
+        let modified_text = replace_filename_in_paths(&text, &old_name, &new_name);
+        if modified_text == text {
+            continue; // byte-scan was a false positive
+        }
+
+        // Text → BIN tree → binary
+        let new_tree = match text_to_tree(&modified_text) {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::warn!("Skipping BIN (re-parse failed) {}: {}", path.display(), e);
+                continue;
+            }
+        };
+
+        let new_data = match write_bin_ltk(&new_tree) {
+            Ok(d) => d,
+            Err(e) => {
+                tracing::warn!("Skipping BIN (write failed) {}: {}", path.display(), e);
+                continue;
+            }
+        };
+
+        if let Err(e) = fs::write(path, &new_data) {
+            tracing::warn!("Failed to save updated BIN {}: {}", path.display(), e);
+            continue;
+        }
+
+        // Also update the .ritobin cache if it exists
+        let ritobin_path = format!("{}.ritobin", path.display());
+        if Path::new(&ritobin_path).exists() {
+            let _ = fs::write(&ritobin_path, &modified_text);
+        }
+
+        tracing::info!("Updated BIN references in {}", path.display());
+        count += 1;
     }
     count
 }
