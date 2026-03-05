@@ -463,36 +463,27 @@ fn extract_uibase_chunk(wad_path: &std::path::Path) -> Result<Vec<u8>, String> {
     Ok(bytes.into())
 }
 
-/// Validate that brackets in the BIN text are properly balanced
-fn validate_brackets(text: &str) -> Result<(), String> {
-    let mut depth: i32 = 0;
-    for (line_num, line) in text.lines().enumerate() {
-        for ch in line.chars() {
-            match ch {
-                '{' => depth += 1,
-                '}' => {
-                    depth -= 1;
-                    if depth < 0 {
-                        return Err(format!(
-                            "Unmatched closing bracket '}}' at line {}",
-                            line_num + 1
-                        ));
-                    }
-                }
-                _ => {}
-            }
-        }
+/// FNV-1a hash (lowercase) — matches the hashing used by League BIN files.
+fn fnv1a_lower(s: &str) -> u32 {
+    let mut hash: u32 = 0x811c_9dc5;
+    for b in s.to_lowercase().bytes() {
+        hash ^= b as u32;
+        hash = hash.wrapping_mul(0x0100_0193);
     }
-    if depth != 0 {
-        return Err(format!(
-            "Bracket mismatch: {} unclosed bracket(s) in BIN text",
-            depth
-        ));
-    }
-    Ok(())
+    hash
 }
 
-/// Inject the animation configuration block into the uibase BIN
+/// Build a `BinProperty` from a field name and value.
+fn bin_prop(name: &str, value: ltk_meta::PropertyValueEnum) -> (u32, ltk_meta::BinProperty) {
+    let h = fnv1a_lower(name);
+    (h, ltk_meta::BinProperty { name_hash: h, value })
+}
+
+/// Inject the animation configuration object directly into the uibase BIN tree.
+///
+/// Instead of text manipulation (which is fragile with brackets), we parse the
+/// binary BIN into a BinTree, insert a new BinTreeObject with the animation
+/// config, and serialize back to binary.
 #[allow(clippy::too_many_arguments)]
 fn inject_animation_block(
     uibase_bytes: &[u8],
@@ -506,86 +497,84 @@ fn inject_animation_block(
     total_frames: f32,
     cols: f32,
 ) -> Result<(), String> {
+    use glam::{Vec2, Vec4};
+    use ltk_meta::value::*;
+    use ltk_meta::PropertyValueEnum;
+
     tracing::info!("Injecting animation block into uibase BIN");
 
-    // Convert BIN binary → text
-    let bin = crate::core::bin::read_bin_ltk(uibase_bytes)
+    let mut bin = crate::core::bin::read_bin_ltk(uibase_bytes)
         .map_err(|e| format!("Failed to parse uibase BIN: {}", e))?;
 
-    let mut text = crate::core::bin::tree_to_text_cached(&bin)
-        .map_err(|e| format!("Failed to convert uibase to text: {}", e))?;
+    tracing::info!("uibase parsed: {} objects", bin.objects.len());
 
-    tracing::info!(
-        "uibase text: {} chars, {} lines",
-        text.len(),
-        text.lines().count()
+    let uv_w = frame_width as f32 / sheet_width as f32;
+    let uv_h = frame_height as f32 / sheet_height as f32;
+
+    let entry_name = format!(
+        "ClientStates/LoadingScreen/UX/LoadingScreenClassic/UIBase/LoadingScreen/{}",
+        creator_name
     );
+    let scene_path = "ClientStates/LoadingScreen/UX/LoadingScreenClassic/UIBase/LoadingScreen";
 
-    // Validate brackets BEFORE injection
-    validate_brackets(&text)
-        .map_err(|e| format!("uibase BIN has invalid brackets before injection: {}", e))?;
+    // UIRect embed inside Position
+    let ui_rect = EmbeddedValue(StructValue {
+        class_hash: fnv1a_lower("UiElementRect"),
+        properties: vec![
+            bin_prop("Position", PropertyValueEnum::Vector2(Vector2Value(Vec2::new(0.0, 0.0)))),
+            bin_prop("Size", PropertyValueEnum::Vector2(Vector2Value(Vec2::new(1920.0, 1080.0)))),
+            bin_prop("SourceResolutionWidth", PropertyValueEnum::U16(U16Value(1920))),
+            bin_prop("SourceResolutionHeight", PropertyValueEnum::U16(U16Value(1080))),
+        ].into_iter().collect(),
+    });
 
-    // Calculate UV values
-    let uv_w = frame_width as f64 / sheet_width as f64;
-    let uv_h = frame_height as f64 / sheet_height as f64;
+    // Position pointer → UiPositionRect
+    let position_ptr = StructValue {
+        class_hash: fnv1a_lower("UiPositionRect"),
+        properties: vec![
+            bin_prop("UIRect", PropertyValueEnum::Embedded(ui_rect)),
+            bin_prop("IgnoreGlobalScale", PropertyValueEnum::Bool(BoolValue(true))),
+        ].into_iter().collect(),
+    };
 
-    // Generate the animation block
-    let animation_block = format!(
-        r#"
-0x93e61733 = UiElementEffectAnimationData {{
-    name: string = "ClientStates/LoadingScreen/UX/LoadingScreenClassic/UIBase/LoadingScreen/{creator}"
-    Scene: link = "ClientStates/LoadingScreen/UX/LoadingScreenClassic/UIBase/LoadingScreen"
-    Enabled: bool = true
-    Layer: u32 = 0
-    Position: pointer = UiPositionRect {{
-        UIRect: embed = UiElementRect {{
-            Position: vec2 = {{ 0, 0 }}
-            Size: vec2 = {{ 1920, 1080 }}
-            SourceResolutionWidth: u16 = 1920
-            SourceResolutionHeight: u16 = 1080
-        }}
-        IgnoreGlobalScale: bool = true
-    }}
-    TextureData: pointer = AtlasData {{
-        mTextureName: string = "ASSETS/Animatedloadscreen/spritesheet.tex"
-        mTextureSourceResolutionWidth: u32 = {sheet_w}
-        mTextureSourceResolutionHeight: u32 = {sheet_h}
-        mTextureUV: vec4 = {{ 0, 0, {uv_w}, {uv_h} }}
-    }}
-    FramesPerSecond: f32 = {fps}
-    TotalNumberOfFrames: f32 = {total_frames}
-    NumberOfFramesPerRowInAtlas: f32 = {cols}
-    mFinishBehavior: u8 = 1
-}}"#,
-        creator = creator_name,
-        sheet_w = sheet_width,
-        sheet_h = sheet_height,
-        uv_w = uv_w,
-        uv_h = uv_h,
-        fps = fps,
-        total_frames = total_frames,
-        cols = cols,
-    );
+    // TextureData pointer → AtlasData
+    let atlas_data = StructValue {
+        class_hash: fnv1a_lower("AtlasData"),
+        properties: vec![
+            bin_prop("mTextureName", PropertyValueEnum::String(StringValue("ASSETS/Animatedloadscreen/spritesheet.tex".into()))),
+            bin_prop("mTextureSourceResolutionWidth", PropertyValueEnum::U32(U32Value(sheet_width))),
+            bin_prop("mTextureSourceResolutionHeight", PropertyValueEnum::U32(U32Value(sheet_height))),
+            bin_prop("mTextureUV", PropertyValueEnum::Vector4(Vector4Value(Vec4::new(0.0, 0.0, uv_w, uv_h)))),
+        ].into_iter().collect(),
+    };
 
-    // Append the block at the end of the file (root level)
-    text.push_str(&animation_block);
-    text.push('\n');
+    // Top-level object
+    let path_hash: u32 = 0x93e6_1733;
+    let anim_obj = ltk_meta::BinTreeObject {
+        path_hash,
+        class_hash: fnv1a_lower("UiElementEffectAnimationData"),
+        properties: vec![
+            bin_prop("name", PropertyValueEnum::String(StringValue(entry_name))),
+            bin_prop("Scene", PropertyValueEnum::ObjectLink(ObjectLinkValue(fnv1a_lower(scene_path)))),
+            bin_prop("Enabled", PropertyValueEnum::Bool(BoolValue(true))),
+            bin_prop("Layer", PropertyValueEnum::U32(U32Value(0))),
+            bin_prop("Position", PropertyValueEnum::Struct(position_ptr)),
+            bin_prop("TextureData", PropertyValueEnum::Struct(atlas_data)),
+            bin_prop("FramesPerSecond", PropertyValueEnum::F32(F32Value(fps))),
+            bin_prop("TotalNumberOfFrames", PropertyValueEnum::F32(F32Value(total_frames))),
+            bin_prop("NumberOfFramesPerRowInAtlas", PropertyValueEnum::F32(F32Value(cols))),
+            bin_prop("mFinishBehavior", PropertyValueEnum::U8(U8Value(1))),
+        ].into_iter().collect(),
+    };
 
-    // Validate brackets AFTER injection
-    validate_brackets(&text)
-        .map_err(|e| format!("BIN has invalid brackets after injection: {}", e))?;
+    bin.objects.insert(path_hash, anim_obj);
 
-    tracing::info!("Animation block injected, converting back to binary");
+    tracing::info!("Animation object inserted ({} objects total), writing binary", bin.objects.len());
 
-    // Convert text → BIN binary
-    let modified_bin = crate::core::bin::text_to_tree(&text)
-        .map_err(|e| format!("Failed to parse modified BIN text: {}", e))?;
-
-    let binary_data = crate::core::bin::write_bin_ltk(&modified_bin)
+    let binary_data = crate::core::bin::write_bin_ltk(&bin)
         .map_err(|e| format!("Failed to write modified BIN: {}", e))?;
 
-    // Write the modified BIN to the project
-    // The uibase file lives directly at this hash-based path inside UI.wad.client
+    // Write modified BIN to project
     let uibase_dir = assets_base
         .join("UI.wad.client")
         .join("data")
