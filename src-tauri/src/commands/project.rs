@@ -201,6 +201,413 @@ pub async fn create_project(
 }
 
 
+/// Create a new animated loading screen project
+///
+/// This command handles:
+/// 1. Creating the project directory structure
+/// 2. Reading the spritesheet PNG and encoding it as a .tex file
+/// 3. Extracting the uibase BIN from UI.wad.client
+/// 4. Injecting the animation configuration block into the BIN
+/// 5. Writing all output files to the project
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn create_loading_screen_project(
+    name: String,
+    project_path: String,
+    league_path: String,
+    creator_name: String,
+    spritesheet_png_data: Vec<u8>,
+    frame_width: u32,
+    frame_height: u32,
+    sheet_width: u32,
+    sheet_height: u32,
+    fps: f32,
+    total_frames: f32,
+    cols: f32,
+    _rows: f32,
+    app: tauri::AppHandle,
+) -> Result<Project, String> {
+    tracing::info!(
+        "Creating loading screen project '{}' ({}x{} sheet, {} frames)",
+        name, sheet_width, sheet_height, total_frames
+    );
+
+    let league_path_buf = PathBuf::from(&league_path);
+    let output_path_buf = PathBuf::from(&project_path);
+
+    // ── Phase 1: Create project structure ────────────────────────────────
+    let _ = app.emit("project-create-progress", serde_json::json!({
+        "phase": "create",
+        "message": "Creating project structure..."
+    }));
+
+    let name_clone = name.clone();
+    let creator_clone = creator_name.clone();
+    let league_clone = league_path_buf.clone();
+    let output_clone = output_path_buf.clone();
+
+    let project = tokio::task::spawn_blocking(move || {
+        core_create_project(
+            &name_clone,
+            "loading-screen", // Use as champion field for identification
+            0,
+            &league_clone,
+            &output_clone,
+            Some(creator_clone),
+        )
+    })
+    .await
+    .map_err(|e| format!("Task failed: {}", e))?
+    .map_err(|e| e.to_string())?;
+
+    // ── Phase 2: Encode spritesheet PNG → TEX ────────────────────────────
+    let _ = app.emit("project-create-progress", serde_json::json!({
+        "phase": "encode",
+        "message": "Encoding spritesheet to TEX format..."
+    }));
+
+    let assets_base = project.assets_path();
+
+    let tex_result = tokio::task::spawn_blocking(move || {
+        encode_spritesheet_to_tex(spritesheet_png_data, &assets_base)
+    })
+    .await
+    .map_err(|e| format!("Task failed: {}", e))?;
+
+    if let Err(e) = tex_result {
+        tracing::error!("TEX encoding failed: {}", e);
+        let _ = std::fs::remove_dir_all(&project.project_path);
+        return Err(format!("Spritesheet encoding failed: {}", e));
+    }
+
+    // ── Phase 3: Extract uibase from UI.wad.client ───────────────────────
+    let _ = app.emit("project-create-progress", serde_json::json!({
+        "phase": "extract",
+        "message": "Extracting UI base from game files..."
+    }));
+
+    let league_for_wad = league_path_buf.clone();
+    let uibase_bytes = tokio::task::spawn_blocking(move || {
+        extract_uibase_from_game(&league_for_wad)
+    })
+    .await
+    .map_err(|e| format!("Task failed: {}", e))?;
+
+    let uibase_bytes = match uibase_bytes {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            tracing::error!("uibase extraction failed: {}", e);
+            let _ = std::fs::remove_dir_all(&project.project_path);
+            return Err(format!("Failed to extract UI base: {}", e));
+        }
+    };
+
+    // ── Phase 4: Inject animation block into BIN ─────────────────────────
+    let _ = app.emit("project-create-progress", serde_json::json!({
+        "phase": "inject",
+        "message": "Injecting animation configuration..."
+    }));
+
+    let assets_base_inject = project.assets_path();
+    let creator_for_inject = creator_name.clone();
+
+    let inject_result = tokio::task::spawn_blocking(move || {
+        inject_animation_block(
+            &uibase_bytes,
+            &assets_base_inject,
+            &creator_for_inject,
+            frame_width,
+            frame_height,
+            sheet_width,
+            sheet_height,
+            fps,
+            total_frames,
+            cols,
+        )
+    })
+    .await
+    .map_err(|e| format!("Task failed: {}", e))?;
+
+    if let Err(e) = inject_result {
+        tracing::error!("BIN injection failed: {}", e);
+        let _ = std::fs::remove_dir_all(&project.project_path);
+        return Err(format!("Animation config injection failed: {}", e));
+    }
+
+    // ── Phase 5: Finish ────────────────────────────────────────────────
+    let _ = app.emit("project-create-progress", serde_json::json!({
+        "phase": "complete",
+        "message": "Loading screen project created successfully!"
+    }));
+
+    tracing::info!("Loading screen project created at: {}", project.project_path.display());
+    Ok(project)
+}
+
+/// Encode a PNG spritesheet to League TEX format and write to project
+fn encode_spritesheet_to_tex(
+    png_data: Vec<u8>,
+    assets_base: &std::path::Path,
+) -> Result<(), String> {
+    use ltk_texture::tex::{Tex, EncodeOptions};
+
+    let png_len = png_data.len();
+    tracing::info!("Saving spritesheet PNG to temp file ({} bytes)", png_len);
+
+    // Write PNG to temp file so we can free the IPC buffer before decoding
+    let temp_path = std::env::temp_dir().join(format!(
+        "flint_spritesheet_{}.png",
+        std::process::id()
+    ));
+    std::fs::write(&temp_path, &png_data)
+        .map_err(|e| format!("Failed to write temp PNG: {}", e))?;
+    drop(png_data); // free ~115 MB before decoding
+
+    tracing::info!("Decoding spritesheet from: {}", temp_path.display());
+
+    // Read from disk with no memory limits (large spritesheets can exceed defaults)
+    let mut reader = image::ImageReader::open(&temp_path)
+        .map_err(|e| format!("Failed to open temp PNG: {}", e))?;
+    reader.no_limits();
+    let img = reader
+        .decode()
+        .map_err(|e| format!("Failed to decode PNG: {}", e))?
+        .into_rgba8();
+
+    // Temp file no longer needed
+    let _ = std::fs::remove_file(&temp_path);
+
+    tracing::info!(
+        "Decoded spritesheet: {}x{} pixels",
+        img.width(),
+        img.height()
+    );
+
+    // Encode to TEX (BC1/DXT1 — opaque, no alpha needed for video frames)
+    let options = EncodeOptions::new(ltk_texture::tex::Format::Bc1);
+    let tex = Tex::encode_rgba_image(&img, options)
+        .map_err(|e| format!("Failed to encode TEX: {:?}", e))?;
+
+    // Write to project at UI.wad.client/assets/Animatedloadscreen/spritesheet.tex
+    let tex_dir = assets_base
+        .join("UI.wad.client")
+        .join("assets")
+        .join("Animatedloadscreen");
+    std::fs::create_dir_all(&tex_dir)
+        .map_err(|e| format!("Failed to create output directory: {}", e))?;
+
+    let tex_path = tex_dir.join("spritesheet.tex");
+    let mut output = std::fs::File::create(&tex_path)
+        .map_err(|e| format!("Failed to create TEX file: {}", e))?;
+    tex.write(&mut output)
+        .map_err(|e| format!("Failed to write TEX: {}", e))?;
+
+    tracing::info!("Wrote spritesheet TEX: {}", tex_path.display());
+    Ok(())
+}
+
+/// Find and extract the uibase chunk from UI.wad.client in the game files
+fn extract_uibase_from_game(league_path: &std::path::Path) -> Result<Vec<u8>, String> {
+    // Find UI.wad.client in game files
+    let ui_wad_path = league_path
+        .join("Game")
+        .join("DATA")
+        .join("FINAL")
+        .join("UI.wad.client");
+
+    if !ui_wad_path.exists() {
+        // Try alternate location (subdirectory)
+        let alt_paths = [
+            league_path.join("Game").join("DATA").join("FINAL").join("UI").join("UI.wad.client"),
+            league_path.join("DATA").join("FINAL").join("UI.wad.client"),
+        ];
+        for alt in &alt_paths {
+            if alt.exists() {
+                return extract_uibase_chunk(alt);
+            }
+        }
+        return Err(format!(
+            "UI.wad.client not found. Searched: {}",
+            ui_wad_path.display()
+        ));
+    }
+
+    extract_uibase_chunk(&ui_wad_path)
+}
+
+/// Extract the uibase chunk from a WAD file by its known hash
+fn extract_uibase_chunk(wad_path: &std::path::Path) -> Result<Vec<u8>, String> {
+    use crate::core::wad::reader::WadReader;
+
+    tracing::info!("Extracting uibase from: {}", wad_path.display());
+
+    let uibase_hash: u64 = 0x667b27d63a614c36;
+
+    let mut reader = WadReader::open(wad_path)
+        .map_err(|e| format!("Failed to open UI.wad.client: {}", e))?;
+
+    let chunk = *reader
+        .get_chunk(uibase_hash)
+        .ok_or_else(|| format!(
+            "uibase chunk (hash {:016x}) not found in {}",
+            uibase_hash,
+            wad_path.display()
+        ))?;
+
+    let bytes = reader
+        .wad_mut()
+        .load_chunk_decompressed(&chunk)
+        .map_err(|e| format!("Failed to decompress uibase chunk: {}", e))?;
+
+    tracing::info!("Extracted uibase: {} bytes", bytes.len());
+    Ok(bytes.into())
+}
+
+/// Validate that brackets in the BIN text are properly balanced
+fn validate_brackets(text: &str) -> Result<(), String> {
+    let mut depth: i32 = 0;
+    for (line_num, line) in text.lines().enumerate() {
+        for ch in line.chars() {
+            match ch {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth < 0 {
+                        return Err(format!(
+                            "Unmatched closing bracket '}}' at line {}",
+                            line_num + 1
+                        ));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    if depth != 0 {
+        return Err(format!(
+            "Bracket mismatch: {} unclosed bracket(s) in BIN text",
+            depth
+        ));
+    }
+    Ok(())
+}
+
+/// Inject the animation configuration block into the uibase BIN
+#[allow(clippy::too_many_arguments)]
+fn inject_animation_block(
+    uibase_bytes: &[u8],
+    assets_base: &std::path::Path,
+    creator_name: &str,
+    frame_width: u32,
+    frame_height: u32,
+    sheet_width: u32,
+    sheet_height: u32,
+    fps: f32,
+    total_frames: f32,
+    cols: f32,
+) -> Result<(), String> {
+    tracing::info!("Injecting animation block into uibase BIN");
+
+    // Convert BIN binary → text
+    let bin = crate::core::bin::read_bin_ltk(uibase_bytes)
+        .map_err(|e| format!("Failed to parse uibase BIN: {}", e))?;
+
+    let mut text = crate::core::bin::tree_to_text_cached(&bin)
+        .map_err(|e| format!("Failed to convert uibase to text: {}", e))?;
+
+    tracing::info!(
+        "uibase text: {} chars, {} lines",
+        text.len(),
+        text.lines().count()
+    );
+
+    // Validate brackets BEFORE injection
+    validate_brackets(&text)
+        .map_err(|e| format!("uibase BIN has invalid brackets before injection: {}", e))?;
+
+    // Calculate UV values
+    let uv_w = frame_width as f64 / sheet_width as f64;
+    let uv_h = frame_height as f64 / sheet_height as f64;
+
+    // Generate the animation block
+    let animation_block = format!(
+        r#"
+0x93e61733 = UiElementEffectAnimationData {{
+    name: string = "ClientStates/LoadingScreen/UX/LoadingScreenClassic/UIBase/LoadingScreen/{creator}"
+    Scene: link = "ClientStates/LoadingScreen/UX/LoadingScreenClassic/UIBase/LoadingScreen"
+    Enabled: bool = true
+    Layer: u32 = 0
+    Position: pointer = UiPositionRect {{
+        UIRect: embed = UiElementRect {{
+            Position: vec2 = {{ 0, 0 }}
+            Size: vec2 = {{ 1920, 1080 }}
+            SourceResolutionWidth: u16 = 1920
+            SourceResolutionHeight: u16 = 1080
+        }}
+        IgnoreGlobalScale: bool = true
+    }}
+    TextureData: pointer = AtlasData {{
+        mTextureName: string = "ASSETS/Animatedloadscreen/spritesheet.tex"
+        mTextureSourceResolutionWidth: u32 = {sheet_w}
+        mTextureSourceResolutionHeight: u32 = {sheet_h}
+        mTextureUV: vec4 = {{ 0, 0, {uv_w}, {uv_h} }}
+    }}
+    FramesPerSecond: f32 = {fps}
+    TotalNumberOfFrames: f32 = {total_frames}
+    NumberOfFramesPerRowInAtlas: f32 = {cols}
+    mFinishBehavior: u8 = 1
+}}"#,
+        creator = creator_name,
+        sheet_w = sheet_width,
+        sheet_h = sheet_height,
+        uv_w = uv_w,
+        uv_h = uv_h,
+        fps = fps,
+        total_frames = total_frames,
+        cols = cols,
+    );
+
+    // Append the block at the end of the file (root level)
+    text.push_str(&animation_block);
+    text.push('\n');
+
+    // Validate brackets AFTER injection
+    validate_brackets(&text)
+        .map_err(|e| format!("BIN has invalid brackets after injection: {}", e))?;
+
+    tracing::info!("Animation block injected, converting back to binary");
+
+    // Convert text → BIN binary
+    let modified_bin = crate::core::bin::text_to_tree(&text)
+        .map_err(|e| format!("Failed to parse modified BIN text: {}", e))?;
+
+    let binary_data = crate::core::bin::write_bin_ltk(&modified_bin)
+        .map_err(|e| format!("Failed to write modified BIN: {}", e))?;
+
+    // Write the modified BIN to the project
+    // The uibase file lives directly at this hash-based path inside UI.wad.client
+    let uibase_dir = assets_base
+        .join("UI.wad.client")
+        .join("data")
+        .join("menu")
+        .join("loadingscreen");
+    std::fs::create_dir_all(&uibase_dir)
+        .map_err(|e| format!("Failed to create uibase directory: {}", e))?;
+
+    let uibase_path = uibase_dir.join("uibase");
+    std::fs::write(&uibase_path, &binary_data)
+        .map_err(|e| format!("Failed to write modified uibase: {}", e))?;
+
+    tracing::info!(
+        "Wrote modified uibase ({} bytes) to: {}",
+        binary_data.len(),
+        uibase_path.display()
+    );
+
+    Ok(())
+}
+
+
 /// Open an existing project
 ///
 /// # Arguments

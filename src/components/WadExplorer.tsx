@@ -175,27 +175,32 @@ function collectFolderHashes(node: VFSFolder): string[] {
 
 /** Get checkbox state for a VFS folder based on how many descendant files are checked */
 function getFolderCheckState(node: VFSFolder, wadPath: string, checkedFiles: Set<string>): 'none' | 'some' | 'all' {
-    let total = 0;
-    let checked = 0;
-    const walk = (n: VFSNode) => {
+    let hasChecked = false;
+    let hasUnchecked = false;
+    const walk = (n: VFSNode): boolean => {
         if (n.type === 'file') {
-            total++;
-            if (checkedFiles.has(makeFileKey(wadPath, n.chunk.hash))) checked++;
-        } else {
-            for (const c of n.children) walk(c);
+            if (checkedFiles.has(makeFileKey(wadPath, n.chunk.hash))) hasChecked = true;
+            else hasUnchecked = true;
+            return !(hasChecked && hasUnchecked); // false = abort early
         }
+        for (const c of n.children) { if (!walk(c)) return false; }
+        return true;
     };
     walk(node);
-    if (total === 0) return 'none';
-    if (checked === total) return 'all';
-    if (checked > 0) return 'some';
-    return 'none';
+    if (hasChecked && hasUnchecked) return 'some';
+    return hasChecked ? 'all' : 'none';
 }
 
 function getWadCheckState(wad: WadExplorerWad, checkedFiles: Set<string>): 'none' | 'some' | 'all' {
     if (wad.status !== 'loaded' || wad.chunks.length === 0) return 'none';
-    const keys = wad.chunks.map(c => makeFileKey(wad.path, c.hash));
-    return getCheckStateForKeys(keys, checkedFiles);
+    let hasChecked = false;
+    let hasUnchecked = false;
+    for (const c of wad.chunks) {
+        if (checkedFiles.has(makeFileKey(wad.path, c.hash))) hasChecked = true;
+        else hasUnchecked = true;
+        if (hasChecked && hasUnchecked) return 'some';
+    }
+    return hasChecked ? 'all' : 'none';
 }
 
 /** Get check state for an arbitrary list of file keys */
@@ -454,22 +459,91 @@ const ChunkPreview: React.FC<{
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// VFS tree node (recursive)
+// Virtualized list – renders only the rows visible in the scroll viewport
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface VFSNodeProps {
-    node: VFSNode;
-    depth: number;
-    expandedFolders: Set<string>;
-    selectedHash: string | null;
-    checkedFiles: Set<string>;
-    onSelectFile: (wadPath: string, chunk: WadChunk) => void;
-    onToggleFolder: (key: string) => void;
-    onDeepToggleFolder: (keys: string[], expand: boolean) => void;
-    onToggleCheck: (keys: string[], checked: boolean) => void;
-    onContextMenu: (chunk: WadChunk, wadPath: string, x: number, y: number) => void;
-    onFolderContextMenu: (node: VFSFolder, wadPath: string, x: number, y: number) => void;
+interface VirtualizedListProps {
+    totalRows: number;
+    rowHeight: number;
+    overscan: number;
+    renderRow: (index: number) => React.ReactNode;
 }
+
+const VirtualizedList: React.FC<VirtualizedListProps> = React.memo(({ totalRows, rowHeight, overscan, renderRow }) => {
+    const [scrollTop, setScrollTop] = React.useState(0);
+    const [containerHeight, setContainerHeight] = React.useState(600);
+    const containerRef = React.useRef<HTMLDivElement>(null);
+
+    // Track container height via ResizeObserver
+    React.useEffect(() => {
+        const el = containerRef.current;
+        if (!el) return;
+        const ro = new ResizeObserver(entries => {
+            for (const entry of entries) {
+                setContainerHeight(entry.contentRect.height);
+            }
+        });
+        ro.observe(el);
+        setContainerHeight(el.clientHeight);
+        return () => ro.disconnect();
+    }, []);
+
+    const totalHeight = totalRows * rowHeight;
+    const startIndex = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan);
+    const endIndex = Math.min(totalRows - 1, Math.ceil((scrollTop + containerHeight) / rowHeight) + overscan);
+
+    const visibleRows: React.ReactNode[] = [];
+    for (let i = startIndex; i <= endIndex; i++) {
+        visibleRows.push(
+            <div
+                key={i}
+                style={{
+                    position: 'absolute',
+                    top: i * rowHeight,
+                    left: 0,
+                    right: 0,
+                    height: rowHeight,
+                    overflow: 'hidden',
+                }}
+            >
+                {renderRow(i)}
+            </div>
+        );
+    }
+
+    return (
+        <div
+            ref={containerRef}
+            style={{ flex: 1, overflow: 'auto', minHeight: 0 }}
+            onScroll={e => setScrollTop((e.target as HTMLDivElement).scrollTop)}
+        >
+            <div style={{ position: 'relative', height: totalHeight, minHeight: '100%' }}>
+                {visibleRows}
+            </div>
+        </div>
+    );
+});
+VirtualizedList.displayName = 'VirtualizedList';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Flat-row types for virtualized rendering
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ROW_HEIGHT = 26;
+const OVERSCAN = 8; // extra rows above/below viewport
+
+type FlatRow =
+    | { kind: 'category'; cat: string; loadedCount: number; totalCount: number }
+    | { kind: 'wad'; wad: WadExplorerWad }
+    | { kind: 'wad-loading'; wadPath: string }
+    | { kind: 'wad-error'; wadPath: string; error: string }
+    | { kind: 'folder'; node: VFSFolder; effectiveNode: VFSFolder; displayPath: string; wadPath: string; depth: number }
+    | { kind: 'file'; node: VFSFile; depth: number };
+
+type FlatSearchRow =
+    | { kind: 'search-wad'; wadPath: string; wadName: string; totalMatches: number; folders: Array<{ folderPath: string; files: Array<{ chunk: WadChunk; fileName: string }> }> }
+    | { kind: 'search-folder'; wadPath: string; folderPath: string; fileCount: number }
+    | { kind: 'search-file'; wadPath: string; chunk: WadChunk; fileName: string; folderPath: string };
 
 // Compact folders: merge single-child VFS folder chains into one label
 function compactVFSNode(node: VFSFolder): { displayPath: string; effectiveNode: VFSFolder } {
@@ -495,127 +569,94 @@ function collectAllVFSFolderKeys(node: VFSNode): string[] {
     return result;
 }
 
-const VFSNodeRow: React.FC<VFSNodeProps> = React.memo(({
-    node, depth, expandedFolders, selectedHash, checkedFiles, onSelectFile, onToggleFolder, onDeepToggleFolder, onToggleCheck, onContextMenu, onFolderContextMenu,
-}) => {
-    const indent = depth * 14;
+// Find wadPath from any descendant file
+function findWadPath(node: VFSNode): string | null {
+    if (node.type === 'file') return node.wadPath;
+    for (const c of node.children) { const r = findWadPath(c); if (r) return r; }
+    return null;
+}
 
-    if (node.type === 'folder') {
-        // Apply compact-folder merging
-        const { displayPath, effectiveNode } = compactVFSNode(node);
-        const isExp = expandedFolders.has(effectiveNode.key);
-        // We need wadPath from any descendant file to compute checkbox state
-        const wadPath = (() => {
-            const walk = (n: VFSNode): string | null => {
-                if (n.type === 'file') return n.wadPath;
-                for (const c of n.children) { const r = walk(c); if (r) return r; }
-                return null;
-            };
-            return walk(effectiveNode);
-        })();
-        const folderCheckState = wadPath ? getFolderCheckState(effectiveNode, wadPath, checkedFiles) : 'none';
+/** Flatten the category → WAD → VFS tree into a flat row array for virtualized rendering */
+function flattenTree(
+    categories: [string, WadExplorerWad[]][],
+    collapsedCategories: Set<string>,
+    expandedWads: Set<string>,
+    expandedFolders: Set<string>,
+    wadSubtrees: Map<string, VFSNode[]>,
+): FlatRow[] {
+    const rows: FlatRow[] = [];
+    for (const [cat, wads] of categories) {
+        const loadedCount = wads.filter(w => w.status === 'loaded').length;
+        rows.push({ kind: 'category', cat, loadedCount, totalCount: wads.length });
+        if (collapsedCategories.has(cat)) continue;
 
-        const handleFolderClick = (e: React.MouseEvent) => {
-            if (e.shiftKey) {
-                const allKeys = collectAllVFSFolderKeys(effectiveNode);
-                onDeepToggleFolder(allKeys, !isExp);
-            } else {
-                onToggleFolder(effectiveNode.key);
+        for (const wad of wads) {
+            rows.push({ kind: 'wad', wad });
+            const isExp = expandedWads.has(wad.path);
+            if (!isExp) continue;
+
+            if (wad.status === 'loading') {
+                rows.push({ kind: 'wad-loading', wadPath: wad.path });
+                continue;
             }
-        };
+            if (wad.status === 'error') {
+                rows.push({ kind: 'wad-error', wadPath: wad.path, error: wad.error ?? 'Failed to load' });
+                continue;
+            }
+            if (wad.status !== 'loaded') continue;
 
-        const handleCheckbox = (e: React.MouseEvent) => {
-            e.stopPropagation();
-            if (!wadPath) return;
-            const keys = collectFolderFileKeys(effectiveNode, wadPath);
-            onToggleCheck(keys, folderCheckState !== 'all');
-        };
-
-        return (
-            <>
-                <div
-                    className="file-tree__item"
-                    style={{ paddingLeft: `${8 + indent}px` }}
-                    onClick={handleFolderClick}
-                    onContextMenu={e => {
-                        e.preventDefault();
-                        if (wadPath) onFolderContextMenu(effectiveNode, wadPath, e.clientX, e.clientY);
-                    }}
-                >
-                    <span className="file-tree__chevron" dangerouslySetInnerHTML={{ __html: getIcon(isExp ? 'chevronDown' : 'chevronRight') }} />
-                    <span
-                        className="file-tree__checkbox"
-                        style={{ cursor: 'pointer', display: 'inline-flex', flexShrink: 0 }}
-                        dangerouslySetInnerHTML={{ __html: checkboxSvg(folderCheckState) }}
-                        onClick={handleCheckbox}
-                    />
-                    <span className="file-tree__icon" dangerouslySetInnerHTML={{ __html: getIcon(isExp ? 'folderOpen' : 'folder') }} />
-                    <span className="file-tree__name">
-                        {displayPath.includes('/') ? (
-                            displayPath.split('/').map((segment, idx, arr) => (
-                                <React.Fragment key={idx}>
-                                    <span className="file-tree__compact-segment">{segment}</span>
-                                    {idx < arr.length - 1 && <span className="file-tree__compact-separator">/</span>}
-                                </React.Fragment>
-                            ))
-                        ) : (
-                            displayPath
-                        )}
-                    </span>
-                </div>
-                {isExp && effectiveNode.children.map(child => (
-                    <VFSNodeRow
-                        key={child.type === 'file' ? `${child.wadPath}::${child.chunk.hash}` : child.key}
-                        node={child}
-                        depth={depth + 1}
-                        expandedFolders={expandedFolders}
-                        selectedHash={selectedHash}
-                        checkedFiles={checkedFiles}
-                        onSelectFile={onSelectFile}
-                        onToggleFolder={onToggleFolder}
-                        onDeepToggleFolder={onDeepToggleFolder}
-                        onToggleCheck={onToggleCheck}
-                        onContextMenu={onContextMenu}
-                        onFolderContextMenu={onFolderContextMenu}
-                    />
-                ))}
-            </>
-        );
+            const subtree = wadSubtrees.get(wad.path) ?? [];
+            const walkNodes = (nodes: VFSNode[], depth: number) => {
+                for (const node of nodes) {
+                    if (node.type === 'file') {
+                        rows.push({ kind: 'file', node, depth });
+                    } else {
+                        const { displayPath, effectiveNode } = compactVFSNode(node);
+                        const wadP = findWadPath(effectiveNode);
+                        rows.push({ kind: 'folder', node, effectiveNode, displayPath, wadPath: wadP ?? '', depth });
+                        if (expandedFolders.has(effectiveNode.key)) {
+                            walkNodes(effectiveNode.children, depth + 1);
+                        }
+                    }
+                }
+            };
+            walkNodes(subtree, 1);
+        }
     }
+    return rows;
+}
 
-    // File node
-    const isSelected = node.chunk.hash === selectedHash;
-    const isChecked = checkedFiles.has(makeFileKey(node.wadPath, node.chunk.hash));
-    const tooltip = node.chunk.path
-        ? `${node.chunk.path}\nHash: ${node.chunk.hash}\nSize: ${formatBytes(node.chunk.size)}`
-        : `Hash: ${node.chunk.hash}\nSize: ${formatBytes(node.chunk.size)}`;
+/** Flatten search results into a flat row array for virtualized rendering */
+function flattenSearchResults(
+    groups: Array<{
+        wadPath: string;
+        wadName: string;
+        folders: Array<{ folderPath: string; files: Array<{ chunk: WadChunk; fileName: string }> }>;
+        totalMatches: number;
+    }>,
+    collapsedSearchWads: Set<string>,
+    collapsedSearchFolders: Set<string>,
+): FlatSearchRow[] {
+    const rows: FlatSearchRow[] = [];
+    for (const group of groups) {
+        rows.push({ kind: 'search-wad', wadPath: group.wadPath, wadName: group.wadName, totalMatches: group.totalMatches, folders: group.folders });
+        if (collapsedSearchWads.has(group.wadPath)) continue;
 
-    return (
-        <div
-            className={`file-tree__item ${isSelected ? 'file-tree__item--selected' : ''}`}
-            style={{ paddingLeft: `${8 + indent + 16}px` }}
-            title={tooltip}
-            onClick={() => onSelectFile(node.wadPath, node.chunk)}
-            onContextMenu={e => { e.preventDefault(); onContextMenu(node.chunk, node.wadPath, e.clientX, e.clientY); }}
-        >
-            <span
-                className="file-tree__checkbox"
-                style={{ cursor: 'pointer', display: 'inline-flex', flexShrink: 0 }}
-                dangerouslySetInnerHTML={{ __html: checkboxSvg(isChecked ? 'all' : 'none') }}
-                onClick={e => {
-                    e.stopPropagation();
-                    onToggleCheck([makeFileKey(node.wadPath, node.chunk.hash)], !isChecked);
-                }}
-            />
-            <span className="file-tree__icon" dangerouslySetInnerHTML={{ __html: getFileIcon(node.name, false) }} />
-            <span className="file-tree__name" style={{ flex: 1, minWidth: 0 }}>{node.name}</span>
-            <span style={{ fontSize: '10px', color: 'var(--text-muted)', paddingRight: '4px', flexShrink: 0 }}>
-                {formatBytes(node.chunk.size)}
-            </span>
-        </div>
-    );
-});
-VFSNodeRow.displayName = 'VFSNodeRow';
+        for (const folder of group.folders) {
+            const folderKey = `${group.wadPath}::s::${folder.folderPath}`;
+            if (folder.folderPath !== '') {
+                rows.push({ kind: 'search-folder', wadPath: group.wadPath, folderPath: folder.folderPath, fileCount: folder.files.length });
+            }
+            if (!collapsedSearchFolders.has(folderKey)) {
+                for (const f of folder.files) {
+                    rows.push({ kind: 'search-file', wadPath: group.wadPath, chunk: f.chunk, fileName: f.fileName, folderPath: folder.folderPath });
+                }
+            }
+        }
+    }
+    return rows;
+}
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Quick-action cards (shown when no file is previewed)
@@ -692,7 +733,7 @@ export const WadExplorer: React.FC = () => {
     const { wadExplorer } = state;
 
     // ── Local UI state ───────────────────────────────────────────────────────
-    const [leftWidth, setLeftWidth] = useState(320);
+    const [leftWidth, setLeftWidth] = useState(420);
     const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
     const isResizingRef = useRef(false);
 
@@ -718,6 +759,8 @@ export const WadExplorer: React.FC = () => {
         try { searchRe = new RegExp(trimmed, 'i'); } catch { regexError = true; }
     }
     const plainLower = trimmed.toLowerCase();
+    // Plain text search filters WADs by name; regex search filters file paths
+    const isWadNameSearch = trimmed.length > 0 && !isRegex;
 
     // ── Scan on mount if not yet scanned ────────────────────────────────────
     useEffect(() => {
@@ -820,18 +863,26 @@ export const WadExplorer: React.FC = () => {
 
     const handleSelectAll = useCallback(() => {
         const keys: string[] = [];
-        // If search is active, only select matches. Otherwise, select everything in loaded WADs.
-        const activeSearch = searchRe || plainLower;
-
         for (const w of wadExplorer.wads) {
             if (w.status !== 'loaded') continue;
-            for (const c of w.chunks) {
-                if (activeSearch && !matchChunk(c, searchRe, plainLower)) continue;
-                keys.push(makeFileKey(w.path, c.hash));
+            // Plain text: select all files in WADs whose name matches
+            if (isWadNameSearch) {
+                if (!w.name.toLowerCase().includes(plainLower)) continue;
+                for (const c of w.chunks) keys.push(makeFileKey(w.path, c.hash));
+            }
+            // Regex: select all files matching the regex
+            else if (searchRe) {
+                for (const c of w.chunks) {
+                    if (matchChunk(c, searchRe, plainLower)) keys.push(makeFileKey(w.path, c.hash));
+                }
+            }
+            // No search: select everything
+            else {
+                for (const c of w.chunks) keys.push(makeFileKey(w.path, c.hash));
             }
         }
         dispatch({ type: 'WAD_EXPLORER_TOGGLE_CHECK', payload: { keys, checked: true } });
-    }, [dispatch, wadExplorer.wads, searchRe, plainLower]);
+    }, [dispatch, wadExplorer.wads, isWadNameSearch, searchRe, plainLower]);
 
     const handleDeselectAll = useCallback(() => {
         dispatch({ type: 'WAD_EXPLORER_CLEAR_CHECKS' });
@@ -1000,7 +1051,7 @@ export const WadExplorer: React.FC = () => {
     useEffect(() => {
         const onMove = (e: MouseEvent) => {
             if (!isResizingRef.current) return;
-            setLeftWidth(Math.min(600, Math.max(200, e.clientX)));
+            setLeftWidth(Math.min(800, Math.max(200, e.clientX)));
         };
         const onUp = () => {
             if (isResizingRef.current) {
@@ -1027,7 +1078,8 @@ export const WadExplorer: React.FC = () => {
     const [collapsedSearchFolders, setCollapsedSearchFolders] = useState<Set<string>>(new Set());
 
     const groupedSearchResults = useMemo(() => {
-        if (!trimmed) return null;
+        // Only do file-level search in regex mode
+        if (!trimmed || !isRegex) return null;
 
         const wadGroups: Array<{
             wadPath: string;
@@ -1091,6 +1143,17 @@ export const WadExplorer: React.FC = () => {
         return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
     }, [wadExplorer.wads]);
 
+    // When plain-text searching, filter categories to only WADs whose name matches
+    const filteredCategories = useMemo(() => {
+        if (!isWadNameSearch) return null;
+        const result: [string, WadExplorerWad[]][] = [];
+        for (const [cat, wads] of categories) {
+            const matching = wads.filter(w => w.name.toLowerCase().includes(plainLower));
+            if (matching.length > 0) result.push([cat, matching]);
+        }
+        return result;
+    }, [isWadNameSearch, categories, plainLower]);
+
     // ── WAD subtrees (lazily built per WAD, cached by chunks reference) ────
     // Only builds VFS tree for a WAD when it's expanded AND loaded.
     // Uses a ref cache keyed by wad path; invalidates when chunks array changes.
@@ -1116,6 +1179,27 @@ export const WadExplorer: React.FC = () => {
         return m;
     }, [wadExplorer.wads, wadExplorer.expandedWads]);
 
+    // ── Pre-computed check states (avoid re-computing per row) ─────────────
+    const wadCheckStates = useMemo(() => {
+        const m = new Map<string, 'none' | 'some' | 'all'>();
+        for (const w of wadExplorer.wads) {
+            m.set(w.path, getWadCheckState(w, wadExplorer.checkedFiles));
+        }
+        return m;
+    }, [wadExplorer.wads, wadExplorer.checkedFiles]);
+
+    const toolbarCheckState = useMemo((): 'none' | 'some' | 'all' => {
+        if (wadExplorer.checkedFiles.size === 0) return 'none';
+        let total = 0;
+        for (const w of wadExplorer.wads) {
+            if (w.status !== 'loaded') continue;
+            total += w.chunks.length;
+        }
+        if (total === 0) return 'none';
+        if (wadExplorer.checkedFiles.size >= total) return 'all';
+        return 'some';
+    }, [wadExplorer.wads, wadExplorer.checkedFiles]);
+
     // ─────────────────────────────────────────────────────────────────────────
     // Render
     // ─────────────────────────────────────────────────────────────────────────
@@ -1123,7 +1207,7 @@ export const WadExplorer: React.FC = () => {
     return (
         <div style={{ display: 'flex', width: '100%', height: '100%', overflow: 'hidden' }}>
             {/* ── LEFT: VFS tree ── */}
-            <div className="left-panel" style={{ width: leftWidth, minWidth: 200, maxWidth: 600, display: 'flex', flexDirection: 'column', overflow: 'hidden', flexShrink: 0 }}>
+            <div className="left-panel" style={{ width: leftWidth, minWidth: 200, maxWidth: 800, display: 'flex', flexDirection: 'column', overflow: 'hidden', flexShrink: 0 }}>
                 {/* Header */}
                 <div className="left-panel__header" style={{ padding: '10px 12px 6px', flexShrink: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
@@ -1165,38 +1249,12 @@ export const WadExplorer: React.FC = () => {
                     <div style={{ flexShrink: 0, borderBottom: '1px solid var(--border)', padding: '4px 12px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px' }}>
                         <span
                             style={{ cursor: 'pointer', display: 'inline-flex', flexShrink: 0 }}
-                            dangerouslySetInnerHTML={{
-                                __html: checkboxSvg((() => {
-                                    const activeSearch = searchRe || plainLower;
-                                    const allLoaded = wadExplorer.wads.filter(w => w.status === 'loaded');
-                                    let visibleKeys: string[] = [];
-                                    for (const w of allLoaded) {
-                                        for (const c of w.chunks) {
-                                            if (activeSearch && !matchChunk(c, searchRe, plainLower)) continue;
-                                            visibleKeys.push(makeFileKey(w.path, c.hash));
-                                        }
-                                    }
-                                    return getCheckStateForKeys(visibleKeys, wadExplorer.checkedFiles);
-                                })())
-                            }}
+                            dangerouslySetInnerHTML={{ __html: checkboxSvg(toolbarCheckState) }}
                             onClick={() => {
-                                const activeSearch = searchRe || plainLower;
-                                const allLoaded = wadExplorer.wads.filter(w => w.status === 'loaded');
-                                let visibleKeys: string[] = [];
-                                for (const w of allLoaded) {
-                                    for (const c of w.chunks) {
-                                        if (activeSearch && !matchChunk(c, searchRe, plainLower)) continue;
-                                        visibleKeys.push(makeFileKey(w.path, c.hash));
-                                    }
-                                }
-                                const state = getCheckStateForKeys(visibleKeys, wadExplorer.checkedFiles);
-                                if (state === 'all') {
-                                    handleToggleCheck(visibleKeys, false);
-                                } else {
-                                    handleSelectAll();
-                                }
+                                if (toolbarCheckState === 'all') handleDeselectAll();
+                                else handleSelectAll();
                             }}
-                            title={wadExplorer.checkedFiles.size > 0 ? 'Deselect matching' : 'Select matching'}
+                            title={toolbarCheckState !== 'none' ? 'Deselect all' : 'Select all'}
                         />
                         {wadExplorer.checkedFiles.size > 0 ? (
                             <>
@@ -1219,7 +1277,7 @@ export const WadExplorer: React.FC = () => {
                 )}
 
                 {/* Tree / scan states */}
-                <div className="file-tree" style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+                <div className="file-tree" style={{ flex: 1, overflow: 'hidden', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                     {wadExplorer.scanStatus === 'idle' && state.leaguePath && (
                         <div style={{ padding: '16px', color: 'var(--text-muted)', fontSize: '12px' }}>Preparing scan…</div>
                     )}
@@ -1242,33 +1300,205 @@ export const WadExplorer: React.FC = () => {
                         </div>
                     )}
 
-                    {/* Search results (grouped by WAD → folder) */}
-                    {wadExplorer.scanStatus === 'ready' && groupedSearchResults !== null && (
-                        <>
-                            {regexError && (
-                                <div style={{ padding: '8px 12px', fontSize: '11px', color: 'var(--error, #f44)' }}>Invalid regex pattern</div>
-                            )}
-                            {groupedSearchResults.length === 0 && !regexError && (
-                                <div style={{ padding: '12px', fontSize: '12px', color: 'var(--text-muted)' }}>
-                                    No matches found.
-                                </div>
-                            )}
-                            {groupedSearchResults.map(group => {
-                                const isWadCollapsed = collapsedSearchWads.has(group.wadPath);
-                                return (
-                                    <div key={group.wadPath}>
-                                        {/* WAD header */}
+                    {/* ── Virtualized tree / search view ─────────────────────── */}
+                    {wadExplorer.scanStatus === 'ready' && (() => {
+                        // Decide which flat-row set to render
+                        const isSearching = groupedSearchResults !== null;
+                        const flatRows: FlatRow[] | null = isSearching ? null : flattenTree(
+                            filteredCategories ?? categories,
+                            collapsedCategories,
+                            wadExplorer.expandedWads,
+                            wadExplorer.expandedFolders,
+                            wadSubtrees,
+                        );
+                        const flatSearchRows: FlatSearchRow[] | null = isSearching
+                            ? flattenSearchResults(groupedSearchResults!, collapsedSearchWads, collapsedSearchFolders)
+                            : null;
+                        const totalRows = isSearching ? (flatSearchRows?.length ?? 0) : (flatRows?.length ?? 0);
+
+                        return (
+                            <VirtualizedList
+                                totalRows={totalRows}
+                                rowHeight={ROW_HEIGHT}
+                                overscan={OVERSCAN}
+                                renderRow={(index: number) => {
+                                    if (isSearching && flatSearchRows) {
+                                        return renderSearchRow(flatSearchRows[index], index);
+                                    }
+                                    if (flatRows) {
+                                        return renderTreeRow(flatRows[index], index);
+                                    }
+                                    return null;
+                                }}
+                            />
+                        );
+
+                        // ─── Tree row renderer ─────────────────────────────────
+                        function renderTreeRow(row: FlatRow, _index: number): React.ReactNode {
+                            switch (row.kind) {
+                                case 'category': {
+                                    const isCatCollapsed = collapsedCategories.has(row.cat);
+                                    return (
+                                        <div
+                                            className="file-tree__item"
+                                            style={{ padding: '4px 8px 2px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', userSelect: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                                            onClick={() => handleToggleCategory(row.cat)}
+                                        >
+                                            <span dangerouslySetInnerHTML={{ __html: getIcon(isCatCollapsed ? 'chevronRight' : 'chevronDown') }} />
+                                            <span style={{ flex: 1 }}>{row.cat}</span>
+                                            <span style={{ fontSize: '9px', opacity: 0.5, fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>
+                                                {row.loadedCount}/{row.totalCount}
+                                            </span>
+                                        </div>
+                                    );
+                                }
+                                case 'wad': {
+                                    const wad = row.wad;
+                                    const isExp = wadExplorer.expandedWads.has(wad.path);
+                                    return (
+                                        <div
+                                            className="file-tree__item"
+                                            style={{ paddingLeft: '8px' }}
+                                            onClick={() => handleToggleWad(wad.path)}
+                                            onContextMenu={e => { e.preventDefault(); handleWadContextMenu(wad, e.clientX, e.clientY); }}
+                                            title={wad.path}
+                                        >
+                                            <span className="file-tree__chevron" dangerouslySetInnerHTML={{ __html: getIcon(isExp ? 'chevronDown' : 'chevronRight') }} />
+                                            <span
+                                                className="file-tree__checkbox"
+                                                style={{ cursor: 'pointer', display: 'inline-flex', flexShrink: 0 }}
+                                                dangerouslySetInnerHTML={{ __html: checkboxSvg(wadCheckStates.get(wad.path) ?? 'none') }}
+                                                onClick={e => {
+                                                    e.stopPropagation();
+                                                    if (wad.status === 'loaded') {
+                                                        const keys = wad.chunks.map(c => makeFileKey(wad.path, c.hash));
+                                                        handleToggleCheck(keys, (wadCheckStates.get(wad.path) ?? 'none') !== 'all');
+                                                    }
+                                                }}
+                                            />
+                                            <span className="file-tree__icon" dangerouslySetInnerHTML={{ __html: getIcon('wad') }} />
+                                            <span className="file-tree__name" style={{ flex: 1 }}>{wad.name}</span>
+                                            {wad.status === 'loading' && <span style={{ fontSize: '10px', opacity: 0.5, marginRight: '4px' }}>···</span>}
+                                            {wad.status === 'loaded' && <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginRight: '4px' }}>{wad.chunks.length.toLocaleString()}</span>}
+                                            {wad.status === 'error' && <span style={{ fontSize: '10px', color: 'var(--error, #f44)', marginRight: '4px' }} title={wad.error}>!</span>}
+                                        </div>
+                                    );
+                                }
+                                case 'wad-loading':
+                                    return (
+                                        <div style={{ paddingLeft: '24px', padding: '4px 24px', fontSize: '11px', color: 'var(--text-muted)' }}>
+                                            <div className="spinner" style={{ display: 'inline-block', width: '12px', height: '12px', marginRight: '6px', verticalAlign: 'middle' }} />
+                                            Loading chunks…
+                                        </div>
+                                    );
+                                case 'wad-error':
+                                    return (
+                                        <div style={{ paddingLeft: '24px', fontSize: '11px', color: 'var(--error, #f44)', padding: '4px 24px' }}>
+                                            {row.error}
+                                        </div>
+                                    );
+                                case 'folder': {
+                                    const indent = row.depth * 14;
+                                    const isExp = wadExplorer.expandedFolders.has(row.effectiveNode.key);
+                                    const folderCheckState = row.wadPath ? getFolderCheckState(row.effectiveNode, row.wadPath, wadExplorer.checkedFiles) : 'none';
+                                    return (
+                                        <div
+                                            className="file-tree__item"
+                                            style={{ paddingLeft: `${8 + indent}px` }}
+                                            onClick={(e: React.MouseEvent) => {
+                                                if (e.shiftKey) {
+                                                    const allKeys = collectAllVFSFolderKeys(row.effectiveNode);
+                                                    handleDeepToggleFolder(allKeys, !isExp);
+                                                } else {
+                                                    handleToggleFolder(row.effectiveNode.key);
+                                                }
+                                            }}
+                                            onContextMenu={e => {
+                                                e.preventDefault();
+                                                if (row.wadPath) handleFolderContextMenu(row.effectiveNode, row.wadPath, e.clientX, e.clientY);
+                                            }}
+                                        >
+                                            <span className="file-tree__chevron" dangerouslySetInnerHTML={{ __html: getIcon(isExp ? 'chevronDown' : 'chevronRight') }} />
+                                            <span
+                                                className="file-tree__checkbox"
+                                                style={{ cursor: 'pointer', display: 'inline-flex', flexShrink: 0 }}
+                                                dangerouslySetInnerHTML={{ __html: checkboxSvg(folderCheckState) }}
+                                                onClick={e => {
+                                                    e.stopPropagation();
+                                                    if (!row.wadPath) return;
+                                                    const keys = collectFolderFileKeys(row.effectiveNode, row.wadPath);
+                                                    handleToggleCheck(keys, folderCheckState !== 'all');
+                                                }}
+                                            />
+                                            <span className="file-tree__icon" dangerouslySetInnerHTML={{ __html: getIcon(isExp ? 'folderOpen' : 'folder') }} />
+                                            <span className="file-tree__name">
+                                                {row.displayPath.includes('/') ? (
+                                                    row.displayPath.split('/').map((segment, idx, arr) => (
+                                                        <React.Fragment key={idx}>
+                                                            <span className="file-tree__compact-segment">{segment}</span>
+                                                            {idx < arr.length - 1 && <span className="file-tree__compact-separator">/</span>}
+                                                        </React.Fragment>
+                                                    ))
+                                                ) : (
+                                                    row.displayPath
+                                                )}
+                                            </span>
+                                        </div>
+                                    );
+                                }
+                                case 'file': {
+                                    const indent = row.depth * 14;
+                                    const node = row.node;
+                                    const isSelected = node.chunk.hash === wadExplorer.selected?.hash && node.wadPath === wadExplorer.selected?.wadPath;
+                                    const isChecked = wadExplorer.checkedFiles.has(makeFileKey(node.wadPath, node.chunk.hash));
+                                    const tooltip = node.chunk.path
+                                        ? `${node.chunk.path}\nHash: ${node.chunk.hash}\nSize: ${formatBytes(node.chunk.size)}`
+                                        : `Hash: ${node.chunk.hash}\nSize: ${formatBytes(node.chunk.size)}`;
+                                    return (
+                                        <div
+                                            className={`file-tree__item ${isSelected ? 'file-tree__item--selected' : ''}`}
+                                            style={{ paddingLeft: `${8 + indent + 16}px` }}
+                                            title={tooltip}
+                                            onClick={() => handleSelectFile(node.wadPath, node.chunk)}
+                                            onContextMenu={e => { e.preventDefault(); handleContextMenu(node.chunk, node.wadPath, e.clientX, e.clientY); }}
+                                        >
+                                            <span
+                                                className="file-tree__checkbox"
+                                                style={{ cursor: 'pointer', display: 'inline-flex', flexShrink: 0 }}
+                                                dangerouslySetInnerHTML={{ __html: checkboxSvg(isChecked ? 'all' : 'none') }}
+                                                onClick={e => {
+                                                    e.stopPropagation();
+                                                    handleToggleCheck([makeFileKey(node.wadPath, node.chunk.hash)], !isChecked);
+                                                }}
+                                            />
+                                            <span className="file-tree__icon" dangerouslySetInnerHTML={{ __html: getFileIcon(node.name, false) }} />
+                                            <span className="file-tree__name" style={{ flex: 1, minWidth: 0 }}>{node.name}</span>
+                                            <span style={{ fontSize: '10px', color: 'var(--text-muted)', paddingRight: '4px', flexShrink: 0 }}>
+                                                {formatBytes(node.chunk.size)}
+                                            </span>
+                                        </div>
+                                    );
+                                }
+                            }
+                        }
+
+                        // ─── Search row renderer ───────────────────────────────
+                        function renderSearchRow(row: FlatSearchRow, _index: number): React.ReactNode {
+                            switch (row.kind) {
+                                case 'search-wad': {
+                                    const isWadCollapsed = collapsedSearchWads.has(row.wadPath);
+                                    return (
                                         <div
                                             className="file-tree__item"
                                             style={{ padding: '4px 8px 2px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', userSelect: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
                                             onClick={() => setCollapsedSearchWads(prev => {
                                                 const next = new Set(prev);
-                                                if (next.has(group.wadPath)) next.delete(group.wadPath); else next.add(group.wadPath);
+                                                if (next.has(row.wadPath)) next.delete(row.wadPath); else next.add(row.wadPath);
                                                 return next;
                                             })}
                                             onContextMenu={e => {
                                                 e.preventDefault();
-                                                const wad = wadExplorer.wads.find(w => w.path === group.wadPath);
+                                                const wad = wadExplorer.wads.find(w => w.path === row.wadPath);
                                                 if (wad) handleWadContextMenu(wad, e.clientX, e.clientY);
                                             }}
                                         >
@@ -1279,240 +1509,144 @@ export const WadExplorer: React.FC = () => {
                                                 dangerouslySetInnerHTML={{
                                                     __html: checkboxSvg(
                                                         (() => {
-                                                            const matchKeys = group.folders.flatMap(f => f.files.map(m => makeFileKey(group.wadPath, m.chunk.hash)));
+                                                            const matchKeys = row.folders.flatMap(f => f.files.map(m => makeFileKey(row.wadPath, m.chunk.hash)));
                                                             return getCheckStateForKeys(matchKeys, wadExplorer.checkedFiles);
                                                         })()
                                                     )
                                                 }}
                                                 onClick={e => {
                                                     e.stopPropagation();
-                                                    const matchKeys = group.folders.flatMap(f => f.files.map(m => makeFileKey(group.wadPath, m.chunk.hash)));
-                                                    const state = getCheckStateForKeys(matchKeys, wadExplorer.checkedFiles);
-                                                    handleToggleCheck(matchKeys, state !== 'all');
+                                                    const matchKeys = row.folders.flatMap(f => f.files.map(m => makeFileKey(row.wadPath, m.chunk.hash)));
+                                                    const st = getCheckStateForKeys(matchKeys, wadExplorer.checkedFiles);
+                                                    handleToggleCheck(matchKeys, st !== 'all');
                                                 }}
                                             />
                                             <span className="file-tree__icon" dangerouslySetInnerHTML={{ __html: getIcon('wad') }} />
-                                            <span style={{ flex: 1, textTransform: 'none', letterSpacing: 0, fontWeight: 500, fontSize: '11px' }}>{group.wadName}</span>
+                                            <span style={{ flex: 1, textTransform: 'none', letterSpacing: 0, fontWeight: 500, fontSize: '11px' }}>{row.wadName}</span>
                                             <span style={{ fontSize: '9px', opacity: 0.5, fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>
-                                                {group.totalMatches}
+                                                {row.totalMatches}
                                             </span>
                                         </div>
-                                        {!isWadCollapsed && group.folders.map(folder => {
-                                            const folderKey = `${group.wadPath}::s::${folder.folderPath}`;
-                                            const isFolderCollapsed = collapsedSearchFolders.has(folderKey);
-                                            return (
-                                                <div key={folderKey}>
-                                                    {/* Folder header */}
-                                                    {folder.folderPath !== '' && (
-                                                        <div
-                                                            className="file-tree__item"
-                                                            style={{ paddingLeft: '22px' }}
-                                                            onClick={() => setCollapsedSearchFolders(prev => {
-                                                                const next = new Set(prev);
-                                                                if (next.has(folderKey)) next.delete(folderKey); else next.add(folderKey);
-                                                                return next;
-                                                            })}
-                                                            onContextMenu={e => {
-                                                                e.preventDefault();
-                                                                // Search results are flat collections, we don't have VFSFolder here
-                                                                // but we can compute what's needed for the menu
-                                                                const fileKeys = folder.files.map(f => makeFileKey(group.wadPath, f.chunk.hash));
-                                                                const hashes = folder.files.map(f => f.chunk.hash);
-                                                                const checkedInFolder = fileKeys.filter(k => wadExplorer.checkedFiles.has(k)).length;
-                                                                const folderCheckState = checkedInFolder === 0 ? 'none' : checkedInFolder === fileKeys.length ? 'all' : 'some';
-
-                                                                const options = [
-                                                                    {
-                                                                        label: folderCheckState === 'all' ? 'Uncheck All in Folder' : 'Check All in Folder',
-                                                                        icon: folderCheckState === 'all' ? 'close' : 'check',
-                                                                        onClick: () => handleToggleCheck(fileKeys, folderCheckState !== 'all'),
-                                                                    },
-                                                                    { label: '', separator: true, onClick: () => { } },
-                                                                    {
-                                                                        label: `Extract Folder (${hashes.length})…`, icon: 'export',
-                                                                        onClick: async () => {
-                                                                            try {
-                                                                                const dest = await open({ title: 'Choose Extraction Folder', directory: true });
-                                                                                if (!dest) return;
-                                                                                const res = await api.extractWad(group.wadPath, dest as string, hashes);
-                                                                                showToast('success', `Extracted ${res.extracted} files`);
-                                                                            } catch { showToast('error', 'Extraction failed'); }
-                                                                        },
-                                                                    },
-                                                                ];
-                                                                if (wadExplorer.checkedFiles.size > 0) {
-                                                                    options.push({
-                                                                        label: `Extract Selected (${wadExplorer.checkedFiles.size})…`, icon: 'export',
-                                                                        onClick: handleExtractSelected,
-                                                                    });
-                                                                }
-                                                                dispatch({ type: 'OPEN_CONTEXT_MENU', payload: { x: e.clientX, y: e.clientY, options } });
-                                                            }}
-                                                        >
-                                                            <span className="file-tree__chevron" dangerouslySetInnerHTML={{ __html: getIcon(isFolderCollapsed ? 'chevronRight' : 'chevronDown') }} />
-                                                            <span
-                                                                className="file-tree__checkbox"
-                                                                style={{ cursor: 'pointer', display: 'inline-flex', flexShrink: 0 }}
-                                                                dangerouslySetInnerHTML={{
-                                                                    __html: checkboxSvg(
-                                                                        (() => {
-                                                                            const fileKeys = folder.files.map(f => makeFileKey(group.wadPath, f.chunk.hash));
-                                                                            const checked = fileKeys.filter(k => wadExplorer.checkedFiles.has(k)).length;
-                                                                            if (checked === 0) return 'none';
-                                                                            if (checked === fileKeys.length) return 'all';
-                                                                            return 'some';
-                                                                        })()
-                                                                    )
-                                                                }}
-                                                                onClick={e => {
-                                                                    e.stopPropagation();
-                                                                    const fileKeys = folder.files.map(f => makeFileKey(group.wadPath, f.chunk.hash));
-                                                                    const checked = fileKeys.filter(k => wadExplorer.checkedFiles.has(k)).length;
-                                                                    handleToggleCheck(fileKeys, checked !== fileKeys.length);
-                                                                }}
-                                                            />
-                                                            <span className="file-tree__icon" dangerouslySetInnerHTML={{ __html: getIcon(isFolderCollapsed ? 'folder' : 'folderOpen') }} />
-                                                            <span className="file-tree__name" style={{ fontSize: '11px' }}>{folder.folderPath}</span>
-                                                            <span style={{ fontSize: '10px', color: 'var(--text-muted)', paddingRight: '4px', flexShrink: 0 }}>
-                                                                {folder.files.length}
-                                                            </span>
-                                                        </div>
-                                                    )}
-                                                    {!isFolderCollapsed && folder.files.map(({ chunk, fileName }) => {
-                                                        const isSelected = wadExplorer.selected?.hash === chunk.hash && wadExplorer.selected?.wadPath === group.wadPath;
-                                                        return (
-                                                            <div
-                                                                key={`${group.wadPath}::${chunk.hash}`}
-                                                                className={`file-tree__item ${isSelected ? 'file-tree__item--selected' : ''}`}
-                                                                style={{ paddingLeft: folder.folderPath ? '44px' : '22px' }}
-                                                                title={`${chunk.path ?? chunk.hash}\nSize: ${formatBytes(chunk.size)}`}
-                                                                onClick={() => handleSelectFile(group.wadPath, chunk)}
-                                                                onContextMenu={e => { e.preventDefault(); handleContextMenu(chunk, group.wadPath, e.clientX, e.clientY); }}
-                                                            >
-                                                                <span
-                                                                    className="file-tree__checkbox"
-                                                                    style={{ cursor: 'pointer', display: 'inline-flex', flexShrink: 0 }}
-                                                                    dangerouslySetInnerHTML={{ __html: checkboxSvg(wadExplorer.checkedFiles.has(makeFileKey(group.wadPath, chunk.hash)) ? 'all' : 'none') }}
-                                                                    onClick={e => {
-                                                                        e.stopPropagation();
-                                                                        const key = makeFileKey(group.wadPath, chunk.hash);
-                                                                        handleToggleCheck([key], !wadExplorer.checkedFiles.has(key));
-                                                                    }}
-                                                                />
-                                                                <span className="file-tree__icon" dangerouslySetInnerHTML={{ __html: getFileIcon(fileName, false) }} />
-                                                                <span className="file-tree__name" style={{ flex: 1, minWidth: 0 }}>{fileName}</span>
-                                                                <span style={{ fontSize: '10px', color: 'var(--text-muted)', paddingRight: '4px', flexShrink: 0 }}>
-                                                                    {formatBytes(chunk.size)}
-                                                                </span>
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                );
-                            })}
-                        </>
-                    )}
-
-                    {/* Normal tree */}
-                    {wadExplorer.scanStatus === 'ready' && groupedSearchResults === null && categories.map(([cat, wads]) => {
-                        const isCatCollapsed = collapsedCategories.has(cat);
-                        const loadedInCat = wads.filter(w => w.status === 'loaded').length;
-                        return (
-                            <div key={cat}>
-                                {/* Category label — clickable to collapse */}
-                                <div
-                                    className="file-tree__item"
-                                    style={{ padding: '4px 8px 2px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', userSelect: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-                                    onClick={() => handleToggleCategory(cat)}
-                                >
-                                    <span dangerouslySetInnerHTML={{ __html: getIcon(isCatCollapsed ? 'chevronRight' : 'chevronDown') }} />
-                                    <span style={{ flex: 1 }}>{cat}</span>
-                                    <span style={{ fontSize: '9px', opacity: 0.5, fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>
-                                        {loadedInCat}/{wads.length}
-                                    </span>
-                                </div>
-                                {!isCatCollapsed && wads.map(wad => {
-                                    const isExp = wadExplorer.expandedWads.has(wad.path);
-                                    const subtree = wadSubtrees.get(wad.path) ?? [];
+                                    );
+                                }
+                                case 'search-folder': {
+                                    const folderKey = `${row.wadPath}::s::${row.folderPath}`;
+                                    const isFolderCollapsed = collapsedSearchFolders.has(folderKey);
                                     return (
-                                        <div key={wad.path}>
-                                            {/* WAD row */}
-                                            <div
-                                                className="file-tree__item"
-                                                style={{ paddingLeft: '8px' }}
-                                                onClick={() => handleToggleWad(wad.path)}
-                                                onContextMenu={e => {
-                                                    e.preventDefault();
-                                                    handleWadContextMenu(wad, e.clientX, e.clientY);
+                                        <div
+                                            className="file-tree__item"
+                                            style={{ paddingLeft: '22px' }}
+                                            onClick={() => setCollapsedSearchFolders(prev => {
+                                                const next = new Set(prev);
+                                                if (next.has(folderKey)) next.delete(folderKey); else next.add(folderKey);
+                                                return next;
+                                            })}
+                                            onContextMenu={e => {
+                                                e.preventDefault();
+                                                // For search-folder context menus we need the group data
+                                                const group = groupedSearchResults?.find(g => g.wadPath === row.wadPath);
+                                                const folder = group?.folders.find(f => f.folderPath === row.folderPath);
+                                                if (!folder) return;
+                                                const fileKeys = folder.files.map(f => makeFileKey(row.wadPath, f.chunk.hash));
+                                                const hashes = folder.files.map(f => f.chunk.hash);
+                                                const checkedInFolder = fileKeys.filter(k => wadExplorer.checkedFiles.has(k)).length;
+                                                const fcs = checkedInFolder === 0 ? 'none' : checkedInFolder === fileKeys.length ? 'all' : 'some';
+                                                const options: Array<{ label: string; icon?: string; onClick: () => void; separator?: boolean }> = [
+                                                    {
+                                                        label: fcs === 'all' ? 'Uncheck All in Folder' : 'Check All in Folder',
+                                                        icon: fcs === 'all' ? 'close' : 'check',
+                                                        onClick: () => handleToggleCheck(fileKeys, fcs !== 'all'),
+                                                    },
+                                                    { label: '', separator: true, onClick: () => { } },
+                                                    {
+                                                        label: `Extract Folder (${hashes.length})…`, icon: 'export',
+                                                        onClick: async () => {
+                                                            try {
+                                                                const dest = await open({ title: 'Choose Extraction Folder', directory: true });
+                                                                if (!dest) return;
+                                                                const res = await api.extractWad(row.wadPath, dest as string, hashes);
+                                                                showToast('success', `Extracted ${res.extracted} files`);
+                                                            } catch { showToast('error', 'Extraction failed'); }
+                                                        },
+                                                    },
+                                                ];
+                                                if (wadExplorer.checkedFiles.size > 0) {
+                                                    options.push({
+                                                        label: `Extract Selected (${wadExplorer.checkedFiles.size})…`, icon: 'export',
+                                                        onClick: handleExtractSelected,
+                                                    });
+                                                }
+                                                dispatch({ type: 'OPEN_CONTEXT_MENU', payload: { x: e.clientX, y: e.clientY, options } });
+                                            }}
+                                        >
+                                            <span className="file-tree__chevron" dangerouslySetInnerHTML={{ __html: getIcon(isFolderCollapsed ? 'chevronRight' : 'chevronDown') }} />
+                                            <span
+                                                className="file-tree__checkbox"
+                                                style={{ cursor: 'pointer', display: 'inline-flex', flexShrink: 0 }}
+                                                dangerouslySetInnerHTML={{
+                                                    __html: checkboxSvg(
+                                                        (() => {
+                                                            const group = groupedSearchResults?.find(g => g.wadPath === row.wadPath);
+                                                            const folder = group?.folders.find(f => f.folderPath === row.folderPath);
+                                                            if (!folder) return 'none' as const;
+                                                            const fKeys = folder.files.map(f => makeFileKey(row.wadPath, f.chunk.hash));
+                                                            const checked = fKeys.filter(k => wadExplorer.checkedFiles.has(k)).length;
+                                                            if (checked === 0) return 'none' as const;
+                                                            if (checked === fKeys.length) return 'all' as const;
+                                                            return 'some' as const;
+                                                        })()
+                                                    )
                                                 }}
-                                                title={wad.path}
-                                            >
-                                                <span className="file-tree__chevron" dangerouslySetInnerHTML={{ __html: getIcon(isExp ? 'chevronDown' : 'chevronRight') }} />
-                                                <span
-                                                    className="file-tree__checkbox"
-                                                    style={{ cursor: 'pointer', display: 'inline-flex', flexShrink: 0 }}
-                                                    dangerouslySetInnerHTML={{ __html: checkboxSvg(getWadCheckState(wad, wadExplorer.checkedFiles)) }}
-                                                    onClick={e => {
-                                                        e.stopPropagation();
-                                                        if (wad.status === 'loaded') {
-                                                            const keys = wad.chunks.map(c => makeFileKey(wad.path, c.hash));
-                                                            const state = getWadCheckState(wad, wadExplorer.checkedFiles);
-                                                            handleToggleCheck(keys, state !== 'all');
-                                                        }
-                                                    }}
-                                                />
-                                                <span className="file-tree__icon" dangerouslySetInnerHTML={{ __html: getIcon('wad') }} />
-                                                <span className="file-tree__name" style={{ flex: 1 }}>{wad.name}</span>
-                                                {wad.status === 'loading' && (
-                                                    <span style={{ fontSize: '10px', opacity: 0.5, marginRight: '4px' }}>···</span>
-                                                )}
-                                                {wad.status === 'loaded' && (
-                                                    <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginRight: '4px' }}>
-                                                        {wad.chunks.length.toLocaleString()}
-                                                    </span>
-                                                )}
-                                                {wad.status === 'error' && (
-                                                    <span style={{ fontSize: '10px', color: 'var(--error, #f44)', marginRight: '4px' }} title={wad.error}>!</span>
-                                                )}
-                                            </div>
-
-                                            {/* WAD subtree */}
-                                            {isExp && wad.status === 'loading' && (
-                                                <div style={{ paddingLeft: '24px', padding: '8px 24px', fontSize: '11px', color: 'var(--text-muted)' }}>
-                                                    <div className="spinner" style={{ display: 'inline-block', width: '12px', height: '12px', marginRight: '6px', verticalAlign: 'middle' }} />
-                                                    Loading chunks…
-                                                </div>
-                                            )}
-                                            {isExp && wad.status === 'error' && (
-                                                <div style={{ paddingLeft: '24px', fontSize: '11px', color: 'var(--error, #f44)', padding: '6px 24px' }}>
-                                                    {wad.error ?? 'Failed to load'}
-                                                </div>
-                                            )}
-                                            {isExp && wad.status === 'loaded' && subtree.map(node => (
-                                                <VFSNodeRow
-                                                    key={node.type === 'file' ? `${node.wadPath}::${node.chunk.hash}` : node.key}
-                                                    node={node}
-                                                    depth={1}
-                                                    expandedFolders={wadExplorer.expandedFolders}
-                                                    selectedHash={wadExplorer.selected?.wadPath === wad.path ? wadExplorer.selected.hash : null}
-                                                    checkedFiles={wadExplorer.checkedFiles}
-                                                    onSelectFile={handleSelectFile}
-                                                    onToggleFolder={handleToggleFolder}
-                                                    onDeepToggleFolder={handleDeepToggleFolder}
-                                                    onToggleCheck={handleToggleCheck}
-                                                    onContextMenu={handleContextMenu}
-                                                    onFolderContextMenu={handleFolderContextMenu}
-                                                />
-                                            ))}
+                                                onClick={e => {
+                                                    e.stopPropagation();
+                                                    const group = groupedSearchResults?.find(g => g.wadPath === row.wadPath);
+                                                    const folder = group?.folders.find(f => f.folderPath === row.folderPath);
+                                                    if (!folder) return;
+                                                    const fKeys = folder.files.map(f => makeFileKey(row.wadPath, f.chunk.hash));
+                                                    const checked = fKeys.filter(k => wadExplorer.checkedFiles.has(k)).length;
+                                                    handleToggleCheck(fKeys, checked !== fKeys.length);
+                                                }}
+                                            />
+                                            <span className="file-tree__icon" dangerouslySetInnerHTML={{ __html: getIcon(isFolderCollapsed ? 'folder' : 'folderOpen') }} />
+                                            <span className="file-tree__name" style={{ fontSize: '11px' }}>{row.folderPath}</span>
+                                            <span style={{ fontSize: '10px', color: 'var(--text-muted)', paddingRight: '4px', flexShrink: 0 }}>
+                                                {row.fileCount}
+                                            </span>
                                         </div>
                                     );
-                                })}
-                            </div>
-                        );
-                    })}
+                                }
+                                case 'search-file': {
+                                    const isSelected = wadExplorer.selected?.hash === row.chunk.hash && wadExplorer.selected?.wadPath === row.wadPath;
+                                    const isChecked = wadExplorer.checkedFiles.has(makeFileKey(row.wadPath, row.chunk.hash));
+                                    return (
+                                        <div
+                                            className={`file-tree__item ${isSelected ? 'file-tree__item--selected' : ''}`}
+                                            style={{ paddingLeft: row.folderPath ? '44px' : '22px' }}
+                                            title={`${row.chunk.path ?? row.chunk.hash}\nSize: ${formatBytes(row.chunk.size)}`}
+                                            onClick={() => handleSelectFile(row.wadPath, row.chunk)}
+                                            onContextMenu={e => { e.preventDefault(); handleContextMenu(row.chunk, row.wadPath, e.clientX, e.clientY); }}
+                                        >
+                                            <span
+                                                className="file-tree__checkbox"
+                                                style={{ cursor: 'pointer', display: 'inline-flex', flexShrink: 0 }}
+                                                dangerouslySetInnerHTML={{ __html: checkboxSvg(isChecked ? 'all' : 'none') }}
+                                                onClick={e => {
+                                                    e.stopPropagation();
+                                                    const key = makeFileKey(row.wadPath, row.chunk.hash);
+                                                    handleToggleCheck([key], !isChecked);
+                                                }}
+                                            />
+                                            <span className="file-tree__icon" dangerouslySetInnerHTML={{ __html: getFileIcon(row.fileName, false) }} />
+                                            <span className="file-tree__name" style={{ flex: 1, minWidth: 0 }}>{row.fileName}</span>
+                                            <span style={{ fontSize: '10px', color: 'var(--text-muted)', paddingRight: '4px', flexShrink: 0 }}>
+                                                {formatBytes(row.chunk.size)}
+                                            </span>
+                                        </div>
+                                    );
+                                }
+                            }
+                        }
+                    })()}
                 </div>
 
                 {/* Footer stats */}
@@ -1522,6 +1656,7 @@ export const WadExplorer: React.FC = () => {
                         <span>·</span>
                         <span>{wadExplorer.wads.filter(w => w.status === 'loaded').length} loaded</span>
                         {groupedSearchResults && <><span>·</span><span>{searchResultCount.toLocaleString()} matches</span></>}
+                        {filteredCategories && <><span>·</span><span>{filteredCategories.reduce((s, [, w]) => s + w.length, 0)} matching WADs</span></>}
                     </div>
                 )}
             </div>

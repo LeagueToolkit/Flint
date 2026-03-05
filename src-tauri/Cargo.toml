@@ -54,7 +54,7 @@ dashmap = "6.0"
 # Texture handling (DDS and TEX via league-toolkit)
 ltk_texture = { version = "0.4", features = ["intel-tex"] }
 # Trim image crate to only DDS support for smaller binary
-image = { version = "0.25", default-features = false, features = ["dds"] }
+image = { version = "0.25", default-features = false, features = ["dds", "png"] }
 image_dds = "0.6"
 ddsfile = "0.5"
 base64 = "0.21"

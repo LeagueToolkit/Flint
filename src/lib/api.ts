@@ -41,6 +41,7 @@ export class FlintError extends Error {
             'get_champion_skins': 'Failed to get skins for this champion.',
             'search_champions': 'Champion search failed.',
             'create_project': 'Failed to create project.',
+            'create_loading_screen_project': 'Failed to create loading screen project.',
             'open_project': 'Failed to open project. The project file may be corrupted.',
             'save_project': 'Failed to save project.',
             'list_project_files': 'Failed to list project files.',
@@ -93,6 +94,7 @@ export class FlintError extends Error {
             'download_hashes': 'Check your internet connection and try again.',
             'discover_champions': 'Ensure League path is set correctly in Settings.',
             'create_project': 'Check that you have write permissions to the selected folder.',
+            'create_loading_screen_project': 'Check write permissions and ensure League path is set correctly.',
             'open_project': 'Try opening a different project or create a new one.',
             'save_project': 'Check that the project folder still exists and is writable.',
             'save_ritobin_to_bin': 'Check for syntax errors in the BIN editor.',
@@ -210,6 +212,40 @@ export async function createProject(params: CreateProjectParams): Promise<Projec
         outputPath: params.projectPath,
         leaguePath: params.leaguePath,
         creatorName: params.creatorName,
+    });
+}
+
+interface CreateLoadingScreenParams {
+    name: string;
+    projectPath: string;
+    leaguePath: string;
+    creatorName: string;
+    spritesheetPngData: number[];
+    frameWidth: number;
+    frameHeight: number;
+    sheetWidth: number;
+    sheetHeight: number;
+    fps: number;
+    totalFrames: number;
+    cols: number;
+    rows: number;
+}
+
+export async function createLoadingScreenProject(params: CreateLoadingScreenParams): Promise<Project> {
+    return invokeCommand('create_loading_screen_project', {
+        name: params.name,
+        projectPath: params.projectPath,
+        leaguePath: params.leaguePath,
+        creatorName: params.creatorName,
+        spritesheetPngData: params.spritesheetPngData,
+        frameWidth: params.frameWidth,
+        frameHeight: params.frameHeight,
+        sheetWidth: params.sheetWidth,
+        sheetHeight: params.sheetHeight,
+        fps: params.fps,
+        totalFrames: params.totalFrames,
+        cols: params.cols,
+        rows: params.rows,
     });
 }
 

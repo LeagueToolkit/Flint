@@ -127,7 +127,7 @@ pub fn extract_all(
         let path_hash = chunk.path_hash();
         let resolved_path = resolve_path(path_hash);
         let final_path = resolve_chunk_path(&resolved_path, &[]); // ext-only fallback
-        let out_path = output_dir.join(&final_path);
+        let out_path = safe_output_path(output_dir, &final_path.to_string_lossy(), path_hash);
         if let Some(parent) = out_path.parent() {
             parents.insert(parent.to_path_buf());
         }
@@ -136,31 +136,9 @@ pub fn extract_all(
 
     for parent in parents { let _ = fs::create_dir_all(parent); }
 
-    // ── Phase 2: parallel decompress + write (mmap) ────────────────────────
-    // Get the raw file handle back out via the wad — we re-open for mmap.
-    // Simplest approach: mmap is only available if we have a path, but wad owns the File.
-    // Use len-limited sequential fallback if mmap isn't available (rare).
-    let results: Vec<(usize, usize)> = extraction_plan
-        .par_chunks((extraction_plan.len() / rayon::current_num_threads().max(1)).max(1))
-        .map(|slice| {
-            let extracted = 0usize;
-            let mut skipped  = 0usize;
-            // Each rayon worker needs its own read handle into the WAD.
-            // We do this by holding a per-chunk File pointer from the original.
-            // Since we can't clone File directly, fall back to sequential for extract_all.
-            // (extract_skin_assets below uses mmap and is the hot path for project creation.)
-            for (chunk, out_path) in slice {
-                // Decompress via shared Wad — note: this fn is called from blocking tasks
-                // so the sequential nature here is acceptable for the WAD-explorer use case.
-                // Project creation uses extract_skin_assets which IS parallelized.
-                let _ = out_path; let _ = chunk;
-                skipped += 1;
-            }
-            (extracted, skipped)
-        })
-        .collect();
-
-    // Fall back to sequential for extract_all (not the hot path)
+    // ── Phase 2: sequential decompress + write ─────────────────────────────
+    // (extract_skin_assets uses mmap+rayon and is the hot path for project creation;
+    //  extract_all is the WAD-explorer fallback and is sequential.)
     let mut extracted_count = 0;
     for (chunk, out_path) in &extraction_plan {
         let chunk_data = match wad.load_chunk_decompressed(chunk) {
@@ -172,11 +150,7 @@ pub fn extract_all(
         };
         // Re-resolve with actual data for extension detection
         let final_path = resolve_chunk_path(&out_path.to_string_lossy(), &chunk_data);
-        let actual_path = if final_path != out_path.as_os_str() {
-            output_dir.join(final_path)
-        } else {
-            out_path.clone()
-        };
+        let actual_path = safe_output_path(output_dir, &final_path.to_string_lossy(), chunk.path_hash());
         if let Some(parent) = actual_path.parent() { let _ = fs::create_dir_all(parent); }
         match fs::write(&actual_path, &chunk_data) {
             Ok(()) => {
@@ -185,15 +159,15 @@ pub fn extract_all(
                     tracing::info!("Extracted {}/{} chunks", extracted_count, total_chunks);
                 }
             }
-            Err(e) if e.kind() == std::io::ErrorKind::InvalidFilename => {
+            Err(e) => {
+                tracing::error!("Failed to write '{}': {}", actual_path.display(), e);
+                // Last-resort fallback: write as plain hash in output root
                 let hex = format!("{:016x}", chunk.path_hash());
                 let _ = fs::write(output_dir.join(hex), &chunk_data);
                 extracted_count += 1;
             }
-            Err(e) => return Err(Error::io_with_path(e, &actual_path)),
         }
     }
-    let _ = results; // rayon result unused (sequential fallback used)
     tracing::info!("Successfully extracted {}/{} chunks", extracted_count, total_chunks);
     Ok(extracted_count)
 }
@@ -392,6 +366,43 @@ pub fn extract_skin_assets(
     );
 
     Ok(ExtractionResult { extracted_count, path_mappings })
+}
+
+/// Checks if the full output path exceeds Windows MAX_PATH and falls back to
+/// `{parent_dir}/{hash:016x}.{ext}` when it does. This prevents extraction
+/// failures for files with very long resolved paths.
+fn safe_output_path(output_dir: &Path, resolved: &str, hash: u64) -> PathBuf {
+    let candidate = output_dir.join(resolved);
+    let total_len = candidate.to_string_lossy().len();
+
+    // 240 is a conservative limit (MAX_PATH=260 minus room for \\?\ prefix etc.)
+    if total_len <= 240 {
+        return candidate;
+    }
+
+    // Preserve extension from the resolved path
+    let ext = Path::new(resolved)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("bin");
+
+    // Preserve parent directory so the file lands in the right subfolder
+    let parent = Path::new(resolved)
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty());
+
+    let hash_name = format!("{:016x}.{}", hash, ext);
+    let fallback = match parent {
+        Some(p) => output_dir.join(p).join(&hash_name),
+        None => output_dir.join(&hash_name),
+    };
+
+    tracing::debug!(
+        "Path too long ({} chars), using hashed fallback: {}",
+        total_len,
+        fallback.display()
+    );
+    fallback
 }
 
 /// Resolves the final chunk path by handling extensions
