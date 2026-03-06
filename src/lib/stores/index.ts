@@ -184,18 +184,26 @@ export function useAppState() {
         }
         break;
       case 'SET_FILE_TREE':
-        if (projectTab.activeTabId) {
-          projectTab.setFileTree(projectTab.activeTabId, action.payload);
+        // Use getState() to get current activeTabId, not captured value
+        const currentTabId = useProjectTabStore.getState().activeTabId;
+        if (currentTabId) {
+          useProjectTabStore.getState().setFileTree(currentTabId, action.payload);
         }
         break;
       case 'TOGGLE_FOLDER':
-        if (projectTab.activeTabId) {
-          projectTab.toggleFolder(projectTab.activeTabId, action.payload);
+        {
+          const currentTabId = useProjectTabStore.getState().activeTabId;
+          if (currentTabId) {
+            useProjectTabStore.getState().toggleFolder(currentTabId, action.payload);
+          }
         }
         break;
       case 'BULK_SET_FOLDERS':
-        if (projectTab.activeTabId) {
-          projectTab.bulkSetFolders(projectTab.activeTabId, action.payload.paths, action.payload.expand);
+        {
+          const currentTabId = useProjectTabStore.getState().activeTabId;
+          if (currentTabId) {
+            useProjectTabStore.getState().bulkSetFolders(currentTabId, action.payload.paths, action.payload.expand);
+          }
         }
         break;
 
