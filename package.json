@@ -1,6 +1,6 @@
 {
   "name": "flint",
-  "version": "1.7.2",
+  "version": "1.7.3",
   "description": "League of Legends Modding IDE",
   "type": "module",
   "scripts": {
