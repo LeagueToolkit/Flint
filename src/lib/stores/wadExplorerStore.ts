@@ -50,12 +50,12 @@ export const useWadExplorerStore = create<WadExplorerState>((set) => ({
     const newWads: WadExplorerWad[] = wads
       ? wads.map(w => ({ ...w, status: 'idle' as const, chunks: [] }))
       : [];
-    set({
+    set((state) => ({
       scanStatus: status,
       scanError: error ?? null,
-      wads: wads ? newWads : undefined,
+      wads: wads ? newWads : state.wads,
       checkedFiles: new Set<string>(),
-    });
+    }));
   },
 
   setWadStatus: (wadPath, status, chunks, error) => {

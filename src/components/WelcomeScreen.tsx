@@ -69,7 +69,6 @@ export const WelcomeScreen: React.FC = () => {
                 console.error('Failed to load project files:', filesError);
             }
 
-            dispatch({ type: 'SET_STATE', payload: { currentView: 'project' } });
             setReady();
 
             // Update recent projects

@@ -511,7 +511,6 @@ const ProjectsPanel: React.FC = () => {
 
             const files = await api.listProjectFiles(projectDir);
             dispatch({ type: 'SET_FILE_TREE', payload: files });
-            dispatch({ type: 'SET_STATE', payload: { currentView: 'project' } });
             setReady();
         } catch (error) {
             console.error('Failed to open project:', error);

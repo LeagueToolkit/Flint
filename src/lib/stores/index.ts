@@ -293,6 +293,7 @@ export function useAppState() {
         if (action.payload.creatorName !== undefined) config.setCreatorName(action.payload.creatorName);
         if (action.payload.autoUpdateEnabled !== undefined) config.setAutoUpdateEnabled(action.payload.autoUpdateEnabled);
         if (action.payload.skippedUpdateVersion !== undefined) config.setSkippedUpdateVersion(action.payload.skippedUpdateVersion);
+        if (action.payload.currentView !== undefined) navigation.setView(action.payload.currentView);
         break;
 
       default:
