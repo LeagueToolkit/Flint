@@ -83,6 +83,10 @@ directories = "5.0"
 # Recursive directory walking
 walkdir = "2.4"
 
+# File system watching for auto-sync
+notify = "7.0"
+notify-debouncer-full = "0.4"
+
 # ZIP file creation for fantome export
 zip = { version = "2.4", features = ["deflate"] }
 regex = "1.12.2"

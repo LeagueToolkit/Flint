@@ -179,6 +179,7 @@ export interface AppState {
 
     // LTK Manager integration
     ltkManagerModPath: string | null;
+    autoSyncToLauncher: boolean;
 
     // Project state (tab-based)
     openTabs: ProjectTab[];

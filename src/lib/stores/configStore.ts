@@ -17,6 +17,7 @@ interface ConfigState {
   skippedUpdateVersion: string | null;
   recentProjects: RecentProject[];
   ltkManagerModPath: string | null;
+  autoSyncToLauncher: boolean;
 
   // Actions
   setLeaguePath: (path: string | null) => void;
@@ -27,6 +28,7 @@ interface ConfigState {
   setSkippedUpdateVersion: (version: string | null) => void;
   setRecentProjects: (projects: RecentProject[]) => void;
   setLtkManagerModPath: (path: string | null) => void;
+  setAutoSyncToLauncher: (enabled: boolean) => void;
 }
 
 export const useConfigStore = create<ConfigState>()(
@@ -40,6 +42,7 @@ export const useConfigStore = create<ConfigState>()(
       skippedUpdateVersion: null,
       recentProjects: [],
       ltkManagerModPath: null,
+      autoSyncToLauncher: false,
 
       setLeaguePath: (path) => set({ leaguePath: path }),
       setLeaguePathPbe: (path) => set({ leaguePathPbe: path }),
@@ -49,6 +52,7 @@ export const useConfigStore = create<ConfigState>()(
       setSkippedUpdateVersion: (version) => set({ skippedUpdateVersion: version }),
       setRecentProjects: (projects) => set({ recentProjects: projects }),
       setLtkManagerModPath: (path) => set({ ltkManagerModPath: path }),
+      setAutoSyncToLauncher: (enabled) => set({ autoSyncToLauncher: enabled }),
     }),
     {
       name: 'flint_settings', // localStorage key
@@ -61,6 +65,7 @@ export const useConfigStore = create<ConfigState>()(
         skippedUpdateVersion: state.skippedUpdateVersion,
         recentProjects: state.recentProjects,
         ltkManagerModPath: state.ltkManagerModPath,
+        autoSyncToLauncher: state.autoSyncToLauncher,
       }),
     }
   )

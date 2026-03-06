@@ -349,6 +349,23 @@ export async function syncProjectToLauncher(projectPath: string, ltkStoragePath:
     return invokeCommand('sync_project_to_launcher', { projectPath, ltkStoragePath });
 }
 
+/**
+ * Start watching a project directory for changes (auto-sync)
+ *
+ * @param projectPath - Path to the Flint project
+ * @param ltkStoragePath - LTK Manager mod storage path
+ */
+export async function startProjectWatcher(projectPath: string, ltkStoragePath: string): Promise<void> {
+    return invokeCommand('start_project_watcher', { projectPath, ltkStoragePath });
+}
+
+/**
+ * Stop the active project watcher
+ */
+export async function stopProjectWatcher(): Promise<void> {
+    return invokeCommand('stop_project_watcher', {});
+}
+
 // =============================================================================
 // WAD Commands
 // =============================================================================

@@ -8,6 +8,7 @@ import { navigationCoordinator } from '../lib/stores/navigationCoordinator';
 import { initShortcuts, registerShortcut } from '../lib/utils';
 import * as api from '../lib/api';
 import * as updater from '../lib/updater';
+import { listen } from '@tauri-apps/api/event';
 
 import { TitleBar } from './TitleBar';
 import { LeftPanel } from './FileTree';
@@ -89,6 +90,52 @@ export const App: React.FC = () => {
         // Clean stale projects
         cleanStaleProjects();
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Manage file watcher for auto-sync
+    useEffect(() => {
+        const activeTab = getActiveTab(state);
+        const shouldWatch = state.autoSyncToLauncher &&
+                          state.ltkManagerModPath &&
+                          activeTab?.projectPath;
+
+        if (shouldWatch) {
+            // Start watcher
+            api.startProjectWatcher(activeTab.projectPath, state.ltkManagerModPath!)
+                .catch(err => {
+                    console.error('[Auto-sync] Failed to start watcher:', err);
+                    showToast('error', 'Failed to start auto-sync watcher');
+                });
+        } else {
+            // Stop watcher
+            api.stopProjectWatcher().catch(err => {
+                // Silently ignore if no watcher was running
+                if (!err.toString().includes('No active watcher')) {
+                    console.error('[Auto-sync] Failed to stop watcher:', err);
+                }
+            });
+        }
+
+        // Cleanup on unmount
+        return () => {
+            api.stopProjectWatcher().catch(() => {});
+        };
+    }, [state.activeTabId, state.openTabs, state.autoSyncToLauncher, state.ltkManagerModPath]);
+
+    // Listen for auto-sync events from Rust
+    useEffect(() => {
+        const unlistenComplete = listen('auto-sync-complete', (event) => {
+            showToast('success', `Auto-synced to LTK Manager! Mod ID: ${event.payload}`);
+        });
+
+        const unlistenError = listen('auto-sync-error', (event) => {
+            showToast('error', `Auto-sync failed: ${event.payload}`);
+        });
+
+        return () => {
+            unlistenComplete.then((unlisten) => unlisten());
+            unlistenError.then((unlisten) => unlisten());
+        };
+    }, [showToast]);
 
     const loadInitialData = async () => {
         // Sync log level setting to Rust backend

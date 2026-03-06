@@ -26,6 +26,7 @@ export const SettingsModal: React.FC = () => {
     const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(state.autoUpdateEnabled);
     const [verboseLogging, setVerboseLogging] = useState(state.verboseLogging);
     const [ltkManagerModPath, setLtkManagerModPath] = useState(state.ltkManagerModPath || '');
+    const [autoSyncToLauncher, setAutoSyncToLauncher] = useState(state.autoSyncToLauncher);
     const [isValidating, setIsValidating] = useState(false);
 
     // Update checker state
@@ -45,9 +46,10 @@ export const SettingsModal: React.FC = () => {
             setAutoUpdateEnabled(state.autoUpdateEnabled);
             setVerboseLogging(state.verboseLogging);
             setLtkManagerModPath(state.ltkManagerModPath || '');
+            setAutoSyncToLauncher(state.autoSyncToLauncher);
             getVersion().then(setCurrentVersion).catch(() => setCurrentVersion('0.0.0'));
         }
-    }, [isVisible, state.leaguePath, state.leaguePathPbe, state.defaultProjectPath, state.creatorName, state.autoUpdateEnabled, state.verboseLogging, state.ltkManagerModPath]);
+    }, [isVisible, state.leaguePath, state.leaguePathPbe, state.defaultProjectPath, state.creatorName, state.autoUpdateEnabled, state.verboseLogging, state.ltkManagerModPath, state.autoSyncToLauncher]);
 
     const handleBrowse = async (setter: (v: string) => void, title: string) => {
         const selected = await open({ title, directory: true });
@@ -182,6 +184,7 @@ export const SettingsModal: React.FC = () => {
                 autoUpdateEnabled,
                 verboseLogging,
                 ltkManagerModPath: ltkManagerModPath || null,
+                autoSyncToLauncher,
             },
         });
 
@@ -321,7 +324,7 @@ export const SettingsModal: React.FC = () => {
                                         <span>Auto-detect LTK Manager</span>
                                     </button>
                                     <div className="settings-item__hint">
-                                        Auto-sync projects to LTK Manager launcher for easy mod management
+                                        Configure where LTK Manager stores mods for auto-sync functionality
                                     </div>
                                 </div>
                             </div>
@@ -368,6 +371,28 @@ export const SettingsModal: React.FC = () => {
                                             <div className="settings-toggle__label">Automatic Updates</div>
                                             <div className="settings-toggle__description">
                                                 Check for updates on startup
+                                            </div>
+                                        </div>
+                                    </label>
+                                </div>
+
+                                <div className="settings-item">
+                                    <label className="settings-toggle">
+                                        <input
+                                            type="checkbox"
+                                            checked={autoSyncToLauncher}
+                                            onChange={(e) => setAutoSyncToLauncher(e.target.checked)}
+                                            disabled={!ltkManagerModPath}
+                                        />
+                                        <div className="settings-toggle__content">
+                                            <div className="settings-toggle__label">
+                                                Auto-Sync to LTK Manager
+                                                {ltkManagerModPath && <span className="settings-item__badge" style={{ marginLeft: '8px' }}>Launcher</span>}
+                                            </div>
+                                            <div className="settings-toggle__description">
+                                                {ltkManagerModPath
+                                                    ? 'Automatically sync project changes to LTK Manager when files are modified'
+                                                    : 'Configure LTK Manager path in Paths tab to enable auto-sync'}
                                             </div>
                                         </div>
                                     </label>

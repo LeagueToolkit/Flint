@@ -6,6 +6,7 @@ mod core;
 mod error;
 mod state;
 
+use commands::project_watcher::WatcherState;
 use core::hash::get_ritoshark_hash_dir;
 use core::frontend_log::{FrontendLogLayer, set_app_handle};
 use state::{LmdbCacheState, WadCacheState};
@@ -42,6 +43,7 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         .manage(WadCacheState::new())
         .manage(LmdbCacheState::new())
+        .manage(WatcherState::new())
         .setup(|app| {
             // Set app handle for frontend logging
             set_app_handle(app.handle().clone());
@@ -194,6 +196,9 @@ fn main() {
             // LTK Manager integration commands
             commands::ltk_manager::get_ltk_manager_mod_path,
             commands::ltk_manager::sync_project_to_launcher,
+            // Project watcher commands (auto-sync)
+            commands::project_watcher::start_project_watcher,
+            commands::project_watcher::stop_project_watcher,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -272,7 +272,7 @@ export const TopBar: React.FC = () => {
                 {state.currentView === 'preview' && currentProject && state.ltkManagerModPath && (
                     <button
                         className="btn btn--ghost"
-                        title="Sync project to LTK Manager launcher"
+                        title="Manually sync project to LTK Manager launcher"
                         onClick={handleSyncToLauncher}
                         disabled={isSyncing}
                     >
