@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useAppState } from '../../lib/state';
+import { useAppState } from '../../lib/stores';
 import * as updater from '../../lib/updater';
 import type { UpdateInfo } from '../../lib/types';
 import { getIcon } from '../../lib/fileIcons';

@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useAppState } from '../../lib/state';
+import { useAppState } from '../../lib/stores';
 import * as api from '../../lib/api';
 import * as datadragon from '../../lib/datadragon';
 import { appDataDir } from '@tauri-apps/api/path';

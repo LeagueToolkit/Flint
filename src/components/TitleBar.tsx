@@ -4,7 +4,7 @@
 
 import React, { useCallback } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { useAppState } from '../lib/state';
+import { useAppState } from '../lib/stores';
 import { getIcon } from '../lib/fileIcons';
 import type { ProjectTab, ExtractSession } from '../lib/types';
 

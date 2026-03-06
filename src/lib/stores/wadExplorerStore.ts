@@ -1,0 +1,136 @@
+/**
+ * WAD Explorer Store
+ * Manages the unified VFS browser for all game WAD files
+ */
+
+import { create } from 'zustand';
+import type { WadExplorerWad, WadChunk, GameWadInfo } from '../types';
+
+interface WadExplorerState {
+  isOpen: boolean;
+  wads: WadExplorerWad[];
+  scanStatus: 'idle' | 'scanning' | 'ready' | 'error';
+  scanError: string | null;
+  selected: { wadPath: string; hash: string } | null;
+  expandedWads: Set<string>;
+  expandedFolders: Set<string>;
+  searchQuery: string;
+  checkedFiles: Set<string>;
+
+  // Actions
+  open: () => void;
+  close: () => void;
+  setScan: (status: WadExplorerState['scanStatus'], wads?: GameWadInfo[], error?: string) => void;
+  setWadStatus: (wadPath: string, status: WadExplorerWad['status'], chunks?: WadChunk[], error?: string) => void;
+  batchSetWadStatuses: (updates: Array<{ wadPath: string; status: WadExplorerWad['status']; chunks?: WadChunk[]; error?: string }>) => void;
+  setSelected: (wadPath: string | null, hash: string | null) => void;
+  toggleWad: (wadPath: string) => void;
+  toggleFolder: (key: string) => void;
+  bulkSetFolders: (keys: string[], expand: boolean) => void;
+  setSearch: (query: string) => void;
+  toggleCheck: (keys: string[], checked: boolean) => void;
+  clearChecks: () => void;
+}
+
+export const useWadExplorerStore = create<WadExplorerState>((set) => ({
+  isOpen: false,
+  wads: [],
+  scanStatus: 'idle',
+  scanError: null,
+  selected: null,
+  expandedWads: new Set<string>(),
+  expandedFolders: new Set<string>(),
+  searchQuery: '',
+  checkedFiles: new Set<string>(),
+
+  open: () => set({ isOpen: true }),
+  close: () => set({ isOpen: false }),
+
+  setScan: (status, wads, error) => {
+    const newWads: WadExplorerWad[] = wads
+      ? wads.map(w => ({ ...w, status: 'idle' as const, chunks: [] }))
+      : [];
+    set({
+      scanStatus: status,
+      scanError: error ?? null,
+      wads: wads ? newWads : undefined,
+      checkedFiles: new Set<string>(),
+    });
+  },
+
+  setWadStatus: (wadPath, status, chunks, error) => {
+    set((state) => ({
+      wads: state.wads.map(w =>
+        w.path === wadPath
+          ? { ...w, status, chunks: chunks ?? w.chunks, error }
+          : w
+      ),
+    }));
+  },
+
+  batchSetWadStatuses: (updates) => {
+    const updateMap = new Map(updates.map(u => [u.wadPath, u]));
+    set((state) => ({
+      wads: state.wads.map(w => {
+        const u = updateMap.get(w.path);
+        return u ? { ...w, status: u.status, chunks: u.chunks ?? w.chunks, error: u.error } : w;
+      }),
+    }));
+  },
+
+  setSelected: (wadPath, hash) => {
+    set({
+      selected: wadPath && hash ? { wadPath, hash } : null,
+    });
+  },
+
+  toggleWad: (wadPath) => {
+    set((state) => {
+      const newExpanded = new Set(state.expandedWads);
+      if (newExpanded.has(wadPath)) {
+        newExpanded.delete(wadPath);
+      } else {
+        newExpanded.add(wadPath);
+      }
+      return { expandedWads: newExpanded };
+    });
+  },
+
+  toggleFolder: (key) => {
+    set((state) => {
+      const newExpanded = new Set(state.expandedFolders);
+      if (newExpanded.has(key)) {
+        newExpanded.delete(key);
+      } else {
+        newExpanded.add(key);
+      }
+      return { expandedFolders: newExpanded };
+    });
+  },
+
+  bulkSetFolders: (keys, expand) => {
+    set((state) => {
+      const newExpanded = new Set(state.expandedFolders);
+      for (const k of keys) {
+        if (expand) newExpanded.add(k);
+        else newExpanded.delete(k);
+      }
+      return { expandedFolders: newExpanded };
+    });
+  },
+
+  setSearch: (query) => set({ searchQuery: query }),
+
+  toggleCheck: (keys, checked) => {
+    set((state) => {
+      const next = new Set(state.checkedFiles);
+      for (const k of keys) {
+        if (checked) next.add(k);
+        else next.delete(k);
+      }
+      return { checkedFiles: next };
+    });
+  },
+
+  clearChecks: () => set({ checkedFiles: new Set<string>() }),
+}));

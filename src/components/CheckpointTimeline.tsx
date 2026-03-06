@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useAppState } from '../lib/state';
+import { useAppState } from '../lib/stores';
 import * as api from '../lib/api';
 import { getIcon } from '../lib/fileIcons';
 import { listen } from '@tauri-apps/api/event';

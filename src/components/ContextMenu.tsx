@@ -3,7 +3,7 @@
  */
 
 import React, { useEffect, useRef } from 'react';
-import { useAppState } from '../lib/state';
+import { useAppState } from '../lib/stores';
 
 export const ContextMenu: React.FC = () => {
     const { state, closeContextMenu } = useAppState();

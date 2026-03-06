@@ -13,7 +13,7 @@
 import React, {
     useState, useCallback, useEffect, useRef, useMemo,
 } from 'react';
-import { useAppState } from '../lib/state';
+import { useAppState } from '../lib/stores';
 import * as api from '../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
 import { getIcon, getFileIcon } from '../lib/fileIcons';

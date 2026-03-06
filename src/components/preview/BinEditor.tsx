@@ -15,7 +15,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import * as monaco from 'monaco-editor';
 import type { editor } from 'monaco-editor';
-import { useAppState } from '../../lib/state';
+import { useAppState } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { getIcon } from '../../lib/fileIcons';
 import {

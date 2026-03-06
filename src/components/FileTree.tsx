@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useMemo, useCallback, useRef, useEffect, CSSProperties } from 'react';
-import { useAppState } from '../lib/state';
+import { useAppState } from '../lib/stores';
 import { getFileIcon, getExpanderIcon, getIcon } from '../lib/fileIcons';
 import * as api from '../lib/api';
 import type { FileTreeNode, ProjectTab, ContextMenuOption } from '../lib/types';

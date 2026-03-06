@@ -3,7 +3,7 @@
  */
 
 import React, { useState } from 'react';
-import { useAppState } from '../../lib/state';
+import { useAppState } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { save } from '@tauri-apps/plugin-dialog';
 import { getIcon } from '../../lib/fileIcons';

@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { useAppState } from '../lib/state';
+import { useAppState } from '../lib/stores';
 import { getToastIcon } from '../lib/fileIcons';
 
 const ToastIcon: React.FC<{ type: string }> = ({ type }) => {

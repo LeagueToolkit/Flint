@@ -161,7 +161,19 @@ flint/
 │   │       └── AssetPreviewTooltip.tsx
 │   ├── lib/                    # Utilities & API bridge
 │   │   ├── api.ts              # Tauri command wrappers
-│   │   ├── state.ts            # Application state management
+│   │   ├── stores/             # Zustand state management
+│   │   │   ├── index.ts        # Root store (useAppState hook)
+│   │   │   ├── appMetadataStore.ts
+│   │   │   ├── configStore.ts
+│   │   │   ├── projectTabStore.ts
+│   │   │   ├── navigationStore.ts
+│   │   │   ├── wadExtractStore.ts
+│   │   │   ├── wadExplorerStore.ts
+│   │   │   ├── championStore.ts
+│   │   │   ├── modalStore.ts
+│   │   │   ├── notificationStore.ts
+│   │   │   └── navigationCoordinator.ts
+│   │   ├── imageCache.ts       # LRU image cache
 │   │   ├── types.ts            # TypeScript type definitions
 │   │   ├── utils.ts            # Helper functions
 │   │   ├── logger.ts           # Frontend logging
@@ -271,6 +283,7 @@ Flint supports custom color themes! Create your own theme by copying `src/themes
 | Layer | Technology |
 |-------|------------|
 | **Frontend** | React 18, TypeScript, Vite 5 |
+| **State Management** | Zustand 4 (domain-sliced stores) |
 | **Backend** | Rust, Tauri 2.0 |
 | **BIN Parsing** | `ltk_ritobin`, `ltk_meta` (LeagueToolkit) |
 | **WAD Handling** | `league-toolkit` |
@@ -299,7 +312,27 @@ Flint supports custom color themes! Create your own theme by copying `src/themes
 - `@tauri-apps/api` 2.0 - Tauri JavaScript bindings
 - `@tauri-apps/plugin-dialog` - Native file dialogs
 - `react` 18.3 - UI framework
+- `zustand` 4.5+ - State management
 - `typescript` 5.6 - Type safety
+
+---
+
+## 🏗️ State Management Architecture
+
+Flint uses **Zustand** for state management, organized into focused domain slices:
+
+- **appMetadataStore** — App status, hash info, logs
+- **configStore** — League paths, creator settings (persisted to localStorage)
+- **projectTabStore** — Multi-tab workspace management
+- **navigationStore** — View routing and navigation
+- **wadExtractStore** — Individual WAD file sessions
+- **wadExplorerStore** — Unified VFS browser state
+- **championStore** — Champion data cache
+- **modalStore** — Modals, dialogs, context menus
+- **notificationStore** — Toast notifications
+
+All stores are combined into a single `useAppState()` hook for backward compatibility.
+Components can also import individual stores for selective re-renders and better performance.
 
 ---
 

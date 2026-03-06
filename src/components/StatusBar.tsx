@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useRef } from 'react';
-import { useAppState } from '../lib/state';
+import { useAppState } from '../lib/stores';
 import { connectLogger, disconnectLogger } from '../lib/logger';
 
 // SVG Icons

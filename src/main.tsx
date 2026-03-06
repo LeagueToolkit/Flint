@@ -7,7 +7,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { initializeLogger, initBackendLogListener } from './lib/logger';
-import { AppProvider } from './lib/state';
+import { AppProvider } from './lib/stores';
 import { App } from './components/App';
 
 // Import styles

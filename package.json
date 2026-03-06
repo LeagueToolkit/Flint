@@ -1,6 +1,6 @@
 {
   "name": "flint",
-  "version": "1.7.1",
+  "version": "1.7.2",
   "description": "League of Legends Modding IDE",
   "type": "module",
   "scripts": {
@@ -27,7 +27,8 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-window": "^2.2.3",
-    "three": "^0.182.0"
+    "three": "^0.182.0",
+    "zustand": "^5.0.11"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",

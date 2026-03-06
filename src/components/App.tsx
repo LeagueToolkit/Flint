@@ -3,7 +3,8 @@
  */
 
 import React, { useEffect, useCallback, useRef, useState } from 'react';
-import { useAppState } from '../lib/state';
+import { useAppState, useAppMetadataStore, useConfigStore } from '../lib/stores';
+import { navigationCoordinator } from '../lib/stores/navigationCoordinator';
 import { initShortcuts, registerShortcut } from '../lib/utils';
 import * as api from '../lib/api';
 import * as updater from '../lib/updater';
@@ -32,7 +33,7 @@ function getActiveTab(state: { activeTabId: string | null; openTabs: Array<{ id:
 }
 
 export const App: React.FC = () => {
-    const { state, dispatch, openModal, closeModal, setWorking, setReady, showToast } = useAppState();
+    const { state, openModal, closeModal, setWorking, setReady, showToast } = useAppState();
     const [leftPanelWidth, setLeftPanelWidth] = useState(280);
     const resizerRef = useRef<HTMLDivElement>(null);
     const isResizingRef = useRef(false);
@@ -70,11 +71,11 @@ export const App: React.FC = () => {
         registerShortcut('ctrl+w', () => {
             const s = stateRef.current;
             if (s.currentView === 'wad-explorer') {
-                dispatch({ type: 'CLOSE_WAD_EXPLORER' });
+                navigationCoordinator.closeWadExplorerWithFallback();
             } else if (s.currentView === 'extract' && s.activeExtractId) {
-                dispatch({ type: 'CLOSE_EXTRACT_SESSION', payload: s.activeExtractId });
+                navigationCoordinator.closeExtractSessionWithFallback(s.activeExtractId);
             } else if (s.currentView === 'preview' && s.activeTabId) {
-                dispatch({ type: 'REMOVE_TAB', payload: s.activeTabId });
+                navigationCoordinator.removeTabWithFallback(s.activeTabId);
             }
         });
         registerShortcut('escape', () => {
@@ -95,13 +96,10 @@ export const App: React.FC = () => {
 
         try {
             const hashStatus = await api.getHashStatus();
-            dispatch({
-                type: 'SET_STATE',
-                payload: {
-                    hashesLoaded: hashStatus.loaded_count > 0,
-                    hashCount: hashStatus.loaded_count,
-                },
-            });
+            useAppMetadataStore.getState().setHashInfo(
+                hashStatus.loaded_count > 0,
+                hashStatus.loaded_count
+            );
 
             if (hashStatus.loaded_count === 0) {
                 pollHashStatus();
@@ -111,7 +109,7 @@ export const App: React.FC = () => {
                 try {
                     const leagueResult = await api.detectLeague();
                     if (leagueResult.path) {
-                        dispatch({ type: 'SET_STATE', payload: { leaguePath: leagueResult.path } });
+                        useConfigStore.getState().setLeaguePath(leagueResult.path);
                         console.log('[Flint] Auto-detected League path:', leagueResult.path);
                     }
                 } catch {
@@ -134,10 +132,7 @@ export const App: React.FC = () => {
             try {
                 const status = await api.getHashStatus();
                 if (status.loaded_count > 0) {
-                    dispatch({
-                        type: 'SET_STATE',
-                        payload: { hashesLoaded: true, hashCount: status.loaded_count },
-                    });
+                    useAppMetadataStore.getState().setHashInfo(true, status.loaded_count);
                     console.log(`[Flint] Hashes loaded: ${status.loaded_count.toLocaleString()}`);
                     return;
                 }
@@ -209,7 +204,7 @@ export const App: React.FC = () => {
                 .map(r => r.value);
 
             if (validProjects.length !== recent.length) {
-                dispatch({ type: 'SET_RECENT_PROJECTS', payload: validProjects });
+                useConfigStore.getState().setRecentProjects(validProjects);
             }
         } catch (error) {
             console.error('[Flint] Failed to clean stale projects:', error);

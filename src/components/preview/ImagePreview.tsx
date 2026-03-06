@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import * as api from '../../lib/api';
-import { getCachedImage, cacheImage } from '../../lib/state';
+import { getCachedImage, cacheImage } from '../../lib/imageCache';
 import { getIcon } from '../../lib/fileIcons';
 
 interface ImagePreviewProps {

@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { useAppState } from '../lib/state';
+import { useAppState } from '../lib/stores';
 import { WelcomeScreen } from './WelcomeScreen';
 import { PreviewPanel } from './PreviewPanel';
 import { CheckpointTimeline } from './CheckpointTimeline';

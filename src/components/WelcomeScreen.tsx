@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { useAppState } from '../lib/state';
+import { useAppState } from '../lib/stores';
 import { formatRelativeTime } from '../lib/utils';
 import * as api from '../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
