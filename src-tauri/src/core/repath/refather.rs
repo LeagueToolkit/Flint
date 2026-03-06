@@ -157,26 +157,32 @@ impl<'a> AssetPath<'a> {
                 original_path.to_string()
             }
             AssetPath::ChampionHud { filename } => {
-                format!("ASSETS/{}/hud/{}", creator, filename)
+                // HUD now goes to project level (not creator level)
+                format!("ASSETS/{}/hud/{}", prefix, filename)
             }
             AssetPath::TargetChampionSkin { subpath, .. } => {
                 // Strip "skins/" prefix if present
                 let after_skins = Self::strip_prefix_ignore_case(subpath, "skins/")
                     .unwrap_or(subpath);
 
-                // Remap skin IDs in the path
-                let remapped = remap_skin_ids(after_skins, config.target_skin_id);
+                // Remap skin IDs in the path (folders AND animation BIN filenames)
+                let remapped = remap_skin_ids_full(after_skins, config.target_skin_id);
                 format!("ASSETS/{}/{}", prefix, remapped)
             }
             AssetPath::OtherChampion { subpath } => {
-                // Extract path after "skins/" if present
+                // Flatten: remove skinN folders from other champion assets
+                // Extract path after "skins/skinN/" to remove skin folder entirely
                 let parts: Vec<&str> = subpath.split('/').collect();
-                let after_skins = if parts.len() >= 2 && parts[0].eq_ignore_ascii_case("skins") {
+                let flattened = if parts.len() >= 3 && parts[0].eq_ignore_ascii_case("skins") {
+                    // Skip both "skins" and "skinN" folders
+                    parts[2..].join("/")
+                } else if parts.len() >= 2 && parts[0].eq_ignore_ascii_case("skins") {
+                    // Only "skins" folder, skip it
                     parts[1..].join("/")
                 } else {
                     subpath.to_string()
                 };
-                format!("ASSETS/{}/shared-champion/{}", creator, after_skins)
+                format!("ASSETS/{}/shared-champion/{}", creator, flattened)
             }
             AssetPath::Shared { subpath } => {
                 format!("ASSETS/{}/shared/{}", creator, subpath)
@@ -542,6 +548,41 @@ fn remap_skin_ids(path: &str, target_skin_id: u32) -> String {
             &caps[3]            // "/"
         )
     }).into_owned()
+}
+
+/// Remap skin IDs in BOTH folder paths AND animation BIN filenames
+/// Examples:
+///   - skin17/particles/blade.dds → skin42/particles/blade.dds
+///   - skin17/renekton_skin17_base.skn → skin42/renekton_skin17_base.skn (filename unchanged!)
+///   - animations/skin8.bin → animations/skin42.bin (animation BIN filename remapped!)
+///   - animations/skin0.bin → animations/skin42.bin
+fn remap_skin_ids_full(path: &str, target_skin_id: u32) -> String {
+    // First remap folder paths using the existing function
+    let with_folders_remapped = remap_skin_ids(path, target_skin_id);
+
+    // Then remap animation BIN filenames
+    // Pattern: animations/skin{N}.bin → animations/skin{target}.bin
+    if with_folders_remapped.contains("/animations/skin") && with_folders_remapped.ends_with(".bin") {
+        // Split path into directory and filename
+        if let Some(last_slash) = with_folders_remapped.rfind('/') {
+            let dir = &with_folders_remapped[..=last_slash];
+            let filename = &with_folders_remapped[last_slash + 1..];
+
+            // Check if filename matches skinN.bin pattern
+            if filename.starts_with("skin") && filename.ends_with(".bin") {
+                let without_ext = &filename[..filename.len() - 4]; // Remove ".bin"
+                if without_ext.len() > 4 {
+                    let number_part = &without_ext[4..]; // After "skin"
+                    if number_part.chars().all(|c| c.is_ascii_digit()) {
+                        // It's a skinN.bin file, remap it
+                        return format!("{}skin{}.bin", dir, target_skin_id);
+                    }
+                }
+            }
+        }
+    }
+
+    with_folders_remapped
 }
 
 /// Repath a single BIN file
@@ -914,6 +955,45 @@ mod tests {
     }
 
     #[test]
+    fn test_remap_skin_ids_full() {
+        // Test folder remapping (same as remap_skin_ids)
+        assert_eq!(
+            remap_skin_ids_full("skin0/base.skn", 42),
+            "skin42/base.skn"
+        );
+
+        // Test that mesh filenames stay unchanged
+        assert_eq!(
+            remap_skin_ids_full("skin17/renekton_skin17_base.skn", 42),
+            "skin42/renekton_skin17_base.skn"
+        );
+
+        // Test that animation BIN filenames ARE remapped
+        assert_eq!(
+            remap_skin_ids_full("animations/skin8.bin", 42),
+            "animations/skin42.bin"
+        );
+
+        // Test animation BIN with skin0
+        assert_eq!(
+            remap_skin_ids_full("animations/skin0.bin", 42),
+            "animations/skin42.bin"
+        );
+
+        // Test nested animation path
+        assert_eq!(
+            remap_skin_ids_full("data/animations/skin17.bin", 42),
+            "data/animations/skin42.bin"
+        );
+
+        // Test non-animation skinN.bin files (should not be remapped)
+        assert_eq!(
+            remap_skin_ids_full("skins/skin17.bin", 42),
+            "skins/skin42.bin"
+        );
+    }
+
+    #[test]
     fn test_apply_prefix_to_path_target_champion() {
         let config = RepathConfig {
             creator_name: "SirDexal".to_string(),
@@ -945,14 +1025,14 @@ mod tests {
             "ASSETS/SirDexal/Renny/skin42/particles/blade.dds"
         );
 
-        // Target champion animations (no skins/ folder)
+        // Target champion animations - BIN filename now gets remapped
         assert_eq!(
             apply_prefix_to_path(
                 "data/characters/renekton/animations/skin8.bin",
                 "SirDexal/Renny",
                 &config
             ),
-            "ASSETS/SirDexal/Renny/animations/skin8.bin"
+            "ASSETS/SirDexal/Renny/animations/skin42.bin"
         );
     }
 
@@ -966,26 +1046,26 @@ mod tests {
             cleanup_unused: true,
         };
 
-        // Other champion → shared-champion folder at CREATOR level (not project level)
+        // Other champion → shared-champion folder at CREATOR level, flattened (no skinN folders)
         // Input: assets/characters/sona/skins/skin5/sona_skin5_base.skn
-        // Expected: ASSETS/SirDexal/shared-champion/skin5/sona_skin5_base.skn
+        // Expected: ASSETS/SirDexal/shared-champion/sona_skin5_base.skn
         assert_eq!(
             apply_prefix_to_path(
                 "assets/characters/sona/skins/skin5/sona_skin5_base.skn",
                 "SirDexal/Renny",
                 &config
             ),
-            "ASSETS/SirDexal/shared-champion/skin5/sona_skin5_base.skn"
+            "ASSETS/SirDexal/shared-champion/sona_skin5_base.skn"
         );
 
-        // Other champion particles
+        // Other champion particles (flattened)
         assert_eq!(
             apply_prefix_to_path(
                 "assets/characters/ahri/skins/skin0/particles/orb.dds",
                 "SirDexal/Renny",
                 &config
             ),
-            "ASSETS/SirDexal/shared-champion/skin0/particles/orb.dds"
+            "ASSETS/SirDexal/shared-champion/particles/orb.dds"
         );
     }
 
@@ -1107,16 +1187,16 @@ mod tests {
             cleanup_unused: true,
         };
 
-        // HUD files go to creator level (not project level)
+        // HUD files go to project level (not creator level)
         // Input: assets/characters/renekton/hud/renekton_hud.dds
-        // Expected: ASSETS/SirDexal/hud/renekton_hud.dds
+        // Expected: ASSETS/SirDexal/Renny/hud/renekton_hud.dds
         assert_eq!(
             apply_prefix_to_path(
                 "assets/characters/renekton/hud/renekton_hud.dds",
                 "SirDexal/Renny",
                 &config
             ),
-            "ASSETS/SirDexal/hud/renekton_hud.dds"
+            "ASSETS/SirDexal/Renny/hud/renekton_hud.dds"
         );
     }
 

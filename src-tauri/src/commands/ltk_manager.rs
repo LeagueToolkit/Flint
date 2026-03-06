@@ -271,7 +271,7 @@ fn install_to_ltk_manager(
     };
 
     // Use existing ID or generate new one
-    let (mod_id, is_update) = if let Some(existing_id) = existing_mod_id {
+    let (mod_id, _is_update) = if let Some(existing_id) = existing_mod_id {
         tracing::info!("Updating existing mod with ID: {}", existing_id);
         (existing_id, true)
     } else {

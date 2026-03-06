@@ -388,11 +388,11 @@ fn encode_spritesheet_to_tex(
     let tex = Tex::encode_rgba_image(&img, options)
         .map_err(|e| format!("Failed to encode TEX: {:?}", e))?;
 
-    // Write to project at UI.wad.client/assets/Animatedloadscreen/spritesheet.tex
+    // Write to project at UI.wad.client/assets/animatedloadscreen/spritesheet.tex
     let tex_dir = assets_base
         .join("UI.wad.client")
         .join("assets")
-        .join("Animatedloadscreen");
+        .join("animatedloadscreen");
     std::fs::create_dir_all(&tex_dir)
         .map_err(|e| format!("Failed to create output directory: {}", e))?;
 
@@ -541,7 +541,7 @@ fn inject_animation_block(
     let atlas_data = StructValue {
         class_hash: fnv1a_lower("AtlasData"),
         properties: vec![
-            bin_prop("mTextureName", PropertyValueEnum::String(StringValue("ASSETS/Animatedloadscreen/spritesheet.tex".into()))),
+            bin_prop("mTextureName", PropertyValueEnum::String(StringValue("assets/animatedloadscreen/spritesheet.tex".into()))),
             bin_prop("mTextureSourceResolutionWidth", PropertyValueEnum::U32(U32Value(sheet_width))),
             bin_prop("mTextureSourceResolutionHeight", PropertyValueEnum::U32(U32Value(sheet_height))),
             bin_prop("mTextureUV", PropertyValueEnum::Vector4(Vector4Value(Vec4::new(0.0, 0.0, uv_w, uv_h)))),
@@ -575,11 +575,13 @@ fn inject_animation_block(
         .map_err(|e| format!("Failed to write modified BIN: {}", e))?;
 
     // Write modified BIN to project
+    // Path: UI.wad.client/clientstates/loadingscreen/ux/loadingscreenclassic/uibase
     let uibase_dir = assets_base
         .join("UI.wad.client")
-        .join("data")
-        .join("menu")
-        .join("loadingscreen");
+        .join("clientstates")
+        .join("loadingscreen")
+        .join("ux")
+        .join("loadingscreenclassic");
     std::fs::create_dir_all(&uibase_dir)
         .map_err(|e| format!("Failed to create uibase directory: {}", e))?;
 

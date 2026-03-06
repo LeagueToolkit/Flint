@@ -168,12 +168,13 @@ Before and after injection, the BIN text is validated:
 │   └── base/
 │       └── UI.wad.client/
 │           ├── assets/
-│           │   └── Animatedloadscreen/
+│           │   └── animatedloadscreen/
 │           │       └── spritesheet.tex      ← encoded spritesheet
-│           └── data/
-│               └── menu/
-│                   └── loadingscreen/
-│                       └── uibase           ← modified BIN (no extension)
+│           └── clientstates/
+│               └── loadingscreen/
+│                   └── ux/
+│                       └── loadingscreenclassic/
+│                           └── uibase       ← modified BIN (no extension)
 └── output/                  (for exports)
 ```
 
