@@ -32,6 +32,7 @@ export const TopBar: React.FC = () => {
     const { state, dispatch, showToast } = useAppState();
     const [dropdownOpen, setDropdownOpen] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
+    const [isSyncing, setIsSyncing] = useState(false);
 
     // Get active tab
     const activeTab = useMemo(() => {
@@ -64,6 +65,35 @@ export const TopBar: React.FC = () => {
         e.stopPropagation();
         setDropdownOpen(prev => !prev);
     }, []);
+
+    const handleSyncToLauncher = useCallback(async () => {
+        if (!currentProjectPath || !currentProject) return;
+
+        // Check if LTK Manager path is configured
+        if (!state.ltkManagerModPath) {
+            showToast('error', 'LTK Manager path not configured. Please set it in Settings.');
+            return;
+        }
+
+        setIsSyncing(true);
+
+        try {
+            const modId = await api.syncProjectToLauncher(currentProjectPath, state.ltkManagerModPath);
+            showToast('success', `Synced to LTK Manager! Mod ID: ${modId}`);
+
+            // Auto-checkpoint after sync
+            api.createCheckpoint(currentProjectPath, 'Auto-checkpoint: Synced to LTK Manager').catch(e => {
+                console.warn('Auto-checkpoint failed:', e);
+            });
+
+        } catch (err) {
+            console.error('Sync to launcher failed:', err);
+            const flintError = err as api.FlintError;
+            showToast('error', flintError.getUserMessage?.() || 'Failed to sync to launcher');
+        } finally {
+            setIsSyncing(false);
+        }
+    }, [currentProject, currentProjectPath, state.ltkManagerModPath, showToast]);
 
     // Direct export without modal - just opens save dialog
     const handleExportAs = useCallback(async (format: 'fantome' | 'modpkg') => {
@@ -235,6 +265,21 @@ export const TopBar: React.FC = () => {
                     >
                         <span dangerouslySetInnerHTML={{ __html: getIcon('history') }} />
                         <span>Timeline</span>
+                    </button>
+                )}
+
+                {/* Sync to Launcher button (only visible when actively viewing a project and LTK Manager is configured) */}
+                {state.currentView === 'preview' && currentProject && state.ltkManagerModPath && (
+                    <button
+                        className="btn btn--ghost"
+                        title="Sync project to LTK Manager launcher"
+                        onClick={handleSyncToLauncher}
+                        disabled={isSyncing}
+                    >
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                            <path d="M13.65 2.35A7 7 0 1014.25 8h-1.5a5.5 5.5 0 11-1.1-3.4l1.1 1.1.9-2.35z" fill="currentColor"/>
+                        </svg>
+                        <span>{isSyncing ? 'Syncing...' : 'Sync to Launcher'}</span>
                     </button>
                 )}
 

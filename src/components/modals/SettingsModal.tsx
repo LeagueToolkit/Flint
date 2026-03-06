@@ -25,6 +25,7 @@ export const SettingsModal: React.FC = () => {
     const [creatorName, setCreatorName] = useState(state.creatorName || '');
     const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(state.autoUpdateEnabled);
     const [verboseLogging, setVerboseLogging] = useState(state.verboseLogging);
+    const [ltkManagerModPath, setLtkManagerModPath] = useState(state.ltkManagerModPath || '');
     const [isValidating, setIsValidating] = useState(false);
 
     // Update checker state
@@ -43,9 +44,10 @@ export const SettingsModal: React.FC = () => {
             setCreatorName(state.creatorName || '');
             setAutoUpdateEnabled(state.autoUpdateEnabled);
             setVerboseLogging(state.verboseLogging);
+            setLtkManagerModPath(state.ltkManagerModPath || '');
             getVersion().then(setCurrentVersion).catch(() => setCurrentVersion('0.0.0'));
         }
-    }, [isVisible, state.leaguePath, state.leaguePathPbe, state.defaultProjectPath, state.creatorName, state.autoUpdateEnabled, state.verboseLogging]);
+    }, [isVisible, state.leaguePath, state.leaguePathPbe, state.defaultProjectPath, state.creatorName, state.autoUpdateEnabled, state.verboseLogging, state.ltkManagerModPath]);
 
     const handleBrowse = async (setter: (v: string) => void, title: string) => {
         const selected = await open({ title, directory: true });
@@ -94,6 +96,23 @@ export const SettingsModal: React.FC = () => {
             }
         }
         showToast('error', 'Could not auto-detect PBE installation');
+    };
+
+    const handleDetectLtkManager = async () => {
+        setIsValidating(true);
+        try {
+            const path = await api.getLtkManagerModPath();
+            if (path) {
+                setLtkManagerModPath(path);
+                showToast('success', 'LTK Manager installation detected!');
+            } else {
+                showToast('error', 'LTK Manager not found. Please install LTK Manager first.');
+            }
+        } catch {
+            showToast('error', 'Failed to detect LTK Manager installation');
+        } finally {
+            setIsValidating(false);
+        }
     };
 
     const handleCheckForUpdates = async () => {
@@ -162,6 +181,7 @@ export const SettingsModal: React.FC = () => {
                 creatorName: creatorName || null,
                 autoUpdateEnabled,
                 verboseLogging,
+                ltkManagerModPath: ltkManagerModPath || null,
             },
         });
 
@@ -272,6 +292,37 @@ export const SettingsModal: React.FC = () => {
                                         <span dangerouslySetInnerHTML={{ __html: getIcon('search') }} />
                                         <span>Auto-detect PBE</span>
                                     </button>
+                                </div>
+
+                                <div className="settings-item">
+                                    <label className="settings-item__label">
+                                        LTK Manager Mod Path
+                                        <span className="settings-item__badge">Launcher</span>
+                                    </label>
+                                    <div className="form-input--with-button">
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            placeholder="Path to LTK Manager mod storage"
+                                            value={ltkManagerModPath}
+                                            onChange={(e) => setLtkManagerModPath(e.target.value)}
+                                        />
+                                        <button className="btn btn--secondary" onClick={() => handleBrowse(setLtkManagerModPath, 'Select LTK Manager Mod Storage Folder')}>
+                                            Browse
+                                        </button>
+                                    </div>
+                                    <button
+                                        className="btn btn--ghost btn--sm"
+                                        style={{ marginTop: '6px' }}
+                                        onClick={handleDetectLtkManager}
+                                        disabled={isValidating}
+                                    >
+                                        <span dangerouslySetInnerHTML={{ __html: getIcon('search') }} />
+                                        <span>Auto-detect LTK Manager</span>
+                                    </button>
+                                    <div className="settings-item__hint">
+                                        Auto-sync projects to LTK Manager launcher for easy mod management
+                                    </div>
                                 </div>
                             </div>
                         )}

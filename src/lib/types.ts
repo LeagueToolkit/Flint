@@ -177,6 +177,9 @@ export interface AppState {
     leaguePathPbe: string | null;
     defaultProjectPath: string | null;
 
+    // LTK Manager integration
+    ltkManagerModPath: string | null;
+
     // Project state (tab-based)
     openTabs: ProjectTab[];
     activeTabId: string | null;

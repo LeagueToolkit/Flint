@@ -62,6 +62,7 @@ export function useAppState() {
     creatorName: config.creatorName,
     autoUpdateEnabled: config.autoUpdateEnabled,
     skippedUpdateVersion: config.skippedUpdateVersion,
+    ltkManagerModPath: config.ltkManagerModPath,
 
     // Project tabs
     openTabs: projectTab.openTabs,
@@ -301,6 +302,7 @@ export function useAppState() {
         if (action.payload.creatorName !== undefined) config.setCreatorName(action.payload.creatorName);
         if (action.payload.autoUpdateEnabled !== undefined) config.setAutoUpdateEnabled(action.payload.autoUpdateEnabled);
         if (action.payload.skippedUpdateVersion !== undefined) config.setSkippedUpdateVersion(action.payload.skippedUpdateVersion);
+        if (action.payload.ltkManagerModPath !== undefined) config.setLtkManagerModPath(action.payload.ltkManagerModPath);
         if (action.payload.currentView !== undefined) navigation.setView(action.payload.currentView);
         break;
 

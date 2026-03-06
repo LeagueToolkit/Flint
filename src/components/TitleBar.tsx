@@ -2,10 +2,12 @@
  * Flint - Custom Title Bar Component with Integrated Tabs
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useState, useMemo, useEffect } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { save } from '@tauri-apps/plugin-dialog';
 import { useAppState } from '../lib/stores';
 import { getIcon } from '../lib/fileIcons';
+import * as api from '../lib/api';
 import type { ProjectTab, ExtractSession } from '../lib/types';
 
 // Window control icons as inline SVGs
@@ -160,7 +162,19 @@ const ExtractTab: React.FC<ExtractTabProps> = ({ session, isActive, onSwitch, on
 };
 
 export const TitleBar: React.FC = () => {
-    const { state, dispatch, openModal } = useAppState();
+    const { state, dispatch, openModal, showToast } = useAppState();
+    const [dropdownOpen, setDropdownOpen] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
+    const [isSyncing, setIsSyncing] = useState(false);
+
+    // Get active tab
+    const activeTab = useMemo(() => {
+        if (!state.activeTabId) return null;
+        return state.openTabs.find(t => t.id === state.activeTabId) || null;
+    }, [state.activeTabId, state.openTabs]);
+
+    const currentProject = activeTab?.project || null;
+    const currentProjectPath = activeTab?.projectPath || null;
 
     const handleMinimize = async () => {
         try {
@@ -193,6 +207,98 @@ export const TitleBar: React.FC = () => {
     const handleFixSkin = () => {
         openModal('fixer');
     };
+
+    const toggleDropdown = useCallback((e: React.MouseEvent) => {
+        e.stopPropagation();
+        setDropdownOpen(prev => !prev);
+    }, []);
+
+    const handleSyncToLauncher = useCallback(async () => {
+        if (!currentProjectPath || !currentProject) return;
+
+        // Check if LTK Manager path is configured
+        if (!state.ltkManagerModPath) {
+            showToast('error', 'LTK Manager path not configured. Please set it in Settings.');
+            return;
+        }
+
+        setIsSyncing(true);
+
+        try {
+            const modId = await api.syncProjectToLauncher(currentProjectPath, state.ltkManagerModPath);
+            showToast('success', `Synced to LTK Manager! Mod ID: ${modId}`);
+
+            // Auto-checkpoint after sync
+            api.createCheckpoint(currentProjectPath, 'Auto-checkpoint: Synced to LTK Manager').catch(e => {
+                console.warn('Auto-checkpoint failed:', e);
+            });
+
+        } catch (err) {
+            console.error('Sync to launcher failed:', err);
+            const flintError = err as api.FlintError;
+            showToast('error', flintError.getUserMessage?.() || 'Failed to sync to launcher');
+        } finally {
+            setIsSyncing(false);
+        }
+    }, [currentProject, currentProjectPath, state.ltkManagerModPath, showToast]);
+
+    // Direct export without modal - just opens save dialog
+    const handleExportAs = useCallback(async (format: 'fantome' | 'modpkg') => {
+        setDropdownOpen(false);
+
+        if (!currentProjectPath || !currentProject) return;
+
+        const ext = format;
+        const projectName = currentProject?.display_name || currentProject?.name || 'mod';
+
+        const outputPath = await save({
+            title: `Export as .${ext}`,
+            defaultPath: `${projectName}.${ext}`,
+            filters: [{ name: `${ext.toUpperCase()} Package`, extensions: [ext] }],
+        });
+
+        if (!outputPath) return;
+
+        setIsExporting(true);
+
+        try {
+            const result = await api.exportProject({
+                projectPath: currentProjectPath,
+                outputPath,
+                format,
+                champion: currentProject.champion,
+                metadata: {
+                    name: currentProject.name,
+                    author: currentProject.creator || state.creatorName || 'Unknown',
+                    version: currentProject.version || '1.0.0',
+                    description: currentProject.description || '',
+                },
+            });
+
+            showToast('success', `Exported to ${result.path}`);
+
+            // Auto-checkpoint after export
+            api.createCheckpoint(currentProjectPath, `Auto-checkpoint: Exported to ${format}`).catch(e => {
+                console.warn('Auto-checkpoint failed:', e);
+            });
+
+        } catch (err) {
+            console.error('Export failed:', err);
+            const flintError = err as api.FlintError;
+            showToast('error', flintError.getUserMessage?.() || 'Export failed');
+        } finally {
+            setIsExporting(false);
+        }
+    }, [currentProject, currentProjectPath, state.creatorName, showToast]);
+
+    // Close dropdown when clicking outside
+    useEffect(() => {
+        if (!dropdownOpen) return;
+
+        const handleClickOutside = () => setDropdownOpen(false);
+        document.addEventListener('click', handleClickOutside);
+        return () => document.removeEventListener('click', handleClickOutside);
+    }, [dropdownOpen]);
 
     // Tab handlers
     const handleSwitchTab = useCallback((tabId: string) => {
@@ -288,6 +394,90 @@ export const TitleBar: React.FC = () => {
             </div>
 
             <div className="titlebar__controls" data-tauri-drag-region="false">
+                {/* Sync to Launcher button (only visible when a project is open and LTK Manager is configured) */}
+                {state.currentView === 'preview' && currentProject && state.ltkManagerModPath && (
+                    <button
+                        className="titlebar__button titlebar__button--sync"
+                        onClick={handleSyncToLauncher}
+                        disabled={isSyncing}
+                        title="Sync project to LTK Manager launcher"
+                        data-tauri-drag-region="false"
+                    >
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                            <path d="M13.65 2.35A7 7 0 1014.25 8h-1.5a5.5 5.5 0 11-1.1-3.4l1.1 1.1.9-2.35z" fill="currentColor"/>
+                        </svg>
+                    </button>
+                )}
+
+                {/* Export dropdown (only visible when a project is open) */}
+                {state.currentView === 'preview' && currentProject && (
+                    <div className="titlebar__dropdown" style={{ position: 'relative', display: 'inline-block' }}>
+                        <button
+                            className="titlebar__button titlebar__button--export"
+                            onClick={toggleDropdown}
+                            disabled={isExporting}
+                            title="Export Mod"
+                            data-tauri-drag-region="false"
+                        >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                        </button>
+                        {dropdownOpen && (
+                            <div className="titlebar__dropdown-menu" style={{
+                                position: 'absolute',
+                                right: 0,
+                                top: '100%',
+                                marginTop: '4px',
+                                background: 'var(--bg-secondary)',
+                                border: '1px solid var(--border)',
+                                borderRadius: '4px',
+                                padding: '4px',
+                                minWidth: '180px',
+                                zIndex: 1000,
+                                boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+                            }}>
+                                <button
+                                    onClick={() => handleExportAs('fantome')}
+                                    style={{
+                                        width: '100%',
+                                        padding: '8px 12px',
+                                        background: 'transparent',
+                                        border: 'none',
+                                        color: 'var(--text-primary)',
+                                        textAlign: 'left',
+                                        cursor: 'pointer',
+                                        borderRadius: '2px',
+                                        fontSize: '13px'
+                                    }}
+                                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                                >
+                                    Export as .fantome
+                                </button>
+                                <button
+                                    onClick={() => handleExportAs('modpkg')}
+                                    style={{
+                                        width: '100%',
+                                        padding: '8px 12px',
+                                        background: 'transparent',
+                                        border: 'none',
+                                        color: 'var(--text-primary)',
+                                        textAlign: 'left',
+                                        cursor: 'pointer',
+                                        borderRadius: '2px',
+                                        fontSize: '13px'
+                                    }}
+                                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                                >
+                                    Export as .modpkg
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                )}
+
                 <button
                     className="titlebar__button titlebar__button--fix"
                     onClick={handleFixSkin}

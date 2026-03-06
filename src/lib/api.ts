@@ -80,6 +80,8 @@ export class FlintError extends Error {
             'restore_checkpoint': 'Failed to restore checkpoint.',
             'compare_checkpoints': 'Failed to compare checkpoints.',
             'delete_checkpoint': 'Failed to delete checkpoint.',
+            'get_ltk_manager_mod_path': 'Failed to find LTK Manager installation.',
+            'sync_project_to_launcher': 'Failed to sync project to LTK Manager.',
         };
         return messages[this.command] || this.message;
     }
@@ -321,6 +323,30 @@ export async function listProjectFiles(projectPath: string): Promise<FileTreeNod
 
 export async function preconvertProjectBins(projectPath: string): Promise<number> {
     return invokeCommand('preconvert_project_bins', { projectPath });
+}
+
+// =============================================================================
+// LTK Manager Integration Commands
+// =============================================================================
+
+/**
+ * Get the LTK Manager mod storage path
+ * Returns null if LTK Manager is not installed or settings cannot be found
+ */
+export async function getLtkManagerModPath(): Promise<string | null> {
+    return invokeCommand('get_ltk_manager_mod_path', {});
+}
+
+/**
+ * Sync a Flint project to LTK Manager
+ * Packages the project as .modpkg and installs it to the launcher
+ *
+ * @param projectPath - Path to the Flint project
+ * @param ltkStoragePath - LTK Manager mod storage path (from getLtkManagerModPath)
+ * @returns The installed mod ID in LTK Manager
+ */
+export async function syncProjectToLauncher(projectPath: string, ltkStoragePath: string): Promise<string> {
+    return invokeCommand('sync_project_to_launcher', { projectPath, ltkStoragePath });
 }
 
 // =============================================================================

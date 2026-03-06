@@ -191,6 +191,9 @@ fn main() {
             commands::fixer::batch_fix_projects,
             // Logging commands
             commands::logging::set_log_level,
+            // LTK Manager integration commands
+            commands::ltk_manager::get_ltk_manager_mod_path,
+            commands::ltk_manager::sync_project_to_launcher,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
