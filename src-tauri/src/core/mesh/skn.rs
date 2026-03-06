@@ -87,6 +87,9 @@ pub struct SknMeshData {
     /// Each index refers to a bone in the skeleton
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub bone_indices: Vec<[u8; 4]>,
+    /// Texture loading warning message (e.g., ".ritobin cache not found")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub texture_warning: Option<String>,
 }
 
 
@@ -176,6 +179,7 @@ pub fn parse_skn_file<P: AsRef<Path>>(path: P) -> anyhow::Result<SknMeshData> {
         material_data: HashMap::new(), // Material data loaded separately by command
         bone_weights,
         bone_indices,
+        texture_warning: None, // Set by command if texture discovery fails
     })
 }
 

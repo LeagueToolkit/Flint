@@ -34,6 +34,9 @@ pub struct ScbMeshData {
     /// Per-material data including textures AND UV transform parameters
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub material_data: HashMap<String, super::skn::MaterialData>,
+    /// Texture loading warning message (e.g., ".ritobin cache not found")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub texture_warning: Option<String>,
 }
 
 /// Parse an SCB (binary) or SCO (ASCII) file and extract mesh data for 3D rendering
@@ -162,5 +165,6 @@ pub fn parse_scb_file<P: AsRef<Path>>(path: P) -> anyhow::Result<ScbMeshData> {
         bounding_box,
         material_ranges,
         material_data: HashMap::new(),
+        texture_warning: None, // Set by command if texture discovery fails
     })
 }

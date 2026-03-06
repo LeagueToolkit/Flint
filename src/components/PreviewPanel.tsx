@@ -139,12 +139,14 @@ export const PreviewPanel: React.FC = () => {
         }
 
         // Choose preview component based on file type
+        // IMPORTANT: Use filePath as key to force full unmount/remount when switching files
+        // This ensures proper cleanup of WebGL contexts and other resources
         if (fileInfo.file_type.startsWith('image/')) {
-            return <ImagePreview filePath={filePath} zoom={imageZoom} onZoomChange={setImageZoom} />;
+            return <ImagePreview key={filePath} filePath={filePath} zoom={imageZoom} onZoomChange={setImageZoom} />;
         }
 
         if (fileInfo.extension === 'bin' || fileInfo.file_type === 'application/x-bin') {
-            return <BinEditor filePath={filePath} />;
+            return <BinEditor key={filePath} filePath={filePath} />;
         }
 
         if (
@@ -152,12 +154,12 @@ export const PreviewPanel: React.FC = () => {
             fileInfo.extension === 'json' ||
             fileInfo.extension === 'py'
         ) {
-            return <TextPreview filePath={filePath} />;
+            return <TextPreview key={filePath} filePath={filePath} />;
         }
 
         // 3D model preview for SKN files
         if (fileInfo.extension === 'skn' || fileInfo.file_type === 'model/x-lol-skn') {
-            return <ModelPreview filePath={filePath} meshType="skinned" />;
+            return <ModelPreview key={filePath} filePath={filePath} meshType="skinned" />;
         }
 
         // 3D model preview for SCB/SCO static mesh files
@@ -165,15 +167,15 @@ export const PreviewPanel: React.FC = () => {
             fileInfo.extension === 'scb' || fileInfo.extension === 'sco' ||
             fileInfo.file_type === 'model/x-lol-scb' || fileInfo.file_type === 'model/x-lol-sco'
         ) {
-            return <ModelPreview filePath={filePath} meshType="static" />;
+            return <ModelPreview key={filePath} filePath={filePath} meshType="static" />;
         }
 
         // TODO: Add SKL skeleton preview once ltk_mesh supports it
         // if (fileInfo.extension === 'skl' || fileInfo.file_type === 'model/x-lol-skl') {
-        //     return <SkeletonPreview filePath={filePath} />;
+        //     return <SkeletonPreview key={filePath} filePath={filePath} />;
         // }
 
-        return <HexViewer filePath={filePath} />;
+        return <HexViewer key={filePath} filePath={filePath} />;
     };
 
     return (

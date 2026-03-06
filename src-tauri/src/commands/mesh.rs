@@ -161,7 +161,10 @@ pub async fn read_scb_mesh(path: String) -> Result<ScbMeshData, String> {
             }
         }
     } else {
-        tracing::warn!("⚠ No .ritobin text found for SCB texture mapping");
+        tracing::warn!("⚠ No .ritobin cache found and could not create one for SCB texture mapping");
+        mesh_data.texture_warning = Some(
+            "Could not find or create texture cache. The associated BIN file may be missing or in an unsupported location.".to_string()
+        );
     }
 
     Ok(mesh_data)
@@ -171,7 +174,8 @@ pub async fn read_scb_mesh(path: String) -> Result<ScbMeshData, String> {
 ///
 /// Tries multiple strategies:
 /// 1. Find the .bin file via find_skin_bin or find_scb_bin, then check for .ritobin cache
-/// 2. Search directly for .ritobin files in the data/characters/{champion}/skins/ tree
+/// 2. If cache doesn't exist, automatically create it from the BIN file
+/// 3. Search directly for .ritobin files in the data/characters/{champion}/skins/ tree
 fn find_ritobin_text(mesh_path: &Path) -> Option<String> {
     // Strategy 1: Find .bin via standard lookups, then check .ritobin cache
     let bin_finders: [fn(&Path) -> Option<std::path::PathBuf>; 2] = [
@@ -182,14 +186,26 @@ fn find_ritobin_text(mesh_path: &Path) -> Option<String> {
     for finder in &bin_finders {
         if let Some(bin_path) = finder(mesh_path) {
             let ritobin_path = std::path::PathBuf::from(format!("{}.ritobin", bin_path.display()));
+
+            // Check if cache exists
             if ritobin_path.exists() {
                 if let Ok(text) = std::fs::read_to_string(&ritobin_path) {
                     tracing::debug!("✓ Found .ritobin cache next to BIN: {}", ritobin_path.display());
                     return Some(text);
                 }
             }
-            tracing::debug!("Found .bin at {} but no .ritobin cache — open this BIN in the editor to create the cache",
-                bin_path.display());
+
+            // Cache doesn't exist - try to create it automatically
+            tracing::info!("📦 No .ritobin cache found, creating from BIN: {}", bin_path.display());
+            match create_ritobin_cache(&bin_path, &ritobin_path) {
+                Ok(text) => {
+                    tracing::info!("✅ Created .ritobin cache: {}", ritobin_path.display());
+                    return Some(text);
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to create .ritobin cache: {}", e);
+                }
+            }
         }
     }
 
@@ -211,6 +227,35 @@ fn find_ritobin_text(mesh_path: &Path) -> Option<String> {
     }
 
     None
+}
+
+/// Create a .ritobin cache file from a BIN file
+///
+/// Reads the BIN file, converts it to text using cached hashes, and writes to .ritobin
+fn create_ritobin_cache(bin_path: &Path, ritobin_path: &Path) -> anyhow::Result<String> {
+    use crate::core::bin::ltk_bridge;
+
+    tracing::debug!("Reading BIN file: {}", bin_path.display());
+
+    // Read BIN file bytes
+    let data = std::fs::read(bin_path)
+        .map_err(|e| anyhow::anyhow!("Failed to read BIN file: {}", e))?;
+
+    // Parse BIN to tree structure
+    let tree = ltk_bridge::read_bin(&data)
+        .map_err(|e| anyhow::anyhow!("Failed to parse BIN file: {}", e))?;
+
+    // Convert tree to text using cached hashes
+    let text = ltk_bridge::tree_to_text_cached(&tree)
+        .map_err(|e| anyhow::anyhow!("Failed to convert BIN to text: {}", e))?;
+
+    // Write cache file
+    std::fs::write(ritobin_path, &text)
+        .map_err(|e| anyhow::anyhow!("Failed to write .ritobin cache: {}", e))?;
+
+    tracing::debug!("Wrote {} bytes to {}", text.len(), ritobin_path.display());
+
+    Ok(text)
 }
 
 /// Recursively search a directory for .ritobin files, preferring Concat.bin.ritobin
@@ -406,7 +451,10 @@ pub async fn read_skn_mesh(path: String) -> Result<SknMeshData, String> {
             }
         }
     } else {
-        tracing::warn!("⚠ No .ritobin text found for SKN texture mapping");
+        tracing::warn!("⚠ No .ritobin cache found and could not create one for SKN texture mapping");
+        mesh_data.texture_warning = Some(
+            "Could not find or create texture cache. The associated BIN file may be missing or in an unsupported location.".to_string()
+        );
     }
 
     Ok(mesh_data)

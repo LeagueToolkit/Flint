@@ -33,6 +33,7 @@ interface SknMeshData {
     material_data?: Record<string, MaterialData>;  // NEW: textures with UV params
     bone_weights?: [number, number, number, number][];  // 4 bone weights per vertex
     bone_indices?: [number, number, number, number][];  // 4 bone indices per vertex
+    texture_warning?: string;  // Warning message if texture discovery failed
 }
 
 // Material data with texture and UV transform parameters
@@ -73,6 +74,7 @@ interface ScbMeshData {
     bounding_box: [[number, number, number], [number, number, number]];
     material_ranges: Record<string, [number, number]>;
     material_data?: Record<string, MaterialData>;
+    texture_warning?: string;  // Warning message if texture discovery failed
 }
 
 // Union type for mesh data
@@ -775,6 +777,24 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         };
     }, []);
 
+    // Clean up WebGL context and event listeners on unmount
+    useEffect(() => {
+        return () => {
+            // Find the canvas element and call cleanup if it exists
+            const canvases = document.querySelectorAll('canvas');
+            canvases.forEach(canvas => {
+                if ((canvas as any)._flintCleanup) {
+                    try {
+                        (canvas as any)._flintCleanup();
+                        delete (canvas as any)._flintCleanup;
+                    } catch (e) {
+                        // Ignore errors during cleanup
+                    }
+                }
+            });
+        };
+    }, []);
+
     // Load mesh data
     useEffect(() => {
         let cancelled = false;
@@ -999,15 +1019,28 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         <div className="model-preview">
             {/* 3D Canvas */}
             <div className="model-preview__canvas">
-                <Canvas onCreated={({ gl }) => {
-                    const canvas = gl.domElement;
-                    canvas.addEventListener('webglcontextlost', (e) => {
-                        e.preventDefault();
-                    });
-                    canvas.addEventListener('webglcontextrestored', () => {
-                        gl.clear();
-                    });
-                }}>
+                <Canvas
+                    key={filePath} // Force unmount/remount on file change
+                    onCreated={({ gl }) => {
+                        const canvas = gl.domElement;
+                        const handleContextLost = (e: Event) => {
+                            e.preventDefault();
+                        };
+                        const handleContextRestored = () => {
+                            gl.clear();
+                        };
+                        canvas.addEventListener('webglcontextlost', handleContextLost);
+                        canvas.addEventListener('webglcontextrestored', handleContextRestored);
+
+                        // Store cleanup functions on the canvas for later removal
+                        (canvas as any)._flintCleanup = () => {
+                            canvas.removeEventListener('webglcontextlost', handleContextLost);
+                            canvas.removeEventListener('webglcontextrestored', handleContextRestored);
+                            gl.dispose();
+                            gl.forceContextLoss();
+                        };
+                    }}
+                >
                     <PerspectiveCamera makeDefault fov={50} position={[0, 0, 5]} />
                     {/* Improved lighting setup for better model visibility */}
                     <ambientLight intensity={0.8} />
@@ -1045,6 +1078,27 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
 
             {/* Sidebar with controls */}
             <div className="model-preview__sidebar">
+                {/* Texture warning banner */}
+                {meshData.texture_warning && (
+                    <div className="model-preview__warning" style={{
+                        background: 'rgba(251, 191, 36, 0.1)',
+                        border: '1px solid rgba(251, 191, 36, 0.3)',
+                        borderRadius: '4px',
+                        padding: '12px',
+                        marginBottom: '12px',
+                        fontSize: '13px',
+                        lineHeight: '1.4'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                            <span style={{ fontSize: '16px', flexShrink: 0 }}>⚠️</span>
+                            <div>
+                                <strong style={{ display: 'block', marginBottom: '4px' }}>Textures Not Loaded</strong>
+                                <span style={{ color: 'var(--text-secondary)' }}>{meshData.texture_warning}</span>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 <div className="model-preview__controls">
                     <h4>Display</h4>
                     <label className="model-preview__toggle">
