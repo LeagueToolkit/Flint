@@ -429,9 +429,6 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
     const icon = getFileIcon(effectiveNode.name, effectiveNode.isDirectory, isExpanded);
     const expanderIcon = getExpanderIcon(isExpanded);
 
-    // Get file change status (M, N, D)
-    const fileStatus = !effectiveNode.isDirectory ? state.fileChanges[effectiveNode.path] : null;
-
     return (
         <div className="file-tree__node">
             <div
@@ -462,28 +459,18 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
                         onClick={(e) => e.stopPropagation()}
                     />
                 ) : (
-                    <>
-                        <span className="file-tree__name">
-                            {displayPath.includes('/') ? (
-                                displayPath.split('/').map((segment, idx, arr) => (
-                                    <React.Fragment key={idx}>
-                                        <span className="file-tree__compact-segment">{segment}</span>
-                                        {idx < arr.length - 1 && <span className="file-tree__compact-separator">/</span>}
-                                    </React.Fragment>
-                                ))
-                            ) : (
-                                displayPath
-                            )}
-                        </span>
-                        {fileStatus && (
-                            <span
-                                className={`file-tree__status-badge file-tree__status-badge--${fileStatus.toLowerCase()}`}
-                                title={fileStatus === 'M' ? 'Modified' : fileStatus === 'N' ? 'New' : 'Deleted'}
-                            >
-                                {fileStatus}
-                            </span>
+                    <span className="file-tree__name">
+                        {displayPath.includes('/') ? (
+                            displayPath.split('/').map((segment, idx, arr) => (
+                                <React.Fragment key={idx}>
+                                    <span className="file-tree__compact-segment">{segment}</span>
+                                    {idx < arr.length - 1 && <span className="file-tree__compact-separator">/</span>}
+                                </React.Fragment>
+                            ))
+                        ) : (
+                            displayPath
                         )}
-                    </>
+                    </span>
                 )}
             </div>
             {effectiveNode.isDirectory && isExpanded && effectiveNode.children && (
