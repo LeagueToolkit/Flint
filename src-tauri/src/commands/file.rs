@@ -385,6 +385,20 @@ pub async fn read_text_file(path: String) -> Result<String, String> {
     fs::read_to_string(path).map_err(|e| format!("Failed to read file: {}", e))
 }
 
+/// Write text content to a file
+#[tauri::command]
+pub async fn write_text_file(path: String, content: String) -> Result<(), String> {
+    let path = Path::new(&path);
+
+    // Create parent directories if they don't exist
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create parent directories: {}", e))?;
+    }
+
+    fs::write(path, content).map_err(|e| format!("Failed to write file: {}", e))
+}
+
 /// Recolor a single texture file (DDS or TEX)
 #[tauri::command]
 pub async fn recolor_image(

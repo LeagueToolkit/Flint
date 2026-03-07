@@ -3012,6 +3012,36 @@ input.search-box__input {
   color: var(--text-muted);
 }
 
+/* Monaco Editor styles */
+.text-preview--monaco {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.text-preview__monaco-container {
+  flex: 1;
+  overflow: hidden;
+  background-color: #1e1e1e;
+}
+
+.text-preview__toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.text-preview__toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.text-preview__modified {
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
 /* Spinner utility */
 .spinner {
   width: 24px;

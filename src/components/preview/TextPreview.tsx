@@ -1,10 +1,9 @@
 /**
- * Flint - Text Preview Component
+ * Flint - Text Preview Component with Monaco Editor
  */
 
-import React, { useState, useEffect } from 'react';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import React, { useState, useEffect, useRef } from 'react';
+import Editor from '@monaco-editor/react';
 import * as api from '../../lib/api';
 import { getIcon } from '../../lib/fileIcons';
 
@@ -16,26 +15,45 @@ export const TextPreview: React.FC<TextPreviewProps> = ({ filePath }) => {
     const [content, setContent] = useState<string>('');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [isTruncated, setIsTruncated] = useState(false);
+    const [hasChanges, setHasChanges] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const originalContentRef = useRef<string>('');
 
-    const MAX_LINES = 1000;
+    const ext = filePath.split('.').pop()?.toLowerCase() || 'txt';
+
+    // Map file extensions to Monaco language IDs
+    const getLanguage = (extension: string): string => {
+        const languageMap: Record<string, string> = {
+            'json': 'json',
+            'js': 'javascript',
+            'jsx': 'javascript',
+            'ts': 'typescript',
+            'tsx': 'typescript',
+            'py': 'python',
+            'css': 'css',
+            'scss': 'scss',
+            'html': 'html',
+            'xml': 'xml',
+            'md': 'markdown',
+            'yaml': 'yaml',
+            'yml': 'yaml',
+            'sh': 'shell',
+            'bat': 'bat',
+            'txt': 'plaintext',
+        };
+        return languageMap[extension] || 'plaintext';
+    };
 
     useEffect(() => {
         const loadText = async () => {
             setLoading(true);
             setError(null);
+            setHasChanges(false);
 
             try {
                 const text = await api.readTextFile(filePath);
-                const lines = text.split('\n');
-
-                if (lines.length > MAX_LINES) {
-                    setContent(lines.slice(0, MAX_LINES).join('\n'));
-                    setIsTruncated(true);
-                } else {
-                    setContent(text);
-                    setIsTruncated(false);
-                }
+                setContent(text);
+                originalContentRef.current = text;
             } catch (err) {
                 console.error('[TextPreview] Error:', err);
                 setError((err as Error).message || 'Failed to load text');
@@ -47,8 +65,31 @@ export const TextPreview: React.FC<TextPreviewProps> = ({ filePath }) => {
         loadText();
     }, [filePath]);
 
-    const ext = filePath.split('.').pop()?.toLowerCase() || 'txt';
-    const lineNumbers = content.split('\n').map((_, i) => i + 1);
+    const handleSave = async () => {
+        setSaving(true);
+        try {
+            await api.writeTextFile(filePath, content);
+            originalContentRef.current = content;
+            setHasChanges(false);
+        } catch (err) {
+            console.error('[TextPreview] Save error:', err);
+            setError('Failed to save file');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleEditorChange = (value: string | undefined) => {
+        if (value !== undefined) {
+            setContent(value);
+            setHasChanges(value !== originalContentRef.current);
+        }
+    };
+
+    const handleRevert = () => {
+        setContent(originalContentRef.current);
+        setHasChanges(false);
+    };
 
     if (loading) {
         return (
@@ -68,54 +109,64 @@ export const TextPreview: React.FC<TextPreviewProps> = ({ filePath }) => {
         );
     }
 
-    const isJson = ext === 'json';
+    const language = getLanguage(ext);
+    const lineCount = content.split('\n').length;
 
     return (
-        <div className="text-preview">
+        <div className="text-preview text-preview--monaco">
             <div className="text-preview__toolbar">
-                <span className="text-preview__lang">{ext.toUpperCase()}</span>
-                <span>{lineNumbers.length} lines</span>
-            </div>
-            <div className="text-preview__content">
-                {isJson ? (
-                    <SyntaxHighlighter
-                        language="json"
-                        style={vscDarkPlus}
-                        customStyle={{
-                            margin: 0,
-                            padding: '12px',
-                            background: 'transparent',
-                            fontSize: '13px',
-                            lineHeight: '1.5',
-                        }}
-                        showLineNumbers={true}
-                        lineNumberStyle={{
-                            minWidth: '3em',
-                            paddingRight: '1em',
-                            color: 'var(--text-secondary)',
-                            userSelect: 'none',
-                        }}
-                    >
-                        {content}
-                    </SyntaxHighlighter>
-                ) : (
-                    <>
-                        <div className="text-preview__line-numbers">
-                            {lineNumbers.map((num) => (
-                                <div key={num} className="text-preview__line-num">{num}</div>
-                            ))}
-                        </div>
-                        <pre className="text-preview__code">
-                            <code>{content}</code>
-                        </pre>
-                    </>
-                )}
-            </div>
-            {isTruncated && (
-                <div className="text-preview__truncated">
-                    File truncated at {MAX_LINES} lines
+                <div className="text-preview__toolbar-left">
+                    <span className="text-preview__lang">{ext.toUpperCase()}</span>
+                    <span>{lineCount} lines</span>
+                    {hasChanges && <span className="text-preview__modified">● Modified</span>}
                 </div>
-            )}
+                <div className="text-preview__toolbar-right">
+                    {hasChanges && (
+                        <>
+                            <button
+                                className="btn btn--sm btn--ghost"
+                                onClick={handleRevert}
+                                disabled={saving}
+                            >
+                                Revert
+                            </button>
+                            <button
+                                className="btn btn--sm btn--primary"
+                                onClick={handleSave}
+                                disabled={saving}
+                            >
+                                {saving ? 'Saving...' : 'Save'}
+                            </button>
+                        </>
+                    )}
+                </div>
+            </div>
+            <div className="text-preview__monaco-container">
+                <Editor
+                    height="100%"
+                    language={language}
+                    value={content}
+                    onChange={handleEditorChange}
+                    theme="vs-dark"
+                    options={{
+                        minimap: { enabled: false },
+                        fontSize: 13,
+                        lineHeight: 20,
+                        fontFamily: "'Cascadia Code', 'Fira Code', 'Consolas', monospace",
+                        scrollBeyondLastLine: false,
+                        wordWrap: 'off',
+                        automaticLayout: true,
+                        tabSize: 2,
+                        insertSpaces: true,
+                        formatOnPaste: true,
+                        formatOnType: true,
+                        renderWhitespace: 'selection',
+                        bracketPairColorization: {
+                            enabled: true,
+                        },
+                    }}
+                />
+            </div>
         </div>
     );
 };
