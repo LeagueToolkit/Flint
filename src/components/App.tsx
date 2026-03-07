@@ -92,20 +92,27 @@ export const App: React.FC = () => {
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Manage file watcher for auto-sync
-    useEffect(() => {
+    // Compute the current project path (useMemo to avoid triggering effect on every state change)
+    const currentProjectPath = React.useMemo(() => {
         const activeTab = getActiveTab(state);
+        return activeTab?.projectPath || null;
+    }, [state.activeTabId, state.openTabs]);
+
+    useEffect(() => {
         const shouldWatch = state.autoSyncToLauncher &&
                           state.ltkManagerModPath &&
-                          activeTab?.projectPath;
+                          currentProjectPath;
 
         if (shouldWatch) {
+            console.log('[Auto-sync] Starting watcher for:', currentProjectPath);
             // Start watcher
-            api.startProjectWatcher(activeTab.projectPath, state.ltkManagerModPath!)
+            api.startProjectWatcher(currentProjectPath, state.ltkManagerModPath!)
                 .catch(err => {
                     console.error('[Auto-sync] Failed to start watcher:', err);
                     showToast('error', 'Failed to start auto-sync watcher');
                 });
         } else {
+            console.log('[Auto-sync] Stopping watcher');
             // Stop watcher
             api.stopProjectWatcher().catch(err => {
                 // Silently ignore if no watcher was running
@@ -119,7 +126,7 @@ export const App: React.FC = () => {
         return () => {
             api.stopProjectWatcher().catch(() => {});
         };
-    }, [state.activeTabId, state.openTabs, state.autoSyncToLauncher, state.ltkManagerModPath]);
+    }, [currentProjectPath, state.autoSyncToLauncher, state.ltkManagerModPath]);
 
     // Listen for auto-sync events from Rust
     useEffect(() => {

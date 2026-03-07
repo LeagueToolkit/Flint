@@ -24,11 +24,18 @@ impl WatcherState {
     }
 }
 
+impl Default for WatcherState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Handle to a running file watcher
 pub struct WatcherHandle {
     /// The debouncer (must be kept alive)
     _debouncer: Box<dyn Send>,
-    /// Sender to stop the watcher task
+    /// Sender to stop the watcher task (not read, but dropping it signals the task to stop)
+    #[allow(dead_code)]
     stop_tx: mpsc::UnboundedSender<()>,
 }
 
@@ -71,15 +78,24 @@ pub async fn start_project_watcher(
         None,
         move |result: DebounceEventResult| match result {
             Ok(events) => {
+                // Log all received events for debugging
+                for event in &events {
+                    tracing::debug!("File event: {:?} - {:?}", event.kind, event.paths);
+                }
+
                 // Filter out events we don't care about (metadata changes, directory ops)
-                let has_relevant_changes = events.iter().any(|e| {
-                    matches!(
+                let relevant_events: Vec<_> = events.iter()
+                    .filter(|e| matches!(
                         e.kind,
                         EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
-                    )
-                });
+                    ))
+                    .collect();
 
-                if has_relevant_changes {
+                if !relevant_events.is_empty() {
+                    tracing::info!(
+                        "Detected {} relevant file change(s), triggering sync in 2s...",
+                        relevant_events.len()
+                    );
                     let _ = tx.send(());
                 }
             }
@@ -99,10 +115,11 @@ pub async fn start_project_watcher(
 
     // Spawn background task to handle sync events
     tokio::spawn(async move {
+        tracing::info!("Auto-sync background task started");
         loop {
             tokio::select! {
                 Some(_) = rx.recv() => {
-                    tracing::info!("Project files changed, triggering auto-sync...");
+                    tracing::info!("Debounce complete! Starting auto-sync to LTK Manager...");
 
                     // Call the sync command
                     match crate::commands::ltk_manager::sync_project_to_launcher(
@@ -112,23 +129,24 @@ pub async fn start_project_watcher(
                     .await
                     {
                         Ok(mod_id) => {
-                            tracing::info!("Auto-sync completed successfully: {}", mod_id);
+                            tracing::info!("✓ Auto-sync completed successfully: {}", mod_id);
                             // Emit event to frontend
                             let _ = app_clone.emit("auto-sync-complete", mod_id);
                         }
                         Err(e) => {
-                            tracing::error!("Auto-sync failed: {}", e);
+                            tracing::error!("✗ Auto-sync failed: {}", e);
                             // Emit error event to frontend
                             let _ = app_clone.emit("auto-sync-error", e);
                         }
                     }
                 }
                 _ = stop_rx.recv() => {
-                    tracing::info!("Stopping project watcher");
+                    tracing::info!("Auto-sync background task stopping");
                     break;
                 }
             }
         }
+        tracing::info!("Auto-sync background task ended");
     });
 
     // Store the watcher handle
