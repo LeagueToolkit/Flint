@@ -198,9 +198,11 @@ fn main() {
             // LTK Manager integration commands
             commands::ltk_manager::get_ltk_manager_mod_path,
             commands::ltk_manager::sync_project_to_launcher,
-            // Project watcher commands (auto-sync)
+            // Project watcher commands (auto-sync + preview hot reload)
             commands::project_watcher::start_project_watcher,
             commands::project_watcher::stop_project_watcher,
+            commands::project_watcher::start_preview_watcher,
+            commands::project_watcher::stop_preview_watcher,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

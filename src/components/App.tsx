@@ -9,6 +9,7 @@ import { initShortcuts, registerShortcut } from '../lib/utils';
 import * as api from '../lib/api';
 import * as updater from '../lib/updater';
 import { listen } from '@tauri-apps/api/event';
+import { invalidateCachedImage } from '../lib/imageCache';
 
 import { TitleBar } from './TitleBar';
 import { LeftPanel } from './FileTree';
@@ -28,7 +29,7 @@ import { FixerModal } from './modals/FixerModal';
 import { ToastContainer } from './Toast';
 
 // Helper to get active tab from state
-function getActiveTab(state: { activeTabId: string | null; openTabs: Array<{ id: string; project: any; projectPath: string }> }) {
+function getActiveTab(state: { activeTabId: string | null; openTabs: Array<{ id: string; project: any; projectPath: string; selectedFile: string | null }> }) {
     if (!state.activeTabId) return null;
     return state.openTabs.find(t => t.id === state.activeTabId) || null;
 }
@@ -143,6 +144,54 @@ export const App: React.FC = () => {
             unlistenError.then((unlisten) => unlisten());
         };
     }, [showToast]);
+
+    // Manage preview file watcher for hot reload
+    useEffect(() => {
+        if (currentProjectPath) {
+            console.log('[Preview Hot Reload] Starting watcher for:', currentProjectPath);
+            api.startPreviewWatcher(currentProjectPath)
+                .catch(err => {
+                    console.error('[Preview Hot Reload] Failed to start watcher:', err);
+                });
+        } else {
+            api.stopPreviewWatcher().catch(() => {});
+        }
+
+        // Cleanup on unmount
+        return () => {
+            api.stopPreviewWatcher().catch(() => {});
+        };
+    }, [currentProjectPath]);
+
+    // Listen for file-changed events from Rust (hot reload)
+    useEffect(() => {
+        const unlistenFileChanged = listen<{ path: string; kind: string }>('file-changed', (event) => {
+            const changedPath = event.payload.path;
+            console.log('[Preview Hot Reload] File changed:', changedPath);
+
+            // Invalidate cache for the changed file
+            const wasInvalidated = invalidateCachedImage(changedPath);
+            if (wasInvalidated) {
+                console.log('[Preview Hot Reload] Cache invalidated for:', changedPath);
+            }
+
+            // Increment file version to trigger re-render in preview components
+            useAppMetadataStore.getState().incrementFileVersion(changedPath);
+
+            // Force re-render of preview if the changed file is currently selected
+            const activeTab = getActiveTab(stateRef.current);
+            if (activeTab && activeTab.selectedFile) {
+                const selectedFilePath = `${activeTab.projectPath}/${activeTab.selectedFile}`;
+                if (selectedFilePath === changedPath) {
+                    console.log('[Preview Hot Reload] Currently previewed file changed, triggering reload');
+                }
+            }
+        });
+
+        return () => {
+            unlistenFileChanged.then((unlisten) => unlisten());
+        };
+    }, []);
 
     const loadInitialData = async () => {
         // Sync log level setting to Rust backend

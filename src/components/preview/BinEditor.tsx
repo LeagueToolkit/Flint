@@ -15,7 +15,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import * as monaco from 'monaco-editor';
 import type { editor } from 'monaco-editor';
-import { useAppState } from '../../lib/stores';
+import { useAppState, useAppMetadataStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { getIcon } from '../../lib/fileIcons';
 import {
@@ -147,6 +147,9 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
     const [error, setError] = useState<string | null>(null);
     const [lineCount, setLineCount] = useState(0);
 
+    // Subscribe to file version changes for hot reload
+    const fileVersion = useAppMetadataStore((state) => state.fileVersions[filePath] || 0);
+
     const editorContainerRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
 
@@ -179,7 +182,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
             }
         };
         loadBin();
-    }, [filePath]);
+    }, [filePath, fileVersion]); // Re-run when file version changes (hot reload)
 
     // Create Monaco editor directly once content is loaded.
     // Disposes and recreates when file changes (loading cycles false→true→false).

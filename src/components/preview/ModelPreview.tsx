@@ -9,6 +9,7 @@ import { OrbitControls, PerspectiveCamera, Grid } from '@react-three/drei';
 import * as THREE from 'three';
 import * as api from '../../lib/api';
 import type { AnimationPose } from '../../lib/api';
+import { useAppMetadataStore } from '../../lib/stores';
 
 // ============================================================================
 // Types
@@ -741,6 +742,9 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     const [wireframe, setWireframe] = useState(false);
     const [visibleMaterials, setVisibleMaterials] = useState<Set<string>>(new Set());
 
+    // Subscribe to file version changes for hot reload
+    const fileVersion = useAppMetadataStore((state) => state.fileVersions[filePath] || 0);
+
     // Animation state (only for skinned meshes)
     const [animations, setAnimations] = useState<{ name: string; animation_path: string }[]>([]);
     const [selectedAnimation, setSelectedAnimation] = useState<string>('');
@@ -868,7 +872,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
 
         loadMesh();
         return () => { cancelled = true; };
-    }, [filePath, meshType]);
+    }, [filePath, meshType, fileVersion]); // Re-run when file version changes (hot reload)
 
     // Load animation when selection changes
     useEffect(() => {

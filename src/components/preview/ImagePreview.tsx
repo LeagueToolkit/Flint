@@ -7,6 +7,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import * as api from '../../lib/api';
 import { getCachedImage, cacheImage } from '../../lib/imageCache';
 import { getIcon } from '../../lib/fileIcons';
+import { useAppMetadataStore } from '../../lib/stores';
 
 interface ImagePreviewProps {
     filePath: string;
@@ -21,6 +22,9 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({ filePath, zoom, onZo
     const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const imageRef = useRef<HTMLImageElement>(null);
+
+    // Subscribe to file version changes for hot reload
+    const fileVersion = useAppMetadataStore((state) => state.fileVersions[filePath] || 0);
 
     useEffect(() => {
         const loadImage = async () => {
@@ -61,7 +65,7 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({ filePath, zoom, onZo
         };
 
         loadImage();
-    }, [filePath]);
+    }, [filePath, fileVersion]); // Re-run when file version changes (hot reload)
 
     // Handle image load to get natural size
     const handleImageLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {

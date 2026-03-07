@@ -44,3 +44,12 @@ export function cacheImage(path: string, imageData: unknown): void {
 export function clearImageCache(): void {
   imageCache.clear();
 }
+
+/**
+ * Invalidate a specific cached image by path
+ * @param path - The file path to invalidate
+ * @returns true if an entry was removed, false if not found
+ */
+export function invalidateCachedImage(path: string): boolean {
+  return imageCache.delete(path);
+}

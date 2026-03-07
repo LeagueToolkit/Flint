@@ -6,6 +6,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Editor from '@monaco-editor/react';
 import * as api from '../../lib/api';
 import { getIcon } from '../../lib/fileIcons';
+import { useAppMetadataStore } from '../../lib/stores';
 
 interface TextPreviewProps {
     filePath: string;
@@ -18,6 +19,9 @@ export const TextPreview: React.FC<TextPreviewProps> = ({ filePath }) => {
     const [hasChanges, setHasChanges] = useState(false);
     const [saving, setSaving] = useState(false);
     const originalContentRef = useRef<string>('');
+
+    // Subscribe to file version changes for hot reload
+    const fileVersion = useAppMetadataStore((state) => state.fileVersions[filePath] || 0);
 
     const ext = filePath.split('.').pop()?.toLowerCase() || 'txt';
 
@@ -63,7 +67,7 @@ export const TextPreview: React.FC<TextPreviewProps> = ({ filePath }) => {
         };
 
         loadText();
-    }, [filePath]);
+    }, [filePath, fileVersion]); // Re-run when file version changes (hot reload)
 
     const handleSave = async () => {
         setSaving(true);

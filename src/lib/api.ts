@@ -366,6 +366,21 @@ export async function stopProjectWatcher(): Promise<void> {
     return invokeCommand('stop_project_watcher', {});
 }
 
+/**
+ * Start preview file watcher for hot reload
+ * @param projectPath - Path to the Flint project
+ */
+export async function startPreviewWatcher(projectPath: string): Promise<void> {
+    return invokeCommand('start_preview_watcher', { projectPath });
+}
+
+/**
+ * Stop the active preview watcher
+ */
+export async function stopPreviewWatcher(): Promise<void> {
+    return invokeCommand('stop_preview_watcher', {});
+}
+
 // =============================================================================
 // WAD Commands
 // =============================================================================

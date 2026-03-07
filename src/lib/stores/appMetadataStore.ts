@@ -14,6 +14,7 @@ interface AppMetadataState {
   verboseLogging: boolean;
   logs: LogEntry[];
   logPanelExpanded: boolean;
+  fileVersions: Record<string, number>; // Track file modification versions for hot reload
 
   // Actions
   setStatus: (status: AppMetadataState['status'], message: string) => void;
@@ -25,11 +26,13 @@ interface AppMetadataState {
   addLog: (level: LogEntry['level'], message: string) => void;
   clearLogs: () => void;
   toggleLogPanel: () => void;
+  incrementFileVersion: (filePath: string) => void;
+  getFileVersion: (filePath: string) => number;
 }
 
 let logIdCounter = 0;
 
-export const useAppMetadataStore = create<AppMetadataState>((set) => ({
+export const useAppMetadataStore = create<AppMetadataState>((set, get) => ({
   status: 'ready',
   statusMessage: 'Ready',
   hashesLoaded: false,
@@ -37,6 +40,7 @@ export const useAppMetadataStore = create<AppMetadataState>((set) => ({
   verboseLogging: false,
   logs: [],
   logPanelExpanded: false,
+  fileVersions: {},
 
   setStatus: (status, message) => set({ status, statusMessage: message }),
   setWorking: (message = 'Working...') => set({ status: 'working', statusMessage: message }),
@@ -54,4 +58,11 @@ export const useAppMetadataStore = create<AppMetadataState>((set) => ({
   })),
   clearLogs: () => set({ logs: [] }),
   toggleLogPanel: () => set((state) => ({ logPanelExpanded: !state.logPanelExpanded })),
+  incrementFileVersion: (filePath) => set((state) => ({
+    fileVersions: {
+      ...state.fileVersions,
+      [filePath]: (state.fileVersions[filePath] || 0) + 1,
+    },
+  })),
+  getFileVersion: (filePath) => get().fileVersions[filePath] || 0,
 }));
