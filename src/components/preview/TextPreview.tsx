@@ -3,6 +3,8 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import * as api from '../../lib/api';
 import { getIcon } from '../../lib/fileIcons';
 
@@ -66,6 +68,8 @@ export const TextPreview: React.FC<TextPreviewProps> = ({ filePath }) => {
         );
     }
 
+    const isJson = ext === 'json';
+
     return (
         <div className="text-preview">
             <div className="text-preview__toolbar">
@@ -73,14 +77,39 @@ export const TextPreview: React.FC<TextPreviewProps> = ({ filePath }) => {
                 <span>{lineNumbers.length} lines</span>
             </div>
             <div className="text-preview__content">
-                <div className="text-preview__line-numbers">
-                    {lineNumbers.map((num) => (
-                        <div key={num} className="text-preview__line-num">{num}</div>
-                    ))}
-                </div>
-                <pre className="text-preview__code">
-                    <code>{content}</code>
-                </pre>
+                {isJson ? (
+                    <SyntaxHighlighter
+                        language="json"
+                        style={vscDarkPlus}
+                        customStyle={{
+                            margin: 0,
+                            padding: '12px',
+                            background: 'transparent',
+                            fontSize: '13px',
+                            lineHeight: '1.5',
+                        }}
+                        showLineNumbers={true}
+                        lineNumberStyle={{
+                            minWidth: '3em',
+                            paddingRight: '1em',
+                            color: 'var(--text-secondary)',
+                            userSelect: 'none',
+                        }}
+                    >
+                        {content}
+                    </SyntaxHighlighter>
+                ) : (
+                    <>
+                        <div className="text-preview__line-numbers">
+                            {lineNumbers.map((num) => (
+                                <div key={num} className="text-preview__line-num">{num}</div>
+                            ))}
+                        </div>
+                        <pre className="text-preview__code">
+                            <code>{content}</code>
+                        </pre>
+                    </>
+                )}
             </div>
             {isTruncated && (
                 <div className="text-preview__truncated">

@@ -809,6 +809,10 @@ export async function readCheckpointFile(
     return invokeCommand('read_checkpoint_file', { projectPath, hash, filePath });
 }
 
+export async function getFileChanges(projectPath: string): Promise<Record<string, string>> {
+    return invokeCommand('get_file_changes', { projectPath });
+}
+
 // =============================================================================
 // Audio / BNK Editor API
 // =============================================================================

@@ -186,6 +186,9 @@ export interface AppState {
     activeTabId: string | null;
     recentProjects: RecentProject[];
 
+    // File change tracking (compared to last checkpoint)
+    fileChanges: Record<string, string>; // path -> status ("M", "N", "D")
+
     // WAD extract sessions
     extractSessions: ExtractSession[];
     activeExtractId: string | null;

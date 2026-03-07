@@ -460,6 +460,67 @@ impl CheckpointManager {
         let base64_data = STANDARD.encode(&png_data);
         Ok((base64_data, width, height))
     }
+
+    /// Get file status compared to the latest checkpoint
+    /// Returns a map of relative paths to their status (Modified, New)
+    pub fn get_file_changes(&self) -> Result<HashMap<String, String>> {
+        // Get latest checkpoint
+        let checkpoints = self.list_checkpoints()?;
+        let latest = match checkpoints.first() {
+            Some(cp) => cp,
+            None => {
+                // No checkpoint exists - all files are "new"
+                return Ok(HashMap::new());
+            }
+        };
+
+        let mut changes = HashMap::new();
+
+        // Collect current files
+        let current_files = collect_project_files(&self.project_path);
+
+        for file_path in current_files {
+            let relative = file_path.strip_prefix(&self.project_path)
+                .map_err(|_| Error::InvalidInput("Failed to relativize path".into()))?
+                .to_string_lossy()
+                .to_string()
+                .replace('\\', "/");
+
+            // Skip internal files
+            if relative.starts_with(".flint/") {
+                continue;
+            }
+
+            // Calculate hash of current file
+            let data = fs::read(&file_path).map_err(|e| Error::io_with_path(e, &file_path))?;
+            let mut hasher = Sha256::new();
+            hasher.update(&data);
+            let current_hash = format!("{:x}", hasher.finalize());
+
+            if let Some(entry) = latest.file_manifest.get(&relative) {
+                // File exists in checkpoint - check if modified
+                if entry.hash != current_hash {
+                    changes.insert(relative, "M".to_string());
+                }
+            } else {
+                // File doesn't exist in checkpoint - it's new
+                changes.insert(relative, "N".to_string());
+            }
+        }
+
+        // Check for deleted files (in checkpoint but not in current files)
+        for path in latest.file_manifest.keys() {
+            if path.starts_with(".flint/") {
+                continue;
+            }
+            let full_path = self.project_path.join(path.replace('/', "\\"));
+            if !full_path.exists() {
+                changes.insert(path.clone(), "D".to_string());
+            }
+        }
+
+        Ok(changes)
+    }
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]

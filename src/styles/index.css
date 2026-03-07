@@ -919,6 +919,32 @@ input.search-box__input {
   font-weight: 400;
 }
 
+/* File status badges (M, N, D) */
+.file-tree__status-badge {
+  margin-left: 6px;
+  padding: 0 4px;
+  border-radius: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  flex-shrink: 0;
+}
+
+.file-tree__status-badge--m {
+  background-color: rgba(255, 183, 0, 0.2);
+  color: #ffb700;
+}
+
+.file-tree__status-badge--n {
+  background-color: rgba(0, 200, 100, 0.2);
+  color: #00c864;
+}
+
+.file-tree__status-badge--d {
+  background-color: rgba(220, 80, 80, 0.2);
+  color: #dc5050;
+}
+
 /* Compact folder styling (VSCode-like) */
 .file-tree__compact-segment {
   color: var(--text-primary);

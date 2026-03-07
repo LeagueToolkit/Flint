@@ -170,6 +170,7 @@ fn main() {
             commands::checkpoint::compare_checkpoints,
             commands::checkpoint::delete_checkpoint,
             commands::checkpoint::read_checkpoint_file,
+            commands::checkpoint::get_file_changes,
             // Audio commands (BNK/WPK editor)
             commands::audio::parse_audio_bank,
             commands::audio::parse_audio_bank_bytes,

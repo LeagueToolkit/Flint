@@ -34,6 +34,8 @@ export {
  * Components can continue using state.xyz pattern or migrate to individual stores
  */
 export function useAppState() {
+  const [fileChanges, setFileChanges] = React.useState<Record<string, string>>({});
+
   const appMetadata = useAppMetadataStore();
   const config = useConfigStore();
   const projectTab = useProjectTabStore();
@@ -69,6 +71,9 @@ export function useAppState() {
     openTabs: projectTab.openTabs,
     activeTabId: projectTab.activeTabId,
     recentProjects: config.recentProjects,
+
+    // File change tracking
+    fileChanges,
 
     // Navigation
     currentView: navigation.currentView,
@@ -290,6 +295,11 @@ export function useAppState() {
         break;
       case 'SET_EXTRACT_LOADING':
         wadExtract.setLoading(action.payload.sessionId, action.payload.loading);
+        break;
+
+      // File changes
+      case 'SET_FILE_CHANGES':
+        setFileChanges(action.payload);
         break;
 
       // Generic SET_STATE for partial updates

@@ -1,4 +1,5 @@
 use crate::core::checkpoint::{Checkpoint, CheckpointDiff, CheckpointFileContent, CheckpointManager, CheckpointProgress};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter};
 
@@ -69,4 +70,11 @@ pub async fn read_checkpoint_file(
     let path = PathBuf::from(project_path);
     let manager = CheckpointManager::new(path);
     manager.read_checkpoint_file(&hash, &file_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_file_changes(project_path: String) -> Result<HashMap<String, String>, String> {
+    let path = PathBuf::from(project_path);
+    let manager = CheckpointManager::new(path);
+    manager.get_file_changes().map_err(|e| e.to_string())
 }

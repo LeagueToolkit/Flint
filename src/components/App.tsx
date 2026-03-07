@@ -34,7 +34,7 @@ function getActiveTab(state: { activeTabId: string | null; openTabs: Array<{ id:
 }
 
 export const App: React.FC = () => {
-    const { state, openModal, closeModal, setWorking, setReady, showToast } = useAppState();
+    const { state, dispatch, openModal, closeModal, setWorking, setReady, showToast } = useAppState();
     const [leftPanelWidth, setLeftPanelWidth] = useState(280);
     const resizerRef = useRef<HTMLDivElement>(null);
     const isResizingRef = useRef(false);
@@ -132,6 +132,12 @@ export const App: React.FC = () => {
     useEffect(() => {
         const unlistenComplete = listen('auto-sync-complete', (event) => {
             showToast('success', `Auto-synced to LTK Manager! Mod ID: ${event.payload}`);
+            // Reload file changes after sync
+            if (currentProjectPath) {
+                api.getFileChanges(currentProjectPath)
+                    .then(changes => dispatch({ type: 'SET_FILE_CHANGES', payload: changes }))
+                    .catch(() => {});
+            }
         });
 
         const unlistenError = listen('auto-sync-error', (event) => {
@@ -142,7 +148,32 @@ export const App: React.FC = () => {
             unlistenComplete.then((unlisten) => unlisten());
             unlistenError.then((unlisten) => unlisten());
         };
-    }, [showToast]);
+    }, [showToast, currentProjectPath, dispatch]);
+
+    // Load file changes when project changes
+    useEffect(() => {
+        if (!currentProjectPath) {
+            dispatch({ type: 'SET_FILE_CHANGES', payload: {} });
+            return;
+        }
+
+        const loadFileChanges = async () => {
+            try {
+                const changes = await api.getFileChanges(currentProjectPath);
+                dispatch({ type: 'SET_FILE_CHANGES', payload: changes });
+            } catch (err) {
+                // Silently fail - no checkpoints yet or error
+                dispatch({ type: 'SET_FILE_CHANGES', payload: {} });
+            }
+        };
+
+        loadFileChanges();
+
+        // Reload every 5 seconds while project is open
+        const interval = setInterval(loadFileChanges, 5000);
+
+        return () => clearInterval(interval);
+    }, [currentProjectPath, dispatch]);
 
     const loadInitialData = async () => {
         // Sync log level setting to Rust backend
