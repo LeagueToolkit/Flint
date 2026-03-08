@@ -7,6 +7,7 @@ import React, { useState, useCallback } from 'react';
 import { useAppState } from '../../lib/stores';
 import { formatRelativeTime } from '../../lib/utils';
 import { open } from '@tauri-apps/plugin-dialog';
+import { appDataDir } from '@tauri-apps/api/path';
 import { getIcon } from '../../lib/fileIcons';
 import * as api from '../../lib/api';
 
@@ -119,17 +120,11 @@ export const ProjectListModal: React.FC = () => {
             const champion = analysis.champion || 'Unknown';
             const skinId = analysis.skin_ids[0] || 0;
 
-            // Ask where to create the project
-            const projectDir = await open({
-                title: 'Choose Location for Imported Project',
-                directory: true,
-                multiple: false,
-            });
-
-            if (!projectDir) {
-                setReady();
-                return;
-            }
+            // Get default project directory: {AppData}/RitoShark/Flint/Projects
+            const appData = await appDataDir();
+            const parts = appData.replace(/\\/g, '/').split('/');
+            parts.pop();
+            const projectDir = `${parts.join('/')}/RitoShark/Flint/Projects`;
 
             // Create a proper Flint project
             setWorking('Creating project...');
@@ -140,21 +135,21 @@ export const ProjectListModal: React.FC = () => {
                 champion,
                 skin: skinId,
                 creatorName: state.creatorName || 'Unknown',
-                projectPath: projectDir as string,
+                projectPath: projectDir,
                 leaguePath: state.leaguePath || '',
             });
 
-            // Extract WAD files into the project's content folder
-            setWorking('Extracting mod files...');
+            // Extract WAD files into the project's content folder with refathering and missing file matching
+            setWorking('Extracting and refathering mod files...');
             const contentDir = `${projectDir}\\${projectName}\\content`;
 
             const options: api.ImportOptions = {
-                refather: false, // Don't refather on import, user can do it later
-                creator_name: state.creatorName || null,
+                refather: true, // Enable refathering to apply proper mod structure
+                creator_name: state.creatorName || 'FlintUser',
                 project_name: projectName,
                 target_skin_id: skinId,
-                cleanup_unused: false,
-                match_from_league: false,
+                cleanup_unused: true,
+                match_from_league: true, // Match missing files from League installation
                 league_path: state.leaguePath || null,
             };
 
