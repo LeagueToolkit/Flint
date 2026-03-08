@@ -26,6 +26,7 @@ import { FirstTimeSetupModal } from './modals/FirstTimeSetupModal';
 import { UpdateModal } from './modals/UpdateModal';
 import { RecolorModal } from './modals/RecolorModal';
 import { FixerModal } from './modals/FixerModal';
+import { ProjectListModal } from './modals/ProjectListModal';
 import { ToastContainer } from './Toast';
 
 // Helper to get active tab from state
@@ -101,8 +102,8 @@ export const App: React.FC = () => {
 
     useEffect(() => {
         const shouldWatch = state.autoSyncToLauncher &&
-                          state.ltkManagerModPath &&
-                          currentProjectPath;
+            state.ltkManagerModPath &&
+            currentProjectPath;
 
         if (shouldWatch) {
             console.log('[Auto-sync] Starting watcher for:', currentProjectPath);
@@ -125,7 +126,7 @@ export const App: React.FC = () => {
 
         // Cleanup on unmount
         return () => {
-            api.stopProjectWatcher().catch(() => {});
+            api.stopProjectWatcher().catch(() => { });
         };
     }, [currentProjectPath, state.autoSyncToLauncher, state.ltkManagerModPath]);
 
@@ -154,12 +155,12 @@ export const App: React.FC = () => {
                     console.error('[Preview Hot Reload] Failed to start watcher:', err);
                 });
         } else {
-            api.stopPreviewWatcher().catch(() => {});
+            api.stopPreviewWatcher().catch(() => { });
         }
 
         // Cleanup on unmount
         return () => {
-            api.stopPreviewWatcher().catch(() => {});
+            api.stopPreviewWatcher().catch(() => { });
         };
     }, [currentProjectPath]);
 
@@ -195,7 +196,7 @@ export const App: React.FC = () => {
 
     const loadInitialData = async () => {
         // Sync log level setting to Rust backend
-        api.setLogLevel(stateRef.current.verboseLogging).catch(() => {});
+        api.setLogLevel(stateRef.current.verboseLogging).catch(() => { });
 
         try {
             const hashStatus = await api.getHashStatus();
@@ -403,6 +404,7 @@ export const App: React.FC = () => {
             <UpdateModal />
             <RecolorModal />
             <FixerModal />
+            <ProjectListModal />
 
             {/* Toast notifications */}
             <ToastContainer />

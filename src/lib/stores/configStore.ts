@@ -6,7 +6,7 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { RecentProject } from '../types';
+import type { RecentProject, SavedProject } from '../types';
 
 interface ConfigState {
   leaguePath: string | null;
@@ -18,6 +18,7 @@ interface ConfigState {
   recentProjects: RecentProject[];
   ltkManagerModPath: string | null;
   autoSyncToLauncher: boolean;
+  savedProjects: SavedProject[];
 
   // Actions
   setLeaguePath: (path: string | null) => void;
@@ -29,6 +30,9 @@ interface ConfigState {
   setRecentProjects: (projects: RecentProject[]) => void;
   setLtkManagerModPath: (path: string | null) => void;
   setAutoSyncToLauncher: (enabled: boolean) => void;
+  setSavedProjects: (projects: SavedProject[]) => void;
+  addSavedProject: (project: SavedProject) => void;
+  removeSavedProject: (projectId: string) => void;
 }
 
 export const useConfigStore = create<ConfigState>()(
@@ -43,6 +47,7 @@ export const useConfigStore = create<ConfigState>()(
       recentProjects: [],
       ltkManagerModPath: null,
       autoSyncToLauncher: false,
+      savedProjects: [],
 
       setLeaguePath: (path) => set({ leaguePath: path }),
       setLeaguePathPbe: (path) => set({ leaguePathPbe: path }),
@@ -53,6 +58,15 @@ export const useConfigStore = create<ConfigState>()(
       setRecentProjects: (projects) => set({ recentProjects: projects }),
       setLtkManagerModPath: (path) => set({ ltkManagerModPath: path }),
       setAutoSyncToLauncher: (enabled) => set({ autoSyncToLauncher: enabled }),
+      setSavedProjects: (projects) => set({ savedProjects: projects }),
+      addSavedProject: (project) => set((state) => {
+        // Deduplicate by path
+        const filtered = state.savedProjects.filter(p => p.path !== project.path);
+        return { savedProjects: [project, ...filtered] };
+      }),
+      removeSavedProject: (projectId) => set((state) => ({
+        savedProjects: state.savedProjects.filter(p => p.id !== projectId),
+      })),
     }),
     {
       name: 'flint_settings', // localStorage key
@@ -66,6 +80,7 @@ export const useConfigStore = create<ConfigState>()(
         recentProjects: state.recentProjects,
         ltkManagerModPath: state.ltkManagerModPath,
         autoSyncToLauncher: state.autoSyncToLauncher,
+        savedProjects: state.savedProjects,
       }),
     }
   )

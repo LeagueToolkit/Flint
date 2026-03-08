@@ -1518,6 +1518,231 @@ input.search-box__input {
 }
 
 /* --------------------------------------------------------------------------
+   Component: Project List Modal
+   -------------------------------------------------------------------------- */
+.modal--project-list {
+  max-width: 620px;
+  width: 85%;
+  max-height: 75vh;
+  animation: projectListModalIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes projectListModalIn {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.modal--project-list .modal__title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.modal--project-list .modal__title svg {
+  color: #ff6b35;
+}
+
+.project-list__body {
+  padding: var(--space-md) var(--space-lg);
+  overflow-y: auto;
+  max-height: 50vh;
+  min-height: 180px;
+}
+
+/* Empty state */
+.project-list__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  padding: var(--space-2xl) var(--space-xl);
+  text-align: center;
+  animation: projectListFadeIn 0.4s ease 0.1s both;
+}
+
+.project-list__empty-title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.project-list__empty-desc {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  max-width: 300px;
+  line-height: 1.5;
+}
+
+@keyframes projectListFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Items list */
+.project-list__items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Individual project item */
+.project-list__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: 12px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: projectListSlideIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes projectListSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.project-list__item:hover {
+  background-color: #181818;
+  border-color: #2a2a2a;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
+.project-list__item:active {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+.project-list__item--removing {
+  opacity: 0;
+  transform: translateX(20px);
+  transition: all 0.2s ease;
+}
+
+/* Icon */
+.project-list__item-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(255, 107, 53, 0.12), rgba(255, 107, 53, 0.04));
+  color: #ff6b35;
+  transition: all 0.2s ease;
+}
+
+.project-list__item-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.project-list__item:hover .project-list__item-icon {
+  background: linear-gradient(135deg, rgba(255, 107, 53, 0.2), rgba(255, 107, 53, 0.08));
+  transform: scale(1.05);
+}
+
+/* Info */
+.project-list__item-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.project-list__item-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-list__item-path {
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 320px;
+}
+
+/* Meta (date + remove) */
+.project-list__item-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.project-list__item-date {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.project-list__item-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+}
+
+.project-list__item:hover .project-list__item-remove {
+  opacity: 1;
+}
+
+.project-list__item-remove:hover {
+  background-color: rgba(248, 81, 73, 0.15);
+  color: var(--error);
+}
+
+/* Footer */
+.project-list__footer {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.project-list__footer .btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.project-list__footer .btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* --------------------------------------------------------------------------
    Champion / Skin Selection Grid
    -------------------------------------------------------------------------- */
 .champion-grid {

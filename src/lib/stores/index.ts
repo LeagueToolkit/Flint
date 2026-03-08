@@ -69,6 +69,7 @@ export function useAppState() {
     openTabs: projectTab.openTabs,
     activeTabId: projectTab.activeTabId,
     recentProjects: config.recentProjects,
+    savedProjects: config.savedProjects,
 
     // File change tracking
     fileChanges: {},
@@ -183,6 +184,16 @@ export function useAppState() {
         if (action.payload.project && action.payload.path) {
           projectTab.addTab(action.payload.project, action.payload.path);
           navigation.setView('preview');
+
+          // Auto-save to saved projects list
+          const proj = action.payload.project;
+          config.addSavedProject({
+            id: `proj-${Date.now()}`,
+            name: proj.display_name || proj.name,
+            champion: proj.champion,
+            path: action.payload.path,
+            lastOpened: new Date().toISOString(),
+          });
         } else {
           // Close all tabs
           projectTab.openTabs.forEach(t => navigationCoordinator.removeTabWithFallback(t.id));
@@ -215,6 +226,12 @@ export function useAppState() {
       // Config
       case 'SET_RECENT_PROJECTS':
         config.setRecentProjects(action.payload);
+        break;
+      case 'ADD_SAVED_PROJECT':
+        config.addSavedProject(action.payload);
+        break;
+      case 'REMOVE_SAVED_PROJECT':
+        config.removeSavedProject(action.payload);
         break;
 
       // Champions

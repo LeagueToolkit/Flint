@@ -15,8 +15,8 @@ import type { RecentProject } from '../lib/types';
  */
 const ClockIcon: React.FC = () => (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
-        <path d="M12 6v6l4 2" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
+        <path d="M12 6v6l4 2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
 );
 
@@ -89,20 +89,8 @@ export const WelcomeScreen: React.FC = () => {
         }
     };
 
-    const handleOpenProject = async () => {
-        try {
-            const selected = await open({
-                title: 'Open Flint Project',
-                filters: [{ name: 'Flint Project', extensions: ['json'] }],
-                multiple: false,
-            });
-
-            if (selected) {
-                await openRecentProject(selected as string);
-            }
-        } catch (error) {
-            console.error('Failed to open project:', error);
-        }
+    const handleOpenProject = () => {
+        openModal('projectList');
     };
 
     /** Open a single WAD file chosen by the user */
@@ -209,7 +197,7 @@ export const WelcomeScreen: React.FC = () => {
                                                 title="Remove from recent"
                                             >
                                                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                                                    <path d="M4.5 4.5l7 7m0-7l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                                                    <path d="M4.5 4.5l7 7m0-7l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                                                 </svg>
                                             </button>
                                         </div>
@@ -235,8 +223,8 @@ export const WelcomeScreen: React.FC = () => {
 
                         <button className="btn btn--secondary btn--large" onClick={handleOpenWadExplorer}>
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="2"/>
-                                <path d="M3 9h18M8 5V3m8 2V3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                                <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="2" />
+                                <path d="M3 9h18M8 5V3m8 2V3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                             </svg>
                             <span>WAD Explorer</span>
                         </button>

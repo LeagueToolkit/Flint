@@ -7,7 +7,7 @@
 // =============================================================================
 
 export type AppStatus = 'ready' | 'working' | 'error';
-export type ModalType = 'newProject' | 'settings' | 'export' | 'firstTimeSetup' | 'updateAvailable' | 'recolor' | 'checkpoint' | 'fixer' | null;
+export type ModalType = 'newProject' | 'settings' | 'export' | 'firstTimeSetup' | 'updateAvailable' | 'recolor' | 'checkpoint' | 'fixer' | 'projectList' | null;
 export type ViewType = 'welcome' | 'preview' | 'editor' | 'project' | 'checkpoints' | 'extract' | 'wad-explorer';
 
 export interface Toast {
@@ -29,6 +29,14 @@ export interface RecentProject {
     name: string;
     champion: string;
     skin: number;
+    path: string;
+    lastOpened: string;
+}
+
+export interface SavedProject {
+    id: string;
+    name: string;
+    champion: string;
     path: string;
     lastOpened: string;
 }
@@ -185,6 +193,7 @@ export interface AppState {
     openTabs: ProjectTab[];
     activeTabId: string | null;
     recentProjects: RecentProject[];
+    savedProjects: SavedProject[];
 
     // File change tracking (compared to last checkpoint)
     fileChanges: Record<string, string>; // path -> status ("M", "N", "D")
