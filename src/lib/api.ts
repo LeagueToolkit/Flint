@@ -82,6 +82,8 @@ export class FlintError extends Error {
             'delete_checkpoint': 'Failed to delete checkpoint.',
             'get_ltk_manager_mod_path': 'Failed to find LTK Manager installation.',
             'sync_project_to_launcher': 'Failed to sync project to LTK Manager.',
+            'analyze_fantome': 'Failed to analyze Fantome WAD file.',
+            'import_fantome_wad': 'Failed to import Fantome mod.',
         };
         return messages[this.command] || this.message;
     }
@@ -986,4 +988,38 @@ export async function duplicateFile(
     filePath: string
 ): Promise<string> {
     return invokeCommand('duplicate_file', { projectPath, filePath });
+}
+
+// =============================================================================
+// Fantome Import Commands
+// =============================================================================
+
+export interface FantomeAnalysis {
+    champion: string | null;
+    skin_ids: number[];
+    is_champion_mod: boolean;
+    file_count: number;
+    file_paths: string[];
+}
+
+export interface ImportOptions {
+    refather: boolean;
+    creator_name: string | null;
+    project_name: string | null;
+    target_skin_id: number | null;
+    cleanup_unused: boolean;
+    match_from_league: boolean;
+    league_path: string | null;
+}
+
+export async function analyzeFantome(wadPath: string): Promise<FantomeAnalysis> {
+    return invokeCommand('analyze_fantome', { wadPath });
+}
+
+export async function importFantomeWad(
+    wadPath: string,
+    outputDir: string,
+    options: ImportOptions
+): Promise<string> {
+    return invokeCommand('import_fantome_wad', { wadPath, outputDir, options });
 }

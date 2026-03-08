@@ -16,3 +16,4 @@ pub mod fixer;
 pub mod logging;
 pub mod ltk_manager;
 pub mod project_watcher;
+pub mod fantome_import;

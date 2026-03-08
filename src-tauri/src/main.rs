@@ -203,6 +203,9 @@ fn main() {
             commands::project_watcher::stop_project_watcher,
             commands::project_watcher::start_preview_watcher,
             commands::project_watcher::stop_preview_watcher,
+            // Fantome import commands
+            commands::fantome_import::analyze_fantome,
+            commands::fantome_import::import_fantome_wad,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -91,6 +91,50 @@ export const ProjectListModal: React.FC = () => {
         }, 200);
     }, [dispatch]);
 
+    const handleImportFantome = useCallback(async () => {
+        try {
+            const selected = await open({
+                title: 'Select Fantome WAD File',
+                filters: [{ name: 'WAD Archive', extensions: ['wad', 'client'] }],
+                multiple: false,
+            });
+
+            if (!selected) return;
+
+            closeModal();
+            setWorking('Analyzing Fantome mod...');
+
+            const analysis = await api.analyzeFantome(selected as string);
+
+            // Show analysis result or prompt for import options
+            // For now, just import directly with basic options
+            const outputDir = state.leaguePath ? `${state.leaguePath}\\FlintImports\\${Date.now()}` : '';
+
+            const options: api.ImportOptions = {
+                refather: analysis.is_champion_mod,
+                creator_name: state.creatorName || null,
+                project_name: analysis.champion || 'ImportedMod',
+                target_skin_id: analysis.skin_ids[0] || null,
+                cleanup_unused: false,
+                match_from_league: true,
+                league_path: state.leaguePath || null,
+            };
+
+            setWorking('Importing Fantome mod...');
+            const result = await api.importFantomeWad(selected as string, outputDir, options);
+
+            setReady();
+            console.log('Import result:', result);
+
+            // TODO: Open the imported project
+
+        } catch (error) {
+            console.error('Failed to import Fantome mod:', error);
+            const flintError = error as api.FlintError;
+            setError(flintError.getUserMessage?.() || 'Failed to import Fantome mod');
+        }
+    }, [state.leaguePath, state.creatorName, closeModal, setWorking, setReady, setError]);
+
     if (!isVisible) return null;
 
     return (
@@ -158,12 +202,11 @@ export const ProjectListModal: React.FC = () => {
                 </div>
 
                 <div className="modal__footer project-list__footer">
-                    {/* TODO: Wire import projects functionality */}
-                    <button className="btn btn--secondary" disabled title="Coming soon">
+                    <button className="btn btn--secondary" onClick={handleImportFantome} title="Import Fantome WAD mod">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
                             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                         </svg>
-                        Import Projects
+                        Import Fantome Mod
                     </button>
                     <button className="btn btn--primary" onClick={handleBrowseFiles}>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
