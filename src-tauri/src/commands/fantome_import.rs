@@ -251,10 +251,18 @@ fn match_missing_files_from_league(
 
     tracing::info!("Matching missing files from League installation for {}", champion);
 
-    // Find the champion's WAD file in the League installation
-    let game_path = Path::new(league_path).join("Game");
+    // Determine the game path - handle both cases where league_path might already include "Game"
+    let league_path_obj = Path::new(league_path);
+    let game_path = if league_path_obj.ends_with("Game") {
+        league_path_obj.to_path_buf()
+    } else {
+        league_path_obj.join("Game")
+    };
+
+    tracing::debug!("Looking for champion WAD in: {}", game_path.display());
+
     let champion_wad = find_champion_wad(&game_path, champion)
-        .ok_or_else(|| format!("Could not find {} WAD in League installation", champion))?;
+        .ok_or_else(|| format!("Could not find {} WAD in League installation (searched: {})", champion, game_path.display()))?;
 
     tracing::info!("Found champion WAD: {}", champion_wad.display());
 

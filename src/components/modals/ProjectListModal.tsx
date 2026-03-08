@@ -110,7 +110,7 @@ export const ProjectListModal: React.FC = () => {
 
             if (!selected) return;
 
-            closeModal();
+            // Keep modal open and show progress
             setWorking('Analyzing Fantome mod...');
 
             const analysis = await api.analyzeFantome(selected as string);
@@ -180,8 +180,6 @@ export const ProjectListModal: React.FC = () => {
                 console.error('Failed to load project files:', filesError);
             }
 
-            setReady();
-
             // Update recent projects
             const recent = state.recentProjects.filter(p => p.path !== projectDir);
             recent.unshift({
@@ -193,9 +191,14 @@ export const ProjectListModal: React.FC = () => {
             });
             dispatch({ type: 'SET_RECENT_PROJECTS', payload: recent.slice(0, 10) });
 
+            // Close modal and clear loading state
+            closeModal();
+            setReady();
+
         } catch (error) {
             console.error('Failed to import Fantome mod:', error);
             const flintError = error as api.FlintError;
+            closeModal();
             setError(flintError.getUserMessage?.() || 'Failed to import Fantome mod');
         }
     }, [state.leaguePath, state.creatorName, state.recentProjects, dispatch, closeModal, setWorking, setReady, setError]);
