@@ -136,7 +136,10 @@ export const ProjectListModal: React.FC = () => {
             // Create a proper Flint project
             setWorking('Creating project...');
             // Sanitize project name for filesystem (remove special characters)
-            const projectName = modName.replace(/[^a-zA-Z0-9_-]/g, '_');
+            const baseName = modName.replace(/[^a-zA-Z0-9_-]/g, '_');
+            // Append timestamp to ensure uniqueness
+            const timestamp = Date.now();
+            const projectName = `${baseName}_${timestamp}`;
 
             const project = await api.createProject({
                 name: projectName,
