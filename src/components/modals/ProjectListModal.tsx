@@ -124,7 +124,7 @@ export const ProjectListModal: React.FC = () => {
             const appData = await appDataDir();
             const parts = appData.replace(/\\/g, '/').split('/');
             parts.pop();
-            const projectDir = `${parts.join('/')}/RitoShark/Flint/Projects`;
+            const defaultProjectsDir = `${parts.join('/')}/RitoShark/Flint/Projects`;
 
             // Create a proper Flint project
             setWorking('Creating project...');
@@ -135,13 +135,14 @@ export const ProjectListModal: React.FC = () => {
                 champion,
                 skin: skinId,
                 creatorName: state.creatorName || 'Unknown',
-                projectPath: projectDir,
+                projectPath: defaultProjectsDir,
                 leaguePath: state.leaguePath || '',
             });
 
             // Extract WAD files into the project's content folder with refathering and missing file matching
             setWorking('Extracting and refathering mod files...');
-            const contentDir = `${projectDir}\\${projectName}\\content`;
+            const projectDir = `${defaultProjectsDir}/${projectName}`;
+            const contentDir = `${projectDir}/content`;
 
             const options: api.ImportOptions = {
                 refather: true, // Enable refathering to apply proper mod structure
@@ -157,7 +158,7 @@ export const ProjectListModal: React.FC = () => {
 
             // Open the project
             setWorking('Opening project...');
-            const projectPath = `${projectDir}\\${projectName}\\project.json`;
+            const projectPath = `${projectDir}/project.json`;
 
             dispatch({
                 type: 'SET_PROJECT',
@@ -166,7 +167,7 @@ export const ProjectListModal: React.FC = () => {
 
             // Fetch file tree
             try {
-                const files = await api.listProjectFiles(`${projectDir}\\${projectName}`);
+                const files = await api.listProjectFiles(projectDir);
                 dispatch({ type: 'SET_FILE_TREE', payload: files });
             } catch (filesError) {
                 console.error('Failed to load project files:', filesError);
