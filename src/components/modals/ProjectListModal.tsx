@@ -33,8 +33,8 @@ export const ProjectListModal: React.FC = () => {
 
             // Determine project directory
             let projectDir = projectPath;
-            if (projectDir.endsWith('project.json')) {
-                projectDir = projectDir.replace(/[\\/]project\.json$/, '');
+            if (projectDir.endsWith('mod.config.json') || projectDir.endsWith('project.json')) {
+                projectDir = projectDir.replace(/[\\/](mod\.config|project)\.json$/, '');
             }
 
             // Fetch file tree
@@ -158,11 +158,10 @@ export const ProjectListModal: React.FC = () => {
 
             // Open the project
             setWorking('Opening project...');
-            const projectPath = `${projectDir}/project.json`;
 
             dispatch({
                 type: 'SET_PROJECT',
-                payload: { project, path: projectPath },
+                payload: { project, path: projectDir },
             });
 
             // Fetch file tree
@@ -176,12 +175,12 @@ export const ProjectListModal: React.FC = () => {
             setReady();
 
             // Update recent projects
-            const recent = state.recentProjects.filter(p => p.path !== projectPath);
+            const recent = state.recentProjects.filter(p => p.path !== projectDir);
             recent.unshift({
                 name: project.display_name || project.name,
                 champion: project.champion,
                 skin: project.skin_id,
-                path: projectPath,
+                path: projectDir,
                 lastOpened: new Date().toISOString(),
             });
             dispatch({ type: 'SET_RECENT_PROJECTS', payload: recent.slice(0, 10) });
