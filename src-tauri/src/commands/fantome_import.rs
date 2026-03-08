@@ -14,6 +14,7 @@ use zip::ZipArchive;
 
 use crate::core::hash::lmdb_cache::{get_or_open_env, resolve_hashes_lmdb};
 use crate::core::wad::reader::WadReader;
+use crate::core::project::Project;
 use crate::state::LmdbCacheState;
 
 // =============================================================================
@@ -251,18 +252,11 @@ fn match_missing_files_from_league(
 
     tracing::info!("Matching missing files from League installation for {}", champion);
 
-    // Determine the game path - handle both cases where league_path might already include "Game"
-    let league_path_obj = Path::new(league_path);
-    let game_path = if league_path_obj.ends_with("Game") {
-        league_path_obj.to_path_buf()
-    } else {
-        league_path_obj.join("Game")
-    };
+    // Pass league_path directly - find_champion_wad already handles joining "Game"
+    tracing::debug!("Looking for champion WAD in: {}", league_path);
 
-    tracing::debug!("Looking for champion WAD in: {}", game_path.display());
-
-    let champion_wad = find_champion_wad(&game_path, champion)
-        .ok_or_else(|| format!("Could not find {} WAD in League installation (searched: {})", champion, game_path.display()))?;
+    let champion_wad = find_champion_wad(league_path, champion)
+        .ok_or_else(|| format!("Could not find {} WAD in League installation (league_path: {})", champion, league_path))?;
 
     tracing::info!("Found champion WAD: {}", champion_wad.display());
 
@@ -550,17 +544,17 @@ fn analyze_fantome_internal(
 #[tauri::command]
 pub async fn import_fantome_wad(
     wad_path: String,
-    output_dir: String,
+    project_dir: String,
     options: ImportOptions,
     _lmdb_state: State<'_, LmdbCacheState>,
-) -> Result<String, String> {
+) -> Result<Project, String> {
     // Get hash directory before spawning blocking task
     let hash_dir = crate::core::hash::downloader::get_ritoshark_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .map_err(|e| format!("Hash directory not found: {}", e))?;
 
     tokio::task::spawn_blocking(move || {
-        import_fantome_internal(&wad_path, &output_dir, &options, &hash_dir)
+        import_fantome_internal(&wad_path, &project_dir, &options, &hash_dir)
     })
     .await
     .map_err(|e| format!("Task failed: {}", e))?
@@ -568,13 +562,21 @@ pub async fn import_fantome_wad(
 
 fn import_fantome_internal(
     wad_path: &str,
-    output_dir: &str,
+    project_dir: &str,
     options: &ImportOptions,
     hash_dir: &str,
-) -> Result<String, String> {
-    let output_path = Path::new(output_dir);
-    std::fs::create_dir_all(output_path)
-        .map_err(|e| format!("Failed to create output directory: {}", e))?;
+) -> Result<Project, String> {
+    use crate::core::project::save_project as core_save_project;
+
+    let project_path = Path::new(project_dir);
+
+    // Create project directory structure
+    std::fs::create_dir_all(project_path)
+        .map_err(|e| format!("Failed to create project directory: {}", e))?;
+
+    let content_path = project_path.join("content");
+    std::fs::create_dir_all(&content_path)
+        .map_err(|e| format!("Failed to create content directory: {}", e))?;
 
     // Resolve WAD path (extract from .fantome if needed)
     let (resolved_wad_path, _is_temp) = resolve_wad_path(wad_path)?;
@@ -603,7 +605,7 @@ fn import_fantome_internal(
     // Create WAD folder structure: content/{champion}.wad.client/
     let champion_lower = champion.to_lowercase();
     let wad_folder_name = format!("{}.wad.client", champion_lower);
-    let wad_base = output_path.join(&wad_folder_name);
+    let wad_base = content_path.join(&wad_folder_name);
     std::fs::create_dir_all(&wad_base)
         .map_err(|e| format!("Failed to create WAD folder: {}", e))?;
 
@@ -656,14 +658,16 @@ fn import_fantome_internal(
         }
     }
 
+    // Get project metadata
+    let creator_name = options.creator_name.as_deref().unwrap_or("FlintUser");
+    let project_name = options.project_name.as_deref().unwrap_or("ImportedMod");
+    let target_skin_id = options.target_skin_id.unwrap_or(0);
+    let league_path_buf = options.league_path.as_ref().map(PathBuf::from);
+
     // Apply refathering if enabled
     if options.refather {
-        let creator_name = options.creator_name.as_deref().unwrap_or("FlintUser");
-        let project_name = options.project_name.as_deref().unwrap_or("ImportedMod");
-        let target_skin_id = options.target_skin_id.unwrap_or(0);
-
         apply_refathering(
-            output_path,
+            &content_path,
             creator_name,
             project_name,
             &champion,
@@ -672,5 +676,21 @@ fn import_fantome_internal(
         ).map_err(|e| format!("Failed to apply refathering: {}", e))?;
     }
 
-    Ok(format!("Imported {} files to {}", extracted_count, output_dir))
+    // Create project metadata
+    let project = Project::new(
+        project_name,
+        &champion,
+        target_skin_id,
+        league_path_buf.unwrap_or_else(|| PathBuf::from("")),
+        project_path,
+        Some(creator_name.to_string()),
+    );
+
+    // Save project files (mod.config.json and flint.json)
+    core_save_project(&project)
+        .map_err(|e| format!("Failed to save project: {}", e))?;
+
+    tracing::info!("Fantome import complete: {} files imported to {}", extracted_count, project_dir);
+
+    Ok(project)
 }

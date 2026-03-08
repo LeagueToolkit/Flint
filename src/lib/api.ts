@@ -1026,8 +1026,8 @@ export async function analyzeFantome(wadPath: string): Promise<FantomeAnalysis> 
 
 export async function importFantomeWad(
     wadPath: string,
-    outputDir: string,
+    projectDir: string,
     options: ImportOptions
-): Promise<string> {
-    return invokeCommand('import_fantome_wad', { wadPath, outputDir, options });
+): Promise<Project> {
+    return invokeCommand('import_fantome_wad', { wadPath, projectDir, options });
 }

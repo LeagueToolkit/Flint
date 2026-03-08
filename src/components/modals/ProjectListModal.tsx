@@ -133,27 +133,15 @@ export const ProjectListModal: React.FC = () => {
             parts.pop();
             const defaultProjectsDir = `${parts.join('/')}/RitoShark/Flint/Projects`;
 
-            // Create a proper Flint project
-            setWorking('Creating project...');
             // Sanitize project name for filesystem (remove special characters)
             const baseName = modName.replace(/[^a-zA-Z0-9_-]/g, '_');
             // Append timestamp to ensure uniqueness
             const timestamp = Date.now();
             const projectName = `${baseName}_${timestamp}`;
 
-            const project = await api.createProject({
-                name: projectName,
-                champion,
-                skin: skinId,
-                creatorName,
-                projectPath: defaultProjectsDir,
-                leaguePath: state.leaguePath || '',
-            });
-
-            // Extract WAD files into the project's content folder with refathering and missing file matching
-            setWorking('Extracting and refathering mod files...');
+            // Extract and refather WAD files - importFantomeWad now creates the full project structure
+            setWorking('Importing and refathering mod files...');
             const projectDir = `${defaultProjectsDir}/${projectName}`;
-            const contentDir = `${projectDir}/content`;
 
             const options: api.ImportOptions = {
                 refather: true, // Enable refathering to apply proper mod structure
@@ -165,7 +153,7 @@ export const ProjectListModal: React.FC = () => {
                 league_path: state.leaguePath || null,
             };
 
-            await api.importFantomeWad(selected as string, contentDir, options);
+            const project = await api.importFantomeWad(selected as string, projectDir, options);
 
             // Open the project
             setWorking('Opening project...');
