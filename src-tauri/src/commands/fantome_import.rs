@@ -20,6 +20,19 @@ use crate::state::LmdbCacheState;
 // Types
 // =============================================================================
 
+/// Metadata from Fantome package META/info.json
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FantomeMetadata {
+    #[serde(rename = "Author")]
+    pub author: Option<String>,
+    #[serde(rename = "Name")]
+    pub name: Option<String>,
+    #[serde(rename = "Description")]
+    pub description: Option<String>,
+    #[serde(rename = "Version")]
+    pub version: Option<String>,
+}
+
 /// Analysis result of a Fantome WAD file
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FantomeAnalysis {
@@ -33,6 +46,8 @@ pub struct FantomeAnalysis {
     pub file_count: usize,
     /// Sample of file paths (first 50)
     pub file_paths: Vec<String>,
+    /// Metadata from META/info.json (if available)
+    pub metadata: Option<FantomeMetadata>,
 }
 
 /// Options for importing a Fantome WAD
@@ -57,6 +72,28 @@ pub struct ImportOptions {
 // =============================================================================
 // Fantome Package Handling
 // =============================================================================
+
+/// Read metadata from META/info.json in a .fantome package
+fn read_fantome_metadata(fantome_path: &str) -> Option<FantomeMetadata> {
+    let file = File::open(fantome_path).ok()?;
+    let mut archive = ZipArchive::new(BufReader::new(file)).ok()?;
+
+    // Look for META/info.json
+    for i in 0..archive.len() {
+        let mut file_entry = archive.by_index(i).ok()?;
+        let name = file_entry.name();
+
+        if name.eq_ignore_ascii_case("META/info.json") || name.eq_ignore_ascii_case("info.json") {
+            let mut contents = String::new();
+            std::io::Read::read_to_string(&mut file_entry, &mut contents).ok()?;
+            let metadata: FantomeMetadata = serde_json::from_str(&contents).ok()?;
+            tracing::info!("Found Fantome metadata: {:?}", metadata);
+            return Some(metadata);
+        }
+    }
+
+    None
+}
 
 /// Extract WAD file from a .fantome package (ZIP archive)
 /// Returns the path to the extracted WAD file in a temp directory
@@ -278,6 +315,13 @@ fn analyze_fantome_internal(
     wad_path: &str,
     hash_dir: &str,
 ) -> Result<FantomeAnalysis, String> {
+    // Try to read metadata from .fantome package
+    let metadata = if wad_path.ends_with(".fantome") || wad_path.ends_with(".zip") {
+        read_fantome_metadata(wad_path)
+    } else {
+        None
+    };
+
     // Resolve WAD path (extract from .fantome if needed)
     let (resolved_wad_path, _is_temp) = resolve_wad_path(wad_path)?;
 
@@ -335,6 +379,7 @@ fn analyze_fantome_internal(
         is_champion_mod,
         file_count,
         file_paths,
+        metadata,
     })
 }
 

@@ -24,18 +24,21 @@ export const ProjectListModal: React.FC = () => {
         try {
             setWorking('Opening project...');
 
-            const project = await api.openProject(projectPath);
+            // Normalize path - strip project file name if present
+            let normalizedPath = projectPath;
+            if (normalizedPath.endsWith('mod.config.json') || normalizedPath.endsWith('project.json')) {
+                normalizedPath = normalizedPath.replace(/[\\/](mod\.config|project)\.json$/, '');
+            }
+
+            const project = await api.openProject(normalizedPath);
 
             dispatch({
                 type: 'SET_PROJECT',
-                payload: { project, path: projectPath },
+                payload: { project, path: normalizedPath },
             });
 
             // Determine project directory
-            let projectDir = projectPath;
-            if (projectDir.endsWith('mod.config.json') || projectDir.endsWith('project.json')) {
-                projectDir = projectDir.replace(/[\\/](mod\.config|project)\.json$/, '');
-            }
+            let projectDir = normalizedPath;
 
             // Fetch file tree
             try {
@@ -120,6 +123,10 @@ export const ProjectListModal: React.FC = () => {
             const champion = analysis.champion || 'Unknown';
             const skinId = analysis.skin_ids[0] || 0;
 
+            // Extract metadata from Fantome package (if available)
+            const creatorName = analysis.metadata?.author || state.creatorName || 'Unknown';
+            const modName = analysis.metadata?.name || `${champion}_Skin${skinId}_Imported`;
+
             // Get default project directory: {AppData}/RitoShark/Flint/Projects
             const appData = await appDataDir();
             const parts = appData.replace(/\\/g, '/').split('/');
@@ -128,13 +135,14 @@ export const ProjectListModal: React.FC = () => {
 
             // Create a proper Flint project
             setWorking('Creating project...');
-            const projectName = `${champion}_Skin${skinId}_Imported`;
+            // Sanitize project name for filesystem (remove special characters)
+            const projectName = modName.replace(/[^a-zA-Z0-9_-]/g, '_');
 
             const project = await api.createProject({
                 name: projectName,
                 champion,
                 skin: skinId,
-                creatorName: state.creatorName || 'Unknown',
+                creatorName,
                 projectPath: defaultProjectsDir,
                 leaguePath: state.leaguePath || '',
             });
@@ -146,7 +154,7 @@ export const ProjectListModal: React.FC = () => {
 
             const options: api.ImportOptions = {
                 refather: true, // Enable refathering to apply proper mod structure
-                creator_name: state.creatorName || 'FlintUser',
+                creator_name: creatorName,
                 project_name: projectName,
                 target_skin_id: skinId,
                 cleanup_unused: true,

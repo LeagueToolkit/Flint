@@ -994,12 +994,20 @@ export async function duplicateFile(
 // Fantome Import Commands
 // =============================================================================
 
+export interface FantomeMetadata {
+    author: string | null;
+    name: string | null;
+    description: string | null;
+    version: string | null;
+}
+
 export interface FantomeAnalysis {
     champion: string | null;
     skin_ids: number[];
     is_champion_mod: boolean;
     file_count: number;
     file_paths: string[];
+    metadata: FantomeMetadata | null;
 }
 
 export interface ImportOptions {
