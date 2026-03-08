@@ -111,34 +111,91 @@ export const ProjectListModal: React.FC = () => {
 
             const analysis = await api.analyzeFantome(selected as string);
 
-            // Show analysis result or prompt for import options
-            // For now, just import directly with basic options
-            const outputDir = state.leaguePath ? `${state.leaguePath}\\FlintImports\\${Date.now()}` : '';
+            if (!analysis.is_champion_mod) {
+                setError('This does not appear to be a champion mod. Only champion mods are supported.');
+                return;
+            }
+
+            const champion = analysis.champion || 'Unknown';
+            const skinId = analysis.skin_ids[0] || 0;
+
+            // Ask where to create the project
+            const projectDir = await open({
+                title: 'Choose Location for Imported Project',
+                directory: true,
+                multiple: false,
+            });
+
+            if (!projectDir) {
+                setReady();
+                return;
+            }
+
+            // Create a proper Flint project
+            setWorking('Creating project...');
+            const projectName = `${champion}_Skin${skinId}_Imported`;
+
+            const project = await api.createProject({
+                name: projectName,
+                champion,
+                skin: skinId,
+                creatorName: state.creatorName || 'Unknown',
+                projectPath: projectDir as string,
+                leaguePath: state.leaguePath || '',
+            });
+
+            // Extract WAD files into the project's content folder
+            setWorking('Extracting mod files...');
+            const contentDir = `${projectDir}\\${projectName}\\content`;
 
             const options: api.ImportOptions = {
-                refather: analysis.is_champion_mod,
+                refather: false, // Don't refather on import, user can do it later
                 creator_name: state.creatorName || null,
-                project_name: analysis.champion || 'ImportedMod',
-                target_skin_id: analysis.skin_ids[0] || null,
+                project_name: projectName,
+                target_skin_id: skinId,
                 cleanup_unused: false,
-                match_from_league: true,
+                match_from_league: false,
                 league_path: state.leaguePath || null,
             };
 
-            setWorking('Importing Fantome mod...');
-            const result = await api.importFantomeWad(selected as string, outputDir, options);
+            await api.importFantomeWad(selected as string, contentDir, options);
+
+            // Open the project
+            setWorking('Opening project...');
+            const projectPath = `${projectDir}\\${projectName}\\project.json`;
+
+            dispatch({
+                type: 'SET_PROJECT',
+                payload: { project, path: projectPath },
+            });
+
+            // Fetch file tree
+            try {
+                const files = await api.listProjectFiles(`${projectDir}\\${projectName}`);
+                dispatch({ type: 'SET_FILE_TREE', payload: files });
+            } catch (filesError) {
+                console.error('Failed to load project files:', filesError);
+            }
 
             setReady();
-            console.log('Import result:', result);
 
-            // TODO: Open the imported project
+            // Update recent projects
+            const recent = state.recentProjects.filter(p => p.path !== projectPath);
+            recent.unshift({
+                name: project.display_name || project.name,
+                champion: project.champion,
+                skin: project.skin_id,
+                path: projectPath,
+                lastOpened: new Date().toISOString(),
+            });
+            dispatch({ type: 'SET_RECENT_PROJECTS', payload: recent.slice(0, 10) });
 
         } catch (error) {
             console.error('Failed to import Fantome mod:', error);
             const flintError = error as api.FlintError;
             setError(flintError.getUserMessage?.() || 'Failed to import Fantome mod');
         }
-    }, [state.leaguePath, state.creatorName, closeModal, setWorking, setReady, setError]);
+    }, [state.leaguePath, state.creatorName, state.recentProjects, dispatch, closeModal, setWorking, setReady, setError]);
 
     if (!isVisible) return null;
 
