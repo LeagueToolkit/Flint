@@ -6,8 +6,11 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::fs::File;
+use std::io::BufReader;
 use tauri::State;
+use zip::ZipArchive;
 
 use crate::core::hash::lmdb_cache::{get_or_open_env, resolve_hashes_lmdb};
 use crate::core::wad::reader::WadReader;
@@ -49,6 +52,73 @@ pub struct ImportOptions {
     pub match_from_league: bool,
     /// Path to League installation (for file matching)
     pub league_path: Option<String>,
+}
+
+// =============================================================================
+// Fantome Package Handling
+// =============================================================================
+
+/// Extract WAD file from a .fantome package (ZIP archive)
+/// Returns the path to the extracted WAD file in a temp directory
+fn extract_fantome_wad(fantome_path: &str) -> Result<PathBuf, String> {
+    let file = File::open(fantome_path)
+        .map_err(|e| format!("Failed to open fantome file: {}", e))?;
+
+    let mut archive = ZipArchive::new(BufReader::new(file))
+        .map_err(|e| format!("Failed to read fantome archive: {}", e))?;
+
+    // Find the first .wad.client file in the archive (usually in WAD/ folder)
+    let mut wad_file_name = None;
+    for i in 0..archive.len() {
+        let file_entry = archive.by_index(i)
+            .map_err(|e| format!("Failed to read archive entry: {}", e))?;
+        let name = file_entry.name().to_string();
+
+        if name.ends_with(".wad.client") || name.ends_with(".wad") {
+            wad_file_name = Some(name.clone());
+            break;
+        }
+    }
+
+    let wad_name = wad_file_name
+        .ok_or("No .wad.client file found in fantome package")?;
+
+    // Extract to temp directory
+    let temp_dir = std::env::temp_dir().join("flint_fantome_import");
+    std::fs::create_dir_all(&temp_dir)
+        .map_err(|e| format!("Failed to create temp directory: {}", e))?;
+
+    let wad_path = temp_dir.join(wad_name.replace('/', "_"));
+
+    // Extract the WAD file
+    let mut zip_file = archive.by_name(&wad_name)
+        .map_err(|e| format!("Failed to find WAD in archive: {}", e))?;
+
+    let mut wad_file = File::create(&wad_path)
+        .map_err(|e| format!("Failed to create temp WAD file: {}", e))?;
+
+    std::io::copy(&mut zip_file, &mut wad_file)
+        .map_err(|e| format!("Failed to extract WAD file: {}", e))?;
+
+    tracing::info!("Extracted WAD from fantome: {} -> {:?}", wad_name, wad_path);
+
+    Ok(wad_path)
+}
+
+/// Determine the actual WAD path (extract from .fantome if needed)
+fn resolve_wad_path(input_path: &str) -> Result<(PathBuf, bool), String> {
+    let path = Path::new(input_path);
+    let is_fantome = input_path.ends_with(".fantome") ||
+                     input_path.ends_with(".zip");
+
+    if is_fantome {
+        // Extract WAD from fantome package
+        let wad_path = extract_fantome_wad(input_path)?;
+        Ok((wad_path, true))
+    } else {
+        // Direct WAD file
+        Ok((path.to_path_buf(), false))
+    }
 }
 
 // =============================================================================
@@ -140,8 +210,11 @@ fn analyze_fantome_internal(
     wad_path: &str,
     hash_dir: &str,
 ) -> Result<FantomeAnalysis, String> {
+    // Resolve WAD path (extract from .fantome if needed)
+    let (resolved_wad_path, _is_temp) = resolve_wad_path(wad_path)?;
+
     // Open WAD file
-    let reader = WadReader::open(wad_path)
+    let reader = WadReader::open(resolved_wad_path.to_str().unwrap())
         .map_err(|e| format!("Failed to open WAD file: {}", e))?;
 
     let chunks = reader.chunks();
@@ -227,8 +300,11 @@ fn import_fantome_internal(
     std::fs::create_dir_all(output_path)
         .map_err(|e| format!("Failed to create output directory: {}", e))?;
 
+    // Resolve WAD path (extract from .fantome if needed)
+    let (resolved_wad_path, _is_temp) = resolve_wad_path(wad_path)?;
+
     // Open WAD
-    let mut reader = WadReader::open(wad_path)
+    let mut reader = WadReader::open(resolved_wad_path.to_str().unwrap())
         .map_err(|e| format!("Failed to open WAD file: {}", e))?;
 
     // Collect chunk hashes and resolve paths before mutably borrowing reader

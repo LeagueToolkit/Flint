@@ -94,9 +94,14 @@ export const ProjectListModal: React.FC = () => {
     const handleImportFantome = useCallback(async () => {
         try {
             const selected = await open({
-                title: 'Select Fantome WAD File',
-                filters: [{ name: 'WAD Archive', extensions: ['wad', 'client'] }],
+                title: 'Select Fantome Mod or WAD File',
+                filters: [
+                    { name: 'All Supported Formats', extensions: ['fantome', 'wad', 'client'] },
+                    { name: 'Fantome Package', extensions: ['fantome'] },
+                    { name: 'WAD Archive', extensions: ['wad', 'client'] },
+                ],
                 multiple: false,
+                directory: false,
             });
 
             if (!selected) return;
