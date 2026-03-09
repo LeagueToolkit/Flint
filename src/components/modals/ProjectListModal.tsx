@@ -3,13 +3,14 @@
  * Shows saved projects with animations and an Import Projects (TODO) button
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useAppState } from '../../lib/stores';
 import { formatRelativeTime } from '../../lib/utils';
 import { open } from '@tauri-apps/plugin-dialog';
 import { appDataDir } from '@tauri-apps/api/path';
 import { getIcon } from '../../lib/fileIcons';
 import * as api from '../../lib/api';
+import { listen } from '@tauri-apps/api/event';
 
 export const ProjectListModal: React.FC = () => {
     const { state, dispatch, closeModal, setWorking, setReady, setError } = useAppState();
@@ -17,6 +18,22 @@ export const ProjectListModal: React.FC = () => {
 
     const isVisible = state.activeModal === 'projectList';
     const savedProjects = state.savedProjects || [];
+
+    // Listen for Fantome import progress events
+    useEffect(() => {
+        const unlisten = listen<{status: string, message: string}>('fantome-import-progress', (event) => {
+            const { status, message } = event.payload;
+            if (status === 'error') {
+                setError(message);
+            } else {
+                setWorking(message);
+            }
+        });
+
+        return () => {
+            unlisten.then(fn => fn());
+        };
+    }, [setWorking, setError]);
 
     const handleOpenProject = useCallback(async (projectPath: string) => {
         closeModal();
@@ -100,8 +117,8 @@ export const ProjectListModal: React.FC = () => {
             const selected = await open({
                 title: 'Select Fantome Mod or WAD File',
                 filters: [
-                    { name: 'All Supported Formats', extensions: ['fantome', 'wad', 'client'] },
-                    { name: 'Fantome Package', extensions: ['fantome'] },
+                    { name: 'All Supported Formats', extensions: ['fantome', 'zip', 'wad', 'client'] },
+                    { name: 'Fantome Package', extensions: ['fantome', 'zip'] },
                     { name: 'WAD Archive', extensions: ['wad', 'client'] },
                 ],
                 multiple: false,
@@ -133,22 +150,21 @@ export const ProjectListModal: React.FC = () => {
             parts.pop();
             const defaultProjectsDir = `${parts.join('/')}/RitoShark/Flint/Projects`;
 
-            // Sanitize project name for filesystem (remove special characters)
+            // Sanitize for filesystem (remove special characters) and add timestamp for uniqueness
             const baseName = modName.replace(/[^a-zA-Z0-9_-]/g, '_');
-            // Append timestamp to ensure uniqueness
             const timestamp = Date.now();
-            const projectName = `${baseName}_${timestamp}`;
+            const dirName = `${baseName}_${timestamp}`;
 
             // Extract and refather WAD files - importFantomeWad now creates the full project structure
             setWorking('Importing and refathering mod files...');
-            const projectDir = `${defaultProjectsDir}/${projectName}`;
+            const projectDir = `${defaultProjectsDir}/${dirName}`;
 
             const options: api.ImportOptions = {
                 refather: true, // Enable refathering to apply proper mod structure
                 creator_name: creatorName,
-                project_name: projectName,
+                project_name: modName, // Use original name, not timestamped version
                 target_skin_id: skinId,
-                cleanup_unused: true,
+                cleanup_unused: false, // Don't cleanup - pre-repathed VFX won't be in BIN references
                 match_from_league: true, // Match missing files from League installation
                 league_path: state.leaguePath || null,
             };

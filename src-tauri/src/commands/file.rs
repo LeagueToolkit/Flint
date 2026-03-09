@@ -301,9 +301,6 @@ fn decode_texture_bytes_impl(data: &[u8]) -> Result<DecodedImage, String> {
     let texture = Texture::from_reader(&mut cursor)
         .map_err(|e| format!("Failed to parse texture: {:?}", e))?;
 
-    let width = texture.width();
-    let height = texture.height();
-
     let surface = texture
         .decode_mipmap(0)
         .map_err(|e| format!("Failed to decode texture: {:?}", e))?;
@@ -318,19 +315,24 @@ fn decode_texture_bytes_impl(data: &[u8]) -> Result<DecodedImage, String> {
         _ => "Unknown",
     };
 
+    // Use actual dimensions from the image buffer, not from texture metadata
+    // Some textures report different dimensions than the actual decoded buffer size
+    let actual_width = rgba_image.width();
+    let actual_height = rgba_image.height();
+
     let mut png_data = Vec::new();
     {
         use image::ImageEncoder;
         let encoder = image::codecs::png::PngEncoder::new(&mut png_data);
         encoder
-            .write_image(rgba_image.as_raw(), width, height, image::ExtendedColorType::Rgba8)
+            .write_image(rgba_image.as_raw(), actual_width, actual_height, image::ExtendedColorType::Rgba8)
             .map_err(|e| format!("Failed to encode PNG: {}", e))?;
     }
 
     Ok(DecodedImage {
         data: STANDARD.encode(&png_data),
-        width,
-        height,
+        width: actual_width,
+        height: actual_height,
         format: format.to_string(),
     })
 }

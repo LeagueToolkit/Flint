@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::fs::File;
 use std::io::BufReader;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 use zip::ZipArchive;
 
 use crate::core::hash::lmdb_cache::{get_or_open_env, resolve_hashes_lmdb};
@@ -24,13 +24,33 @@ use crate::state::LmdbCacheState;
 /// Metadata from Fantome package META/info.json
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FantomeMetadata {
-    #[serde(rename = "Author")]
+    #[serde(
+        rename = "Author",
+        alias = "author",
+        alias = "AUTHOR",
+        default
+    )]
     pub author: Option<String>,
-    #[serde(rename = "Name")]
+    #[serde(
+        rename = "Name",
+        alias = "name",
+        alias = "NAME",
+        default
+    )]
     pub name: Option<String>,
-    #[serde(rename = "Description")]
+    #[serde(
+        rename = "Description",
+        alias = "description",
+        alias = "DESCRIPTION",
+        default
+    )]
     pub description: Option<String>,
-    #[serde(rename = "Version")]
+    #[serde(
+        rename = "Version",
+        alias = "version",
+        alias = "VERSION",
+        default
+    )]
     pub version: Option<String>,
 }
 
@@ -87,9 +107,45 @@ fn read_fantome_metadata(fantome_path: &str) -> Option<FantomeMetadata> {
         if name.eq_ignore_ascii_case("META/info.json") || name.eq_ignore_ascii_case("info.json") {
             let mut contents = String::new();
             std::io::Read::read_to_string(&mut file_entry, &mut contents).ok()?;
-            let metadata: FantomeMetadata = serde_json::from_str(&contents).ok()?;
-            tracing::info!("Found Fantome metadata: {:?}", metadata);
-            return Some(metadata);
+
+            match serde_json::from_str::<FantomeMetadata>(&contents) {
+                Ok(metadata) => {
+                    tracing::info!("Found Fantome metadata: {:?}", metadata);
+                    return Some(metadata);
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to parse info.json: {}. Contents: {}", e, contents);
+                    // Try to extract fields manually as fallback
+                    if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&contents) {
+                        let author = json_value.get("Author")
+                            .or_else(|| json_value.get("author"))
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                        let name = json_value.get("Name")
+                            .or_else(|| json_value.get("name"))
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                        let description = json_value.get("Description")
+                            .or_else(|| json_value.get("description"))
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                        let version = json_value.get("Version")
+                            .or_else(|| json_value.get("version"))
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+
+                        let metadata = FantomeMetadata {
+                            author,
+                            name,
+                            description,
+                            version,
+                        };
+                        tracing::info!("Manually extracted Fantome metadata: {:?}", metadata);
+                        return Some(metadata);
+                    }
+                    return None;
+                }
+            }
         }
     }
 
@@ -376,6 +432,15 @@ fn match_missing_files_from_league(
     Ok(())
 }
 
+/// Check if a path is an unresolved hash (16 hex characters)
+fn is_unresolved_hash(path: &str) -> bool {
+    // Get the filename without directory
+    let filename = path.rsplit('/').next().unwrap_or(path);
+
+    // Check if it's exactly 16 hex characters (no extension)
+    filename.len() == 16 && filename.chars().all(|c| c.is_ascii_hexdigit())
+}
+
 /// Extract linked BIN paths from a BIN file's binary data
 /// Uses simple pattern matching to find BIN path strings
 fn extract_linked_bin_paths(bin_data: &[u8]) -> Result<Vec<String>, String> {
@@ -436,7 +501,8 @@ fn apply_refathering(
         project_name: project_name.to_string(),
         champion: champion.to_string(),
         target_skin_id,
-        cleanup_unused: true,
+        // DON'T cleanup for imports - pre-repathed VFX/particles won't be in BIN references
+        cleanup_unused: false,
     };
 
     organize_project(content_path, &config, path_mappings)
@@ -543,6 +609,7 @@ fn analyze_fantome_internal(
 /// Import a Fantome WAD into a Flint project
 #[tauri::command]
 pub async fn import_fantome_wad(
+    app: AppHandle,
     wad_path: String,
     project_dir: String,
     options: ImportOptions,
@@ -554,19 +621,25 @@ pub async fn import_fantome_wad(
         .map_err(|e| format!("Hash directory not found: {}", e))?;
 
     tokio::task::spawn_blocking(move || {
-        import_fantome_internal(&wad_path, &project_dir, &options, &hash_dir)
+        import_fantome_internal(&app, &wad_path, &project_dir, &options, &hash_dir)
     })
     .await
     .map_err(|e| format!("Task failed: {}", e))?
 }
 
 fn import_fantome_internal(
+    app: &AppHandle,
     wad_path: &str,
     project_dir: &str,
     options: &ImportOptions,
     hash_dir: &str,
 ) -> Result<Project, String> {
     use crate::core::project::save_project as core_save_project;
+
+    let _ = app.emit("fantome-import-progress", serde_json::json!({
+        "status": "starting",
+        "message": "Initializing import..."
+    }));
 
     let project_path = Path::new(project_dir);
 
@@ -577,6 +650,11 @@ fn import_fantome_internal(
     let content_path = project_path.join("content");
     std::fs::create_dir_all(&content_path)
         .map_err(|e| format!("Failed to create content directory: {}", e))?;
+
+    let _ = app.emit("fantome-import-progress", serde_json::json!({
+        "status": "progress",
+        "message": "Opening WAD archive..."
+    }));
 
     // Resolve WAD path (extract from .fantome if needed)
     let (resolved_wad_path, _is_temp) = resolve_wad_path(wad_path)?;
@@ -589,6 +667,11 @@ fn import_fantome_internal(
     let (chunk_hashes, resolved_paths) = {
         let chunks = reader.chunks();
         let hashes: Vec<u64> = chunks.iter().map(|chunk| chunk.path_hash).collect();
+
+        let _ = app.emit("fantome-import-progress", serde_json::json!({
+            "status": "progress",
+            "message": format!("Resolving {} file paths...", hashes.len())
+        }));
 
         let env = get_or_open_env(hash_dir)
             .ok_or("Failed to open LMDB environment")?;
@@ -611,9 +694,17 @@ fn import_fantome_internal(
 
     tracing::info!("Extracting to WAD folder: {}", wad_base.display());
 
+    let _ = app.emit("fantome-import-progress", serde_json::json!({
+        "status": "progress",
+        "message": format!("Extracting {} files...", chunk_hashes.len())
+    }));
+
     // Extract all chunks by hash into WAD folder
     let mut extracted_count = 0;
     let mut path_mappings = HashMap::new();
+
+    let mut unresolved_count = 0;
+    let total_files = chunk_hashes.len();
 
     for (hash, path) in chunk_hashes.iter().zip(resolved_paths.iter()) {
         // Get chunk by hash (copy it to end the immutable borrow)
@@ -624,20 +715,44 @@ fn import_fantome_internal(
         let data = reader.wad_mut().load_chunk_decompressed(&chunk)
             .map_err(|e| format!("Failed to decompress chunk: {}", e))?;
 
+        // Track unresolved hashes but DON'T reorganize them - keep as-is
+        // Custom repathed mods reference files by hash, moving them breaks everything
+        if is_unresolved_hash(path) {
+            unresolved_count += 1;
+            tracing::debug!("Unresolved hash (custom path): {}", path);
+        }
+
+        let final_path = path.clone();
+
         // Write to WAD folder (not root content folder)
-        let file_path = wad_base.join(path.trim_start_matches('/'));
+        let file_path = wad_base.join(final_path.trim_start_matches('/'));
         if let Some(parent) = file_path.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("Failed to create directory: {}", e))?;
         }
 
-        std::fs::write(&file_path, data)
+        std::fs::write(&file_path, &data)
             .map_err(|e| format!("Failed to write file: {}", e))?;
 
-        // Track path mappings for refathering (original path -> original path)
-        // The organizer will use these to track files during repathing
-        path_mappings.insert(format!("{:016x}", hash), path.clone());
+        // Track path mappings for refathering (hash -> final path used)
+        path_mappings.insert(format!("{:016x}", hash), final_path);
         extracted_count += 1;
+
+        // Emit progress every 10% or every 50 files (whichever is smaller)
+        let progress_interval = (total_files / 10).max(50).min(total_files);
+        if extracted_count % progress_interval == 0 || extracted_count == total_files {
+            let _ = app.emit("fantome-import-progress", serde_json::json!({
+                "status": "progress",
+                "message": format!("Extracting files... ({}/{})", extracted_count, total_files)
+            }));
+        }
+    }
+
+    if unresolved_count > 0 {
+        tracing::warn!(
+            "Found {} unresolved hashes (custom repathed files) - preserving as-is",
+            unresolved_count
+        );
     }
 
     tracing::info!("Extracted {} files from Fantome WAD to {}", extracted_count, wad_folder_name);
@@ -648,6 +763,11 @@ fn import_fantome_internal(
     // Match missing files from League installation if enabled
     if options.match_from_league {
         if let Some(ref league_path) = options.league_path {
+            let _ = app.emit("fantome-import-progress", serde_json::json!({
+                "status": "progress",
+                "message": "Matching missing files from League..."
+            }));
+
             match_missing_files_from_league(
                 &wad_base,
                 league_path,
@@ -664,8 +784,18 @@ fn import_fantome_internal(
     let target_skin_id = options.target_skin_id.unwrap_or(0);
     let league_path_buf = options.league_path.as_ref().map(PathBuf::from);
 
+    tracing::info!(
+        "Import metadata: creator='{}', project='{}', champion='{}', skin={}",
+        creator_name, project_name, champion, target_skin_id
+    );
+
     // Apply refathering if enabled
     if options.refather {
+        let _ = app.emit("fantome-import-progress", serde_json::json!({
+            "status": "progress",
+            "message": "Applying refathering (organizing files)..."
+        }));
+
         apply_refathering(
             &content_path,
             creator_name,
@@ -686,11 +816,21 @@ fn import_fantome_internal(
         Some(creator_name.to_string()),
     );
 
+    let _ = app.emit("fantome-import-progress", serde_json::json!({
+        "status": "progress",
+        "message": "Saving project metadata..."
+    }));
+
     // Save project files (mod.config.json and flint.json)
     core_save_project(&project)
         .map_err(|e| format!("Failed to save project: {}", e))?;
 
     tracing::info!("Fantome import complete: {} files imported to {}", extracted_count, project_dir);
+
+    let _ = app.emit("fantome-import-progress", serde_json::json!({
+        "status": "complete",
+        "message": format!("Import complete! {} files imported", extracted_count)
+    }));
 
     Ok(project)
 }
