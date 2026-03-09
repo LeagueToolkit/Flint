@@ -909,3 +909,29 @@ fn convert_bin_file_sync(bin_path: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Delete a project and all its files
+///
+/// # Arguments
+/// * `project_path` - Path to the project directory
+///
+/// # Returns
+/// * `Ok(())` - If deletion succeeded
+/// * `Err(String)` - Error message if deletion failed
+#[tauri::command]
+pub async fn delete_project(project_path: String) -> Result<(), String> {
+    tracing::info!("Frontend requested deleting project: {}", project_path);
+
+    let path = PathBuf::from(&project_path);
+
+    if !path.exists() {
+        return Err(format!("Project path does not exist: {}", project_path));
+    }
+
+    tokio::task::spawn_blocking(move || {
+        std::fs::remove_dir_all(&path)
+            .map_err(|e| format!("Failed to delete project: {}", e))
+    })
+    .await
+    .map_err(|e| format!("Task failed: {}", e))?
+}
+

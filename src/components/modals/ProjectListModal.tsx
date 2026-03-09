@@ -6,7 +6,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { useAppState } from '../../lib/stores';
 import { formatRelativeTime } from '../../lib/utils';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open, ask } from '@tauri-apps/plugin-dialog';
 import { appDataDir } from '@tauri-apps/api/path';
 import { getIcon } from '../../lib/fileIcons';
 import * as api from '../../lib/api';
@@ -101,25 +101,57 @@ export const ProjectListModal: React.FC = () => {
         }
     }, [handleOpenProject]);
 
-    const handleRemoveProject = useCallback((e: React.MouseEvent, projectId: string) => {
+    const handleRemoveProject = useCallback(async (e: React.MouseEvent, projectId: string) => {
         e.stopPropagation();
-        setRemovingId(projectId);
 
-        // Allow fade-out animation to play
-        setTimeout(() => {
-            dispatch({ type: 'REMOVE_SAVED_PROJECT', payload: projectId });
+        // Find the project to get its path and name
+        const project = savedProjects.find(p => p.id === projectId);
+        if (!project) return;
+
+        // Show confirmation dialog
+        const confirmed = await ask(
+            `Are you sure you want to delete "${project.name}"?\n\nThis will permanently delete all project files and cannot be undone.`,
+            {
+                title: 'Delete Project',
+                kind: 'warning',
+                okLabel: 'Delete',
+                cancelLabel: 'Cancel',
+            }
+        );
+
+        if (!confirmed) return;
+
+        try {
+            // Start fade-out animation
+            setRemovingId(projectId);
+
+            // Delete the project files
+            setWorking('Deleting project files...');
+            await api.deleteProject(project.path);
+
+            // Allow fade-out animation to play, then remove from list
+            setTimeout(() => {
+                dispatch({ type: 'REMOVE_SAVED_PROJECT', payload: projectId });
+                setRemovingId(null);
+                setReady();
+            }, 200);
+        } catch (error) {
+            console.error('Failed to delete project:', error);
+            const flintError = error as api.FlintError;
+            setError(flintError.getUserMessage?.() || 'Failed to delete project');
             setRemovingId(null);
-        }, 200);
-    }, [dispatch]);
+        }
+    }, [savedProjects, dispatch, setWorking, setReady, setError]);
 
     const handleImportFantome = useCallback(async () => {
         try {
             const selected = await open({
-                title: 'Select Fantome Mod or WAD File',
+                title: 'Import Fantome Mod or WAD File',
                 filters: [
-                    { name: 'All Supported Formats', extensions: ['fantome', 'zip', 'wad', 'client'] },
-                    { name: 'Fantome Package', extensions: ['fantome', 'zip'] },
+                    { name: 'Fantome Package', extensions: ['fantome'] },
                     { name: 'WAD Archive', extensions: ['wad', 'client'] },
+                    { name: 'ZIP Archive', extensions: ['zip'] },
+                    { name: 'All Files', extensions: ['*'] },
                 ],
                 multiple: false,
                 directory: false,
@@ -150,10 +182,10 @@ export const ProjectListModal: React.FC = () => {
             parts.pop();
             const defaultProjectsDir = `${parts.join('/')}/RitoShark/Flint/Projects`;
 
-            // Sanitize for filesystem (remove special characters) and add timestamp for uniqueness
-            const baseName = modName.replace(/[^a-zA-Z0-9_-]/g, '_');
-            const timestamp = Date.now();
-            const dirName = `${baseName}_${timestamp}`;
+            // Sanitize for filesystem (remove special characters)
+            // Use champion_SkinID_ModName format for uniqueness without ugly timestamps
+            const sanitizedModName = modName.replace(/[^a-zA-Z0-9_-]/g, '_');
+            const dirName = `${champion}_Skin${skinId}_${sanitizedModName}`;
 
             // Extract and refather WAD files - importFantomeWad now creates the full project structure
             setWorking('Importing and refathering mod files...');
@@ -277,17 +309,17 @@ export const ProjectListModal: React.FC = () => {
                 </div>
 
                 <div className="modal__footer project-list__footer">
-                    <button className="btn btn--secondary" onClick={handleImportFantome} title="Import Fantome WAD mod">
+                    <button className="btn btn--secondary" onClick={handleBrowseFiles} title="Open an existing Flint project">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                            <path d="M3 7V17C3 18.1046 3.89543 19 5 19H19C20.1046 19 21 18.1046 21 17V9C21 7.89543 20.1046 7 19 7H13L11 5H5C3.89543 5 3 5.89543 3 7Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                        Open Existing Project
+                    </button>
+                    <button className="btn btn--primary" onClick={handleImportFantome} title="Import .fantome or .wad file">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
                             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                         </svg>
                         Import Fantome Mod
-                    </button>
-                    <button className="btn btn--primary" onClick={handleBrowseFiles}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                            <path d="M3 7V17C3 18.1046 3.89543 19 5 19H19C20.1046 19 21 18.1046 21 17V9C21 7.89543 20.1046 7 19 7H13L11 5H5C3.89543 5 3 5.89543 3 7Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                        Browse Files
                     </button>
                 </div>
             </div>

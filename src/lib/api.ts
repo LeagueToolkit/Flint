@@ -261,6 +261,10 @@ export async function saveProject(project: Project): Promise<void> {
     return invokeCommand('save_project', { project });
 }
 
+export async function deleteProject(projectPath: string): Promise<void> {
+    return invokeCommand('delete_project', { projectPath });
+}
+
 // Backend file tree entry format
 interface BackendFileEntry {
     path: string;

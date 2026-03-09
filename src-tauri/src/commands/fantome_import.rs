@@ -778,15 +778,38 @@ fn import_fantome_internal(
         }
     }
 
-    // Get project metadata
-    let creator_name = options.creator_name.as_deref().unwrap_or("FlintUser");
-    let project_name = options.project_name.as_deref().unwrap_or("ImportedMod");
+    // Read Fantome metadata (author, name, description, version)
+    let fantome_metadata = if wad_path.ends_with(".fantome") || wad_path.ends_with(".zip") {
+        read_fantome_metadata(wad_path)
+    } else {
+        None
+    };
+
+    // Get project metadata - use Fantome metadata if available, otherwise use options or defaults
+    let creator_name = fantome_metadata.as_ref()
+        .and_then(|m| m.author.as_deref())
+        .or(options.creator_name.as_deref())
+        .unwrap_or("FlintUser");
+
+    let project_name = fantome_metadata.as_ref()
+        .and_then(|m| m.name.as_deref())
+        .or(options.project_name.as_deref())
+        .unwrap_or("ImportedMod");
+
+    let description = fantome_metadata.as_ref()
+        .and_then(|m| m.description.as_deref())
+        .map(|s| s.to_string());
+
+    let version = fantome_metadata.as_ref()
+        .and_then(|m| m.version.as_deref())
+        .map(|s| s.to_string());
+
     let target_skin_id = options.target_skin_id.unwrap_or(0);
     let league_path_buf = options.league_path.as_ref().map(PathBuf::from);
 
     tracing::info!(
-        "Import metadata: creator='{}', project='{}', champion='{}', skin={}",
-        creator_name, project_name, champion, target_skin_id
+        "Import metadata: creator='{}', project='{}', champion='{}', skin={}, version={:?}, description={:?}",
+        creator_name, project_name, champion, target_skin_id, version, description
     );
 
     // Apply refathering if enabled
@@ -807,7 +830,7 @@ fn import_fantome_internal(
     }
 
     // Create project metadata
-    let project = Project::new(
+    let mut project = Project::new(
         project_name,
         &champion,
         target_skin_id,
@@ -815,6 +838,14 @@ fn import_fantome_internal(
         project_path,
         Some(creator_name.to_string()),
     );
+
+    // Override with Fantome metadata if available
+    if let Some(desc) = description {
+        project.description = desc;
+    }
+    if let Some(ver) = version {
+        project.version = ver;
+    }
 
     let _ = app.emit("fantome-import-progress", serde_json::json!({
         "status": "progress",

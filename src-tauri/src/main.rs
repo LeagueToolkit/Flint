@@ -119,6 +119,7 @@ fn main() {
             commands::project::create_loading_screen_project,
             commands::project::open_project,
             commands::project::save_project,
+            commands::project::delete_project,
             commands::project::list_project_files,
             commands::project::preconvert_project_bins,
             // Champion discovery commands
