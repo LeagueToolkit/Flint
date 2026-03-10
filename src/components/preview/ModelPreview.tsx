@@ -5,11 +5,12 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
-import { OrbitControls, PerspectiveCamera, Grid } from '@react-three/drei';
+import { OrbitControls, PerspectiveCamera, Grid, Sky } from '@react-three/drei';
 import * as THREE from 'three';
 import * as api from '../../lib/api';
 import type { AnimationPose } from '../../lib/api';
 import { useAppMetadataStore } from '../../lib/stores';
+import { getIcon } from '../../lib/fileIcons';
 
 // ============================================================================
 // Types
@@ -559,6 +560,98 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ meshData, visibleMaterials, wir
 
 
 // ============================================================================
+// Textured Floor Component (inspired by MindCorpViewer)
+// ============================================================================
+
+const TexturedFloor: React.FC = () => {
+    const floorTexture = useMemo(() => {
+        // Create floor texture matching MindCorpViewer's aesthetic
+        const size = 512;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+
+        if (ctx) {
+            // Base color - medium gray
+            ctx.fillStyle = '#2d2d2d';
+            ctx.fillRect(0, 0, size, size);
+
+            // Add grid pattern
+            const gridSize = 32; // pixels per grid cell
+            ctx.strokeStyle = '#1a1a1a';
+            ctx.lineWidth = 1;
+
+            // Vertical lines
+            for (let x = 0; x <= size; x += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, size);
+                ctx.stroke();
+            }
+
+            // Horizontal lines
+            for (let y = 0; y <= size; y += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(size, y);
+                ctx.stroke();
+            }
+
+            // Add subtle noise/texture
+            const imageData = ctx.getImageData(0, 0, size, size);
+            const data = imageData.data;
+            for (let i = 0; i < data.length; i += 4) {
+                const noise = Math.random() * 10 - 5;
+                data[i] += noise;     // R
+                data[i + 1] += noise; // G
+                data[i + 2] += noise; // B
+            }
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.RepeatWrapping;
+        texture.repeat.set(10, 10);
+        texture.needsUpdate = true;
+
+        return texture;
+    }, []);
+
+    // Dispose texture on unmount
+    useEffect(() => {
+        return () => {
+            floorTexture.dispose();
+        };
+    }, [floorTexture]);
+
+    // MindCorpViewer floor dimensions: -750 to 750 on X and Z, Y=0
+    // Create geometry manually to ensure proper orientation
+    const geometry = useMemo(() => {
+        const geo = new THREE.PlaneGeometry(1500, 1500);
+        geo.rotateX(-Math.PI / 2); // Rotate to horizontal
+        return geo;
+    }, []);
+
+    useEffect(() => {
+        return () => {
+            geometry.dispose();
+        };
+    }, [geometry]);
+
+    return (
+        <mesh geometry={geometry} position={[0, 0, 0]} receiveShadow>
+            <meshStandardMaterial
+                map={floorTexture}
+                roughness={0.9}
+                metalness={0.1}
+            />
+        </mesh>
+    );
+};
+
+// ============================================================================
 // Skeleton Viewer Component (renders bone lines)
 // ============================================================================
 
@@ -741,6 +834,15 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     const [error, setError] = useState<string | null>(null);
     const [wireframe, setWireframe] = useState(false);
     const [visibleMaterials, setVisibleMaterials] = useState<Set<string>>(new Set());
+
+    // Environment controls
+    const [showSkybox, setShowSkybox] = useState(true);
+    const [floorMode, setFloorMode] = useState<'grid' | 'textured' | 'none'>('grid');
+    const [ambientIntensity, setAmbientIntensity] = useState(0.8);
+    const [directionalIntensity, setDirectionalIntensity] = useState(1.5);
+
+    // Popup states for controls
+    const [activePopup, setActivePopup] = useState<'display' | 'environment' | 'materials' | 'animations' | null>(null);
 
     // Subscribe to file version changes for hot reload
     const fileVersion = useAppMetadataStore((state) => state.fileVersions[filePath] || 0);
@@ -1019,8 +1121,57 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         );
     }
 
+    // Close popup when clicking outside
+    useEffect(() => {
+        if (!activePopup) return;
+
+        const handleClickOutside = (e: MouseEvent) => {
+            const target = e.target as HTMLElement;
+            if (!target.closest('.model-preview__popup') && !target.closest('.model-preview__control-btn')) {
+                setActivePopup(null);
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [activePopup]);
+
     return (
         <div className="model-preview">
+            {/* Control Buttons - Top Right */}
+            <div className="model-preview__controls-bar">
+                <button
+                    className={`model-preview__control-btn ${activePopup === 'display' ? 'model-preview__control-btn--active' : ''}`}
+                    onClick={() => setActivePopup(activePopup === 'display' ? null : 'display')}
+                    title="Display & Skeleton"
+                >
+                    <span dangerouslySetInnerHTML={{ __html: getIcon('image') }} />
+                </button>
+                <button
+                    className={`model-preview__control-btn ${activePopup === 'environment' ? 'model-preview__control-btn--active' : ''}`}
+                    onClick={() => setActivePopup(activePopup === 'environment' ? null : 'environment')}
+                    title="Environment"
+                >
+                    <span dangerouslySetInnerHTML={{ __html: getIcon('settings') }} />
+                </button>
+                <button
+                    className={`model-preview__control-btn ${activePopup === 'materials' ? 'model-preview__control-btn--active' : ''}`}
+                    onClick={() => setActivePopup(activePopup === 'materials' ? null : 'materials')}
+                    title="Materials"
+                >
+                    <span dangerouslySetInnerHTML={{ __html: getIcon('picture') }} />
+                </button>
+                {animations.length > 0 && (
+                    <button
+                        className={`model-preview__control-btn ${activePopup === 'animations' ? 'model-preview__control-btn--active' : ''}`}
+                        onClick={() => setActivePopup(activePopup === 'animations' ? null : 'animations')}
+                        title="Animations"
+                    >
+                        <span dangerouslySetInnerHTML={{ __html: getIcon('video') }} />
+                    </button>
+                )}
+            </div>
+
             {/* 3D Canvas */}
             <div className="model-preview__canvas">
                 <Canvas
@@ -1046,26 +1197,51 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                     }}
                 >
                     <PerspectiveCamera makeDefault fov={50} position={[0, 0, 5]} />
-                    {/* Improved lighting setup for better model visibility */}
-                    <ambientLight intensity={0.8} />
-                    <directionalLight position={[10, 10, 10]} intensity={1.5} />
-                    <directionalLight position={[-10, -10, -10]} intensity={0.6} />
-                    <directionalLight position={[0, 10, 0]} intensity={0.4} />
-                    {/* Floor grid at Y=0 - renders first so model is on top */}
-                    <Grid
-                        position={[0, 0, 0]}
-                        args={[30, 30]}
-                        cellSize={0.5}
-                        cellThickness={0.5}
-                        cellColor="#3a3a3a"
-                        sectionSize={2}
-                        sectionThickness={1}
-                        sectionColor="#4a4a4a"
-                        fadeDistance={25}
-                        fadeStrength={1}
-                        infiniteGrid={true}
-                        renderOrder={-1}
+
+                    {/* Skybox - rendered as background */}
+                    {showSkybox && (
+                        <Sky
+                            distance={450000}
+                            sunPosition={[100, 20, 100]}
+                            inclination={0.6}
+                            azimuth={0.25}
+                            mieCoefficient={0.005}
+                            mieDirectionalG={0.8}
+                            rayleigh={0.5}
+                        />
+                    )}
+
+                    {/* Enhanced lighting setup - adjustable via controls */}
+                    <ambientLight intensity={ambientIntensity} />
+                    <directionalLight
+                        position={[10, 10, 10]}
+                        intensity={directionalIntensity}
+                        castShadow
+                        shadow-mapSize-width={1024}
+                        shadow-mapSize-height={1024}
                     />
+                    <directionalLight position={[-10, -10, -10]} intensity={directionalIntensity * 0.4} />
+                    <directionalLight position={[0, 10, 0]} intensity={directionalIntensity * 0.3} />
+                    <hemisphereLight args={['#87ceeb', '#654321', 0.3]} />
+
+                    {/* Floor - Grid or Textured */}
+                    {floorMode === 'grid' && (
+                        <Grid
+                            position={[0, 0, 0]}
+                            args={[30, 30]}
+                            cellSize={0.5}
+                            cellThickness={0.5}
+                            cellColor="#3a3a3a"
+                            sectionSize={2}
+                            sectionThickness={1}
+                            sectionColor="#4a4a4a"
+                            fadeDistance={25}
+                            fadeStrength={1}
+                            infiniteGrid={true}
+                            renderOrder={-1}
+                        />
+                    )}
+                    {floorMode === 'textured' && <TexturedFloor />}
                     <MeshViewer
                         meshData={meshData}
                         visibleMaterials={visibleMaterials}
@@ -1080,118 +1256,245 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 </Canvas>
             </div>
 
-            {/* Sidebar with controls */}
-            <div className="model-preview__sidebar">
-                {/* Texture warning banner */}
-                {meshData.texture_warning && (
-                    <div className="model-preview__warning" style={{
-                        background: 'rgba(251, 191, 36, 0.1)',
-                        border: '1px solid rgba(251, 191, 36, 0.3)',
-                        borderRadius: '4px',
-                        padding: '12px',
-                        marginBottom: '12px',
-                        fontSize: '13px',
-                        lineHeight: '1.4'
-                    }}>
-                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                            <span style={{ fontSize: '16px', flexShrink: 0 }}>⚠️</span>
-                            <div>
-                                <strong style={{ display: 'block', marginBottom: '4px' }}>Textures Not Loaded</strong>
-                                <span style={{ color: 'var(--text-secondary)' }}>{meshData.texture_warning}</span>
-                            </div>
-                        </div>
+            {/* Popup Panels */}
+            {activePopup === 'display' && (
+                <div className="model-preview__popup model-preview__popup--top-right">
+                    <div className="model-preview__popup-header">
+                        <h4>Display & Skeleton</h4>
+                        <button onClick={() => setActivePopup(null)}>×</button>
                     </div>
-                )}
-
-                <div className="model-preview__controls">
-                    <h4>Display</h4>
-                    <label className="model-preview__toggle">
-                        <input
-                            type="checkbox"
-                            checked={wireframe}
-                            onChange={(e) => setWireframe(e.target.checked)}
-                        />
-                        <span>Wireframe</span>
-                    </label>
+                    <div className="model-preview__popup-body">
+                        <label className="model-preview__toggle">
+                            <input
+                                type="checkbox"
+                                checked={wireframe}
+                                onChange={(e) => setWireframe(e.target.checked)}
+                            />
+                            <span>Wireframe</span>
+                        </label>
+                        {skeletonData && (
+                            <label className="model-preview__toggle">
+                                <input
+                                    type="checkbox"
+                                    checked={showSkeleton}
+                                    onChange={(e) => setShowSkeleton(e.target.checked)}
+                                />
+                                <span>Show Skeleton ({skeletonData.bones.length} bones)</span>
+                            </label>
+                        )}
+                    </div>
                 </div>
+            )}
 
-                <div className="model-preview__materials">
-                    <div className="model-preview__materials-header">
-                        <h4>Materials ({meshData.materials.length})</h4>
-                        <div className="model-preview__materials-actions">
-                            <button
-                                className="btn btn--sm"
-                                onClick={() => toggleAllMaterials(true)}
-                                title="Show all"
+            {activePopup === 'environment' && (
+                <div className="model-preview__popup model-preview__popup--top-right">
+                    <div className="model-preview__popup-header">
+                        <h4>Environment</h4>
+                        <button onClick={() => setActivePopup(null)}>×</button>
+                    </div>
+                    <div className="model-preview__popup-body">
+                        <label className="model-preview__toggle">
+                            <input
+                                type="checkbox"
+                                checked={showSkybox}
+                                onChange={(e) => setShowSkybox(e.target.checked)}
+                            />
+                            <span>Skybox</span>
+                        </label>
+
+                        <div className="model-preview__select-group">
+                            <label className="model-preview__select-label">Floor</label>
+                            <select
+                                value={floorMode}
+                                onChange={(e) => setFloorMode(e.target.value as 'grid' | 'textured' | 'none')}
+                                className="model-preview__select"
                             >
-                                All
-                            </button>
-                            <button
-                                className="btn btn--sm"
-                                onClick={() => toggleAllMaterials(false)}
-                                title="Hide all"
-                            >
-                                None
-                            </button>
+                                <option value="grid">Grid</option>
+                                <option value="textured">Textured</option>
+                                <option value="none">None</option>
+                            </select>
+                        </div>
+
+                        <div className="model-preview__slider">
+                            <label className="model-preview__slider-label">
+                                <span>Ambient Light</span>
+                                <span className="model-preview__slider-value">{ambientIntensity.toFixed(1)}</span>
+                            </label>
+                            <input
+                                type="range"
+                                min="0"
+                                max="2"
+                                step="0.1"
+                                value={ambientIntensity}
+                                onChange={(e) => setAmbientIntensity(parseFloat(e.target.value))}
+                                className="model-preview__slider-input"
+                            />
+                        </div>
+
+                        <div className="model-preview__slider">
+                            <label className="model-preview__slider-label">
+                                <span>Directional Light</span>
+                                <span className="model-preview__slider-value">{directionalIntensity.toFixed(1)}</span>
+                            </label>
+                            <input
+                                type="range"
+                                min="0"
+                                max="3"
+                                step="0.1"
+                                value={directionalIntensity}
+                                onChange={(e) => setDirectionalIntensity(parseFloat(e.target.value))}
+                                className="model-preview__slider-input"
+                            />
                         </div>
                     </div>
-                    <div className="model-preview__materials-list">
-                        {meshData.materials.map((mat, index) => {
-                            const matName = typeof mat === 'string' ? mat : mat.name;
-                            // Check for texture in material_data (works for both SKN and SCB)
-                            const hasTexture =
-                                (isSknMeshData(meshData) && (
-                                    meshData.material_data?.[matName] ||
-                                    meshData.textures?.[matName]
-                                )) ||
-                                (!isSknMeshData(meshData) && (meshData as ScbMeshData).material_data?.[matName]);
-                            return (
-                                <label
-                                    key={matName || index}
-                                    className={`material-toggle ${hasTexture ? 'material-toggle--has-texture' : 'material-toggle--no-texture'}`}
-                                    onMouseEnter={(e) => {
-                                        setHoveredMaterial(matName);
-                                        setPreviewPosition({ x: e.clientX, y: e.clientY });
-                                    }}
-                                    onMouseLeave={() => setHoveredMaterial(null)}
-                                    onMouseMove={(e) => {
-                                        setPreviewPosition({ x: e.clientX, y: e.clientY });
-                                    }}
-                                >
-                                    <input
-                                        type="checkbox"
-                                        checked={visibleMaterials.has(matName)}
-                                        onChange={() => toggleMaterial(matName)}
-                                    />
-                                    <span
-                                        className="material-toggle__color"
-                                        style={{
-                                            backgroundColor: hasTexture ? '#4ade80' : '#f87171'
-                                        }}
-                                    />
-                                    <span className="material-toggle__name" title={matName}>
-                                        {matName || `Material ${index}`}
-                                    </span>
-                                    <span className="material-toggle__status">
-                                        {hasTexture ? '✓' : '✗'}
-                                    </span>
-                                </label>
-                            );
-                        })}
-                    </div>
+                </div>
+            )}
 
-                    {/* Texture Preview Tooltip - uses shared asset-preview-tooltip styling */}
-                    {hoveredMaterial && (
-                        <div
-                            className="asset-preview-tooltip"
-                            style={{
-                                position: 'fixed',
-                                left: previewPosition.x - 240,
-                                top: previewPosition.y - 100,
-                                zIndex: 9999,
-                                pointerEvents: 'none'
-                            }}
+            {activePopup === 'materials' && (
+                <div className="model-preview__popup model-preview__popup--top-right model-preview__popup--wide">
+                    <div className="model-preview__popup-header">
+                        <h4>Materials ({meshData.materials.length})</h4>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            <button className="btn btn--sm" onClick={() => toggleAllMaterials(true)}>All</button>
+                            <button className="btn btn--sm" onClick={() => toggleAllMaterials(false)}>None</button>
+                            <button onClick={() => setActivePopup(null)}>×</button>
+                        </div>
+                    </div>
+                    <div className="model-preview__popup-body model-preview__popup-body--scrollable">
+                        {meshData.texture_warning && (
+                            <div className="model-preview__warning" style={{
+                                background: 'rgba(251, 191, 36, 0.1)',
+                                border: '1px solid rgba(251, 191, 36, 0.3)',
+                                borderRadius: '4px',
+                                padding: '8px',
+                                marginBottom: '12px',
+                                fontSize: '12px',
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                                    <span style={{ fontSize: '14px' }}>⚠️</span>
+                                    <span style={{ color: 'var(--text-secondary)' }}>{meshData.texture_warning}</span>
+                                </div>
+                            </div>
+                        )}
+                        <div className="model-preview__materials-list">
+                            {meshData.materials.map((mat, index) => {
+                                const matName = typeof mat === 'string' ? mat : mat.name;
+                                const hasTexture =
+                                    (isSknMeshData(meshData) && (
+                                        meshData.material_data?.[matName] ||
+                                        meshData.textures?.[matName]
+                                    )) ||
+                                    (!isSknMeshData(meshData) && (meshData as ScbMeshData).material_data?.[matName]);
+                                return (
+                                    <label
+                                        key={matName || index}
+                                        className={`material-toggle ${hasTexture ? 'material-toggle--has-texture' : 'material-toggle--no-texture'}`}
+                                        onMouseEnter={(e) => {
+                                            setHoveredMaterial(matName);
+                                            setPreviewPosition({ x: e.clientX, y: e.clientY });
+                                        }}
+                                        onMouseLeave={() => setHoveredMaterial(null)}
+                                        onMouseMove={(e) => {
+                                            setPreviewPosition({ x: e.clientX, y: e.clientY });
+                                        }}
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            checked={visibleMaterials.has(matName)}
+                                            onChange={() => toggleMaterial(matName)}
+                                        />
+                                        <span
+                                            className="material-toggle__color"
+                                            style={{
+                                                backgroundColor: hasTexture ? '#4ade80' : '#f87171'
+                                            }}
+                                        />
+                                        <span className="material-toggle__name" title={matName}>
+                                            {matName || `Material ${index}`}
+                                        </span>
+                                        <span className="material-toggle__status">
+                                            {hasTexture ? '✓' : '✗'}
+                                        </span>
+                                    </label>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {activePopup === 'animations' && animations.length > 0 && (
+                <div className="model-preview__popup model-preview__popup--top-right">
+                    <div className="model-preview__popup-header">
+                        <h4>Animations ({animations.length})</h4>
+                        <button onClick={() => setActivePopup(null)}>×</button>
+                    </div>
+                    <div className="model-preview__popup-body">
+                        <select
+                            className="model-preview__animation-select"
+                            value={selectedAnimation}
+                            onChange={(e) => setSelectedAnimation(e.target.value)}
                         >
+                            <option value="">-- Select Animation --</option>
+                            {animations.map((anim, index) => (
+                                <option key={index} value={anim.animation_path}>
+                                    {anim.name}
+                                </option>
+                            ))}
+                        </select>
+                        {selectedAnimation && (
+                            <>
+                                <div className="model-preview__playback-controls">
+                                    <button
+                                        className={`btn btn--sm ${isPlaying ? 'btn--active' : ''}`}
+                                        onClick={() => setIsPlaying(!isPlaying)}
+                                    >
+                                        {isPlaying ? '⏸️ Pause' : '▶️ Play'}
+                                    </button>
+                                    <button
+                                        className="btn btn--sm"
+                                        onClick={() => { setIsPlaying(false); setCurrentTime(0); }}
+                                    >
+                                        ⏹️ Stop
+                                    </button>
+                                </div>
+                                {animationData && (
+                                    <div className="model-preview__timeline">
+                                        <input
+                                            type="range"
+                                            min={0}
+                                            max={animationData.duration}
+                                            step={0.001}
+                                            value={currentTime}
+                                            onChange={(e) => setCurrentTime(parseFloat(e.target.value))}
+                                            className="model-preview__timeline-slider"
+                                        />
+                                        <div className="model-preview__timeline-info">
+                                            <span>{currentTime.toFixed(2)}s / {animationData.duration.toFixed(2)}s</span>
+                                            <span className="model-preview__timeline-fps">
+                                                {animationData.fps.toFixed(0)} FPS · {animationData.joint_count} joints
+                                            </span>
+                                        </div>
+                                    </div>
+                                )}
+                            </>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* Texture Preview Tooltip */}
+            {hoveredMaterial && (
+                <div
+                    className="asset-preview-tooltip"
+                    style={{
+                        position: 'fixed',
+                        left: previewPosition.x - 240,
+                        top: previewPosition.y - 100,
+                        zIndex: 9999,
+                        pointerEvents: 'none'
+                    }}
+                >
                             <div className="asset-preview-tooltip__header">
                                 {hoveredMaterial}
                             </div>
@@ -1231,86 +1534,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                             </div>
                         </div>
                     )}
-                </div>
-
-                {/* Animation Controls */}
-                {animations.length > 0 && (
-                    <div className="model-preview__animations">
-                        <h4>Animations ({animations.length})</h4>
-                        <select
-                            className="model-preview__animation-select"
-                            value={selectedAnimation}
-                            onChange={(e) => setSelectedAnimation(e.target.value)}
-                        >
-                            <option value="">-- Select Animation --</option>
-                            {animations.map((anim, index) => (
-                                <option key={index} value={anim.animation_path}>
-                                    {anim.name}
-                                </option>
-                            ))}
-                        </select>
-                        {selectedAnimation && (
-                            <div className="model-preview__playback-controls">
-                                <button
-                                    className={`btn btn--sm ${isPlaying ? 'btn--active' : ''}`}
-                                    onClick={() => setIsPlaying(!isPlaying)}
-                                    title={isPlaying ? 'Pause' : 'Play'}
-                                >
-                                    {isPlaying ? '⏸️ Pause' : '▶️ Play'}
-                                </button>
-                                <button
-                                    className="btn btn--sm"
-                                    onClick={() => { setIsPlaying(false); setCurrentTime(0); }}
-                                    title="Stop"
-                                >
-                                    ⏹️ Stop
-                                </button>
-                            </div>
-                        )}
-                        {animationData && (
-                            <div className="model-preview__timeline">
-                                <input
-                                    type="range"
-                                    min={0}
-                                    max={animationData.duration}
-                                    step={0.001}
-                                    value={currentTime}
-                                    onChange={(e) => setCurrentTime(parseFloat(e.target.value))}
-                                    className="model-preview__timeline-slider"
-                                />
-                                <div className="model-preview__timeline-info">
-                                    <span>{currentTime.toFixed(2)}s / {animationData.duration.toFixed(2)}s</span>
-                                    <span className="model-preview__timeline-fps">
-                                        {animationData.fps.toFixed(0)} FPS · {animationData.joint_count} joints
-                                    </span>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                )}
-
-                {/* Skeleton Controls */}
-                {skeletonData && (
-                    <div className="model-preview__skeleton">
-                        <h4>Skeleton ({skeletonData.bones.length} bones)</h4>
-                        <label className="model-preview__toggle">
-                            <input
-                                type="checkbox"
-                                checked={showSkeleton}
-                                onChange={(e) => setShowSkeleton(e.target.checked)}
-                            />
-                            <span>Show Skeleton</span>
-                        </label>
-                    </div>
-                )}
-
-                {/* Texture Debug Info */}
-                {isSknMeshData(meshData) && meshData.textures && Object.keys(meshData.textures).length > 0 && (
-                    <div className="model-preview__debug">
-                        <small>Textures loaded: {Object.keys(meshData.textures).length}</small>
-                    </div>
-                )}
-            </div>
         </div>
     );
 };

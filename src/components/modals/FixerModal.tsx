@@ -235,35 +235,23 @@ export const FixerModal: React.FC = () => {
                     </button>
                 </div>
 
-                {/* Tab bar */}
-                <div style={{
-                    display: 'flex',
-                    borderBottom: '1px solid var(--border)',
-                    padding: '0 var(--space-lg)',
-                }}>
+                {/* Tab bar - Settings-style */}
+                <div className="fixer-tabs">
                     <button
-                        className={`btn btn--ghost ${tab === 'single' ? 'btn--active' : ''}`}
+                        className={`fixer-tabs__item ${tab === 'single' ? 'fixer-tabs__item--active' : ''}`}
                         onClick={() => { setTab('single'); setPhase('idle'); setBatchResult(null); }}
                         disabled={isWorking}
-                        style={{
-                            borderBottom: tab === 'single' ? '2px solid var(--accent-primary)' : '2px solid transparent',
-                            borderRadius: 0,
-                            padding: '8px 16px',
-                        }}
                     >
-                        Fix Project
+                        <span dangerouslySetInnerHTML={{ __html: getIcon('file') }} />
+                        <span>Fix Project</span>
                     </button>
                     <button
-                        className={`btn btn--ghost ${tab === 'batch' ? 'btn--active' : ''}`}
+                        className={`fixer-tabs__item ${tab === 'batch' ? 'fixer-tabs__item--active' : ''}`}
                         onClick={() => { setTab('batch'); setPhase('idle'); setAnalysis(null); setFixResult(null); }}
                         disabled={isWorking}
-                        style={{
-                            borderBottom: tab === 'batch' ? '2px solid var(--accent-primary)' : '2px solid transparent',
-                            borderRadius: 0,
-                            padding: '8px 16px',
-                        }}
                     >
-                        Batch Fix
+                        <span dangerouslySetInnerHTML={{ __html: getIcon('folder') }} />
+                        <span>Batch Fix</span>
                     </button>
                 </div>
 
@@ -342,12 +330,7 @@ const SingleFixTab: React.FC<SingleFixTabProps> = ({
         {recentProjects.length > 0 && (
             <div className="form-group">
                 <label className="form-label">Recent Projects</label>
-                <div style={{
-                    maxHeight: '120px',
-                    overflowY: 'auto',
-                    border: '1px solid var(--border)',
-                    borderRadius: '6px',
-                }}>
+                <div className="fixer-recent-projects">
                     {recentProjects.map((p: RecentProject) => {
                         // Strip trailing project.json to get the folder path
                         const folderPath = p.path.replace(/[\\/]project\.json$/, '');
@@ -356,19 +339,10 @@ const SingleFixTab: React.FC<SingleFixTabProps> = ({
                             <div
                                 key={p.path}
                                 onClick={() => { if (!isWorking) setProjectPath(folderPath); }}
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '8px',
-                                    padding: '6px 12px',
-                                    borderBottom: '1px solid var(--border)',
-                                    cursor: isWorking ? 'default' : 'pointer',
-                                    fontSize: '13px',
-                                    background: isSelected ? 'var(--accent-primary-alpha, rgba(99,102,241,0.12))' : 'transparent',
-                                }}
+                                className={`fixer-project-item ${isSelected ? 'fixer-project-item--selected' : ''}`}
                             >
-                                <span dangerouslySetInnerHTML={{ __html: getIcon('folder') }} style={{ flexShrink: 0, opacity: 0.6 }} />
-                                <span style={{ flex: 1, fontWeight: isSelected ? 600 : 400 }}>
+                                <span dangerouslySetInnerHTML={{ __html: getIcon('folder') }} />
+                                <span className="fixer-project-item__name">
                                     {p.champion} - {p.name}
                                 </span>
                             </div>
@@ -405,15 +379,8 @@ const SingleFixTab: React.FC<SingleFixTabProps> = ({
 
         {/* Status */}
         {statusMessage && (
-            <div style={{
-                padding: '8px 12px',
-                marginTop: '12px',
-                borderRadius: '6px',
-                background: 'var(--bg-tertiary)',
-                fontSize: '13px',
-                color: phase === 'done' ? 'var(--accent-primary)' : 'var(--text-secondary)',
-            }}>
-                {isWorking && <span style={{ marginRight: '8px' }}>...</span>}
+            <div className={`fixer-status ${phase === 'done' ? 'fixer-status--success' : isWorking ? 'fixer-status--working' : 'fixer-status--info'}`}>
+                {isWorking && <span className="fixer-status__spinner">⟳</span>}
                 {statusMessage}
             </div>
         )}
@@ -592,15 +559,8 @@ const BatchFixTab: React.FC<BatchFixTabProps> = ({
 
         {/* Status */}
         {statusMessage && (
-            <div style={{
-                padding: '8px 12px',
-                marginTop: '12px',
-                borderRadius: '6px',
-                background: 'var(--bg-tertiary)',
-                fontSize: '13px',
-                color: phase === 'done' ? 'var(--accent-primary)' : 'var(--text-secondary)',
-            }}>
-                {isWorking && <span style={{ marginRight: '8px' }}>...</span>}
+            <div className={`fixer-status ${phase === 'done' ? 'fixer-status--success' : isWorking ? 'fixer-status--working' : 'fixer-status--info'}`}>
+                {isWorking && <span className="fixer-status__spinner">⟳</span>}
                 {statusMessage}
             </div>
         )}
