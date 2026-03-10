@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
-import { OrbitControls, PerspectiveCamera, Grid, Sky } from '@react-three/drei';
+import { OrbitControls, PerspectiveCamera, Sky } from '@react-three/drei';
 import * as THREE from 'three';
 import * as api from '../../lib/api';
 import type { AnimationPose } from '../../lib/api';
@@ -404,7 +404,6 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ meshData, visibleMaterials, wir
     // Works for both SKN and SCB mesh data
     const textureCache = useMemo(() => {
         const cache = new Map<string, THREE.Texture>();
-        const textureLoader = new THREE.TextureLoader();
 
         // Get material_data from either SKN or SCB mesh data
         const matData: Record<string, MaterialData> | undefined =
@@ -416,11 +415,13 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ meshData, visibleMaterials, wir
             for (const [materialName, data] of Object.entries(matData)) {
                 try {
                     const dataUrl = `data:image/png;base64,${data.texture}`;
-                    const texture = textureLoader.load(dataUrl);
 
-                    // CRITICAL: Do NOT flip Y - League meshes have reversed normals
+                    // Create texture and configure it BEFORE loading
+                    const texture = new THREE.Texture();
                     texture.flipY = false;
                     texture.colorSpace = THREE.SRGBColorSpace;
+                    texture.wrapS = THREE.RepeatWrapping;
+                    texture.wrapT = THREE.RepeatWrapping;
 
                     // Apply UV transformations from material properties
                     if (data.uv_scale) {
@@ -441,9 +442,13 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ meshData, visibleMaterials, wir
                         texture.offset.set(col / cols, 1 - (row + 1) / rows);
                     }
 
-                    texture.wrapS = THREE.RepeatWrapping;
-                    texture.wrapT = THREE.RepeatWrapping;
-                    texture.needsUpdate = true;
+                    // Load image asynchronously and update texture when ready
+                    const image = new Image();
+                    image.onload = () => {
+                        texture.image = image;
+                        texture.needsUpdate = true;
+                    };
+                    image.src = dataUrl;
 
                     cache.set(materialName, texture);
                 } catch {
@@ -455,11 +460,19 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ meshData, visibleMaterials, wir
             for (const [materialName, base64Data] of Object.entries(meshData.textures)) {
                 try {
                     const dataUrl = `data:image/png;base64,${base64Data}`;
-                    const texture = textureLoader.load(dataUrl);
+
+                    const texture = new THREE.Texture();
                     texture.flipY = false;
                     texture.colorSpace = THREE.SRGBColorSpace;
                     texture.wrapS = THREE.RepeatWrapping;
                     texture.wrapT = THREE.RepeatWrapping;
+
+                    const image = new Image();
+                    image.onload = () => {
+                        texture.image = image;
+                        texture.needsUpdate = true;
+                    };
+                    image.src = dataUrl;
 
                     cache.set(materialName, texture);
                 } catch {
@@ -511,12 +524,13 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ meshData, visibleMaterials, wir
         return map;
     }, [meshData, textureCache]);
 
-    // Center camera on mesh
+    // Center camera on mesh (adjusted for floor at Y=0)
     useEffect(() => {
         const [[minX, minY, minZ], [maxX, maxY, maxZ]] = meshData.bounding_box;
+        // Calculate center with Y offset so model feet are at Y=0
         const center = new THREE.Vector3(
             (minX + maxX) / 2,
-            (minY + maxY) / 2,
+            (minY + maxY) / 2 - minY, // Offset so minY becomes 0
             (minZ + maxZ) / 2
         );
         const size = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
@@ -528,7 +542,7 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ meshData, visibleMaterials, wir
     }, [meshData.bounding_box, camera]);
 
     return (
-        <group ref={groupRef}>
+        <group ref={groupRef} position={[0, -meshData.bounding_box[0][1], 0]}>
             {materialGroups.map((mat, index) => {
                 if (!mat.visible) return null;
 
@@ -560,88 +574,72 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ meshData, visibleMaterials, wir
 
 
 // ============================================================================
-// Textured Floor Component (inspired by MindCorpViewer)
+// Textured Floor Component (loads actual MindCorpViewer floor.dds)
 // ============================================================================
 
 const TexturedFloor: React.FC = () => {
-    const floorTexture = useMemo(() => {
-        // Create floor texture matching MindCorpViewer's aesthetic
-        const size = 512;
-        const canvas = document.createElement('canvas');
-        canvas.width = size;
-        canvas.height = size;
-        const ctx = canvas.getContext('2d');
-
-        if (ctx) {
-            // Base color - medium gray
-            ctx.fillStyle = '#2d2d2d';
-            ctx.fillRect(0, 0, size, size);
-
-            // Add grid pattern
-            const gridSize = 32; // pixels per grid cell
-            ctx.strokeStyle = '#1a1a1a';
-            ctx.lineWidth = 1;
-
-            // Vertical lines
-            for (let x = 0; x <= size; x += gridSize) {
-                ctx.beginPath();
-                ctx.moveTo(x, 0);
-                ctx.lineTo(x, size);
-                ctx.stroke();
-            }
-
-            // Horizontal lines
-            for (let y = 0; y <= size; y += gridSize) {
-                ctx.beginPath();
-                ctx.moveTo(0, y);
-                ctx.lineTo(size, y);
-                ctx.stroke();
-            }
-
-            // Add subtle noise/texture
-            const imageData = ctx.getImageData(0, 0, size, size);
-            const data = imageData.data;
-            for (let i = 0; i < data.length; i += 4) {
-                const noise = Math.random() * 10 - 5;
-                data[i] += noise;     // R
-                data[i + 1] += noise; // G
-                data[i + 2] += noise; // B
-            }
-            ctx.putImageData(imageData, 0, 0);
-        }
-
-        const texture = new THREE.CanvasTexture(canvas);
-        texture.wrapS = THREE.RepeatWrapping;
-        texture.wrapT = THREE.RepeatWrapping;
-        texture.repeat.set(10, 10);
-        texture.needsUpdate = true;
-
-        return texture;
-    }, []);
-
-    // Dispose texture on unmount
-    useEffect(() => {
-        return () => {
-            floorTexture.dispose();
-        };
-    }, [floorTexture]);
-
-    // MindCorpViewer floor dimensions: -750 to 750 on X and Z, Y=0
-    // Create geometry manually to ensure proper orientation
-    const geometry = useMemo(() => {
-        const geo = new THREE.PlaneGeometry(1500, 1500);
-        geo.rotateX(-Math.PI / 2); // Rotate to horizontal
-        return geo;
-    }, []);
+    const [floorTexture, setFloorTexture] = useState<THREE.Texture | null>(null);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        return () => {
-            geometry.dispose();
+        let isMounted = true;
+        let texture: THREE.Texture | null = null;
+        let objectUrl: string | null = null;
+
+        const loadFloorTexture = async () => {
+            try {
+                // Load bundled floor as PNG bytes (pre-converted from DDS)
+                const pngBytes = await api.getBundledFloorPng();
+
+                if (!isMounted) return;
+
+                // Create Blob from PNG bytes
+                const blob = new Blob([new Uint8Array(pngBytes)], { type: 'image/png' });
+                objectUrl = URL.createObjectURL(blob);
+
+                // Create texture from Blob URL
+                const image = new Image();
+                image.onload = () => {
+                    if (!isMounted) return;
+                    texture = new THREE.Texture(image);
+                    texture.wrapS = THREE.ClampToEdgeWrapping;
+                    texture.wrapT = THREE.ClampToEdgeWrapping;
+                    texture.colorSpace = THREE.SRGBColorSpace;
+                    texture.needsUpdate = true;
+                    setFloorTexture(texture);
+                    setLoading(false);
+                };
+                image.onerror = () => {
+                    console.error('Failed to load decoded floor texture');
+                    setLoading(false);
+                };
+                image.src = objectUrl;
+            } catch (err) {
+                console.error('Error loading floor texture:', err);
+                setLoading(false);
+            }
         };
-    }, [geometry]);
+
+        loadFloorTexture();
+
+        return () => {
+            isMounted = false;
+            if (texture) {
+                texture.dispose();
+            }
+            if (objectUrl) {
+                URL.revokeObjectURL(objectUrl);
+            }
+        };
+    }, []);
+
+    if (loading || !floorTexture) {
+        return null;
+    }
 
     return (
-        <mesh geometry={geometry} position={[0, 0, 0]} receiveShadow>
+        <mesh position={[0, 0, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+            <planeGeometry args={[1500, 1500]} />
             <meshStandardMaterial
                 map={floorTexture}
                 roughness={0.9}
@@ -828,18 +826,44 @@ const SkeletonViewer: React.FC<SkeletonViewerProps> = ({ skeletonData, animation
 // Main Component
 // ============================================================================
 
+// Settings persistence key
+const SETTINGS_KEY = 'flint-model-preview-settings';
+
+// Load settings from localStorage
+const loadSettings = () => {
+    try {
+        const saved = localStorage.getItem(SETTINGS_KEY);
+        if (saved) {
+            return JSON.parse(saved);
+        }
+    } catch {
+        // Ignore parse errors
+    }
+    return {
+        wireframe: false,
+        showSkybox: true,
+        floorMode: 'grid',
+        ambientIntensity: 0.8,
+        directionalIntensity: 1.5,
+        showSkeleton: true,
+    };
+};
+
 export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType = 'skinned' }) => {
     const [meshData, setMeshData] = useState<MeshData | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [wireframe, setWireframe] = useState(false);
+
+    // Load persisted settings
+    const savedSettings = useMemo(() => loadSettings(), []);
+    const [wireframe, setWireframe] = useState(savedSettings.wireframe);
     const [visibleMaterials, setVisibleMaterials] = useState<Set<string>>(new Set());
 
-    // Environment controls
-    const [showSkybox, setShowSkybox] = useState(true);
-    const [floorMode, setFloorMode] = useState<'grid' | 'textured' | 'none'>('grid');
-    const [ambientIntensity, setAmbientIntensity] = useState(0.8);
-    const [directionalIntensity, setDirectionalIntensity] = useState(1.5);
+    // Environment controls (persisted)
+    const [showSkybox, setShowSkybox] = useState(savedSettings.showSkybox);
+    const [floorMode, setFloorMode] = useState<'grid' | 'textured' | 'none'>(savedSettings.floorMode);
+    const [ambientIntensity, setAmbientIntensity] = useState(savedSettings.ambientIntensity);
+    const [directionalIntensity, setDirectionalIntensity] = useState(savedSettings.directionalIntensity);
 
     // Popup states for controls
     const [activePopup, setActivePopup] = useState<'display' | 'environment' | 'materials' | 'animations' | null>(null);
@@ -859,9 +883,9 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     const animationRef = useRef<number | null>(null);
     const lastFrameTimeRef = useRef<number>(0);
 
-    // Skeleton state (only for skinned meshes)
+    // Skeleton state (only for skinned meshes, persisted)
     const [skeletonData, setSkeletonData] = useState<SklData | null>(null);
-    const [showSkeleton, setShowSkeleton] = useState(true);
+    const [showSkeleton, setShowSkeleton] = useState(savedSettings.showSkeleton);
 
     // Texture preview state
     const [hoveredMaterial, setHoveredMaterial] = useState<string | null>(null);
@@ -1069,6 +1093,34 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         };
     }, [selectedAnimation, currentTime, filePath, animationData]);
 
+    // Close popup when clicking outside (MUST be before early returns to satisfy Rules of Hooks)
+    useEffect(() => {
+        if (!activePopup) return;
+
+        const handleClickOutside = (e: MouseEvent) => {
+            const target = e.target as HTMLElement;
+            if (!target.closest('.model-preview__popup') && !target.closest('.model-preview__control-btn')) {
+                setActivePopup(null);
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [activePopup]);
+
+    // Persist settings to localStorage when they change
+    useEffect(() => {
+        const settings = {
+            wireframe,
+            showSkybox,
+            floorMode,
+            ambientIntensity,
+            directionalIntensity,
+            showSkeleton,
+        };
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    }, [wireframe, showSkybox, floorMode, ambientIntensity, directionalIntensity, showSkeleton]);
+
     // Toggle material visibility
     const toggleMaterial = (name: string) => {
         setVisibleMaterials(prev => {
@@ -1121,24 +1173,20 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         );
     }
 
-    // Close popup when clicking outside
-    useEffect(() => {
-        if (!activePopup) return;
-
-        const handleClickOutside = (e: MouseEvent) => {
-            const target = e.target as HTMLElement;
-            if (!target.closest('.model-preview__popup') && !target.closest('.model-preview__control-btn')) {
-                setActivePopup(null);
-            }
-        };
-
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, [activePopup]);
-
     return (
         <div className="model-preview">
-            {/* Control Buttons - Top Right */}
+            {/* Environment Button - Top Left Corner */}
+            <div className="model-preview__controls-bar model-preview__controls-bar--left">
+                <button
+                    className={`model-preview__control-btn ${activePopup === 'environment' ? 'model-preview__control-btn--active' : ''}`}
+                    onClick={() => setActivePopup(activePopup === 'environment' ? null : 'environment')}
+                    title="Environment Settings"
+                >
+                    <span dangerouslySetInnerHTML={{ __html: getIcon('settings') }} />
+                </button>
+            </div>
+
+            {/* Other Control Buttons - Top Right */}
             <div className="model-preview__controls-bar">
                 <button
                     className={`model-preview__control-btn ${activePopup === 'display' ? 'model-preview__control-btn--active' : ''}`}
@@ -1146,13 +1194,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                     title="Display & Skeleton"
                 >
                     <span dangerouslySetInnerHTML={{ __html: getIcon('image') }} />
-                </button>
-                <button
-                    className={`model-preview__control-btn ${activePopup === 'environment' ? 'model-preview__control-btn--active' : ''}`}
-                    onClick={() => setActivePopup(activePopup === 'environment' ? null : 'environment')}
-                    title="Environment"
-                >
-                    <span dangerouslySetInnerHTML={{ __html: getIcon('settings') }} />
                 </button>
                 <button
                     className={`model-preview__control-btn ${activePopup === 'materials' ? 'model-preview__control-btn--active' : ''}`}
@@ -1224,22 +1265,9 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                     <directionalLight position={[0, 10, 0]} intensity={directionalIntensity * 0.3} />
                     <hemisphereLight args={['#87ceeb', '#654321', 0.3]} />
 
-                    {/* Floor - Grid or Textured */}
+                    {/* Floor - Grid or Textured (at Y=0, model is offset to align feet) */}
                     {floorMode === 'grid' && (
-                        <Grid
-                            position={[0, 0, 0]}
-                            args={[30, 30]}
-                            cellSize={0.5}
-                            cellThickness={0.5}
-                            cellColor="#3a3a3a"
-                            sectionSize={2}
-                            sectionThickness={1}
-                            sectionColor="#4a4a4a"
-                            fadeDistance={25}
-                            fadeStrength={1}
-                            infiniteGrid={true}
-                            renderOrder={-1}
-                        />
+                        <gridHelper args={[1000, 50, '#4a4a4a', '#3a3a3a']} position={[0, 0, 0]} />
                     )}
                     {floorMode === 'textured' && <TexturedFloor />}
                     <MeshViewer
@@ -1287,7 +1315,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             )}
 
             {activePopup === 'environment' && (
-                <div className="model-preview__popup model-preview__popup--top-right">
+                <div className="model-preview__popup model-preview__popup--top-left">
                     <div className="model-preview__popup-header">
                         <h4>Environment</h4>
                         <button onClick={() => setActivePopup(null)}>×</button>
@@ -1430,32 +1458,49 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                         <button onClick={() => setActivePopup(null)}>×</button>
                     </div>
                     <div className="model-preview__popup-body">
-                        <select
-                            className="model-preview__animation-select"
-                            value={selectedAnimation}
-                            onChange={(e) => setSelectedAnimation(e.target.value)}
-                        >
-                            <option value="">-- Select Animation --</option>
-                            {animations.map((anim, index) => (
-                                <option key={index} value={anim.animation_path}>
-                                    {anim.name}
-                                </option>
-                            ))}
-                        </select>
+                        <div className="model-preview__select-group">
+                            <select
+                                className="model-preview__select"
+                                value={selectedAnimation}
+                                onChange={(e) => setSelectedAnimation(e.target.value)}
+                            >
+                                <option value="">-- Select Animation --</option>
+                                {animations.map((anim, index) => (
+                                    <option key={index} value={anim.animation_path}>
+                                        {anim.name}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
                         {selectedAnimation && (
                             <>
                                 <div className="model-preview__playback-controls">
                                     <button
-                                        className={`btn btn--sm ${isPlaying ? 'btn--active' : ''}`}
+                                        className={`model-preview__playback-btn ${isPlaying ? 'model-preview__playback-btn--active' : ''}`}
                                         onClick={() => setIsPlaying(!isPlaying)}
+                                        title={isPlaying ? 'Pause' : 'Play'}
                                     >
-                                        {isPlaying ? '⏸️ Pause' : '▶️ Play'}
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            {isPlaying ? (
+                                                <>
+                                                    <rect x="6" y="4" width="4" height="16" />
+                                                    <rect x="14" y="4" width="4" height="16" />
+                                                </>
+                                            ) : (
+                                                <polygon points="5 3 19 12 5 21 5 3" />
+                                            )}
+                                        </svg>
+                                        <span>{isPlaying ? 'Pause' : 'Play'}</span>
                                     </button>
                                     <button
-                                        className="btn btn--sm"
+                                        className="model-preview__playback-btn"
                                         onClick={() => { setIsPlaying(false); setCurrentTime(0); }}
+                                        title="Stop"
                                     >
-                                        ⏹️ Stop
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <rect x="6" y="6" width="12" height="12" />
+                                        </svg>
+                                        <span>Stop</span>
                                     </button>
                                 </div>
                                 {animationData && (

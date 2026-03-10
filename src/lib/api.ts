@@ -525,6 +525,14 @@ export async function decodeBytesToPng(data: Uint8Array): Promise<DecodedTexture
     return invokeCommand('decode_bytes_to_png', { data: Array.from(data) });
 }
 
+/**
+ * Get bundled floor texture as PNG bytes (MindCorpViewer floor.dds pre-converted)
+ */
+export async function getBundledFloorPng(): Promise<Uint8Array> {
+    const bytes: number[] = await invokeCommand('get_bundled_floor_png', {});
+    return new Uint8Array(bytes);
+}
+
 export async function readTextFile(path: string): Promise<string> {
     return invokeCommand('read_text_file', { path });
 }

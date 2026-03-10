@@ -134,6 +134,7 @@ fn main() {
             commands::file::read_file_info,
             commands::file::decode_dds_to_png,
             commands::file::decode_bytes_to_png,
+            commands::file::get_bundled_floor_png,
             commands::file::read_text_file,
             commands::file::write_text_file,
             commands::file::recolor_image,

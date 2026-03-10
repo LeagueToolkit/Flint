@@ -9,6 +9,9 @@ use ltk_texture::Texture;
 use std::io::Cursor;
 use std::process::Command;
 
+/// Bundled floor texture from MindCorpViewer (PNG)
+static FLOOR_PNG: &[u8] = include_bytes!("../../resources/floor.png");
+
 /// Information about a file
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileInfo {
@@ -978,4 +981,10 @@ pub async fn duplicate_file(
         .replace('\\', "/");
 
     Ok(new_rel)
+}
+
+/// Get bundled floor texture as PNG bytes (MindCorpViewer floor)
+#[tauri::command]
+pub fn get_bundled_floor_png() -> Vec<u8> {
+    FLOOR_PNG.to_vec()
 }
