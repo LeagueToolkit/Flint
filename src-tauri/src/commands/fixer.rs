@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use tauri::Emitter;
 use walkdir::WalkDir;
 
-use hematite_lib::analyzer::{self, HashDict, ScanResult, WadCache};
+use hematite_lib::analyzer::{self, CharacterRelations, HashDict, ScanResult, WadCache};
 use hematite_lib::config::schema::FixConfig;
 use hematite_lib::fixer::{self, FixContext, FixResult};
 
@@ -189,6 +189,7 @@ pub async fn fix_project(
         let config = hematite_lib::config::fetcher::get_config()
             .map_err(|e| format!("Failed to load fix config: {:#}", e))?;
         let wad_cache = WadCache::new();
+        let character_relations = CharacterRelations::default();
 
         let bin_files = find_bin_files(&project_dir);
 
@@ -219,7 +220,7 @@ pub async fn fix_project(
             };
 
             // Create fix context
-            let mut ctx = FixContext::new(bin_tree, &wad_cache, &hash_dict);
+            let mut ctx = FixContext::new(bin_tree, &wad_cache, &hash_dict, &character_relations, path_str.clone());
 
             // Apply transforms
             let fix_result = fixer::apply_transforms(&path_str, &mut ctx, &config.fixes, &fix_ids);
@@ -286,6 +287,7 @@ pub async fn batch_fix_projects(
         let config = hematite_lib::config::fetcher::get_config()
             .map_err(|e| format!("Failed to load fix config: {:#}", e))?;
         let wad_cache = WadCache::new();
+        let character_relations = CharacterRelations::default();
 
         let fix_ids: Vec<String> = if selected_fix_ids.is_empty() {
             config.fixes.iter()
@@ -325,7 +327,7 @@ pub async fn batch_fix_projects(
                     }
                 };
 
-                let mut ctx = FixContext::new(bin_tree, &wad_cache, &hash_dict);
+                let mut ctx = FixContext::new(bin_tree, &wad_cache, &hash_dict, &character_relations, path_str.clone());
                 let fix_result = fixer::apply_transforms(&path_str, &mut ctx, &config.fixes, &fix_ids);
 
                 if !fix_result.fixes_applied.is_empty() {

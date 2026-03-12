@@ -31,3 +31,6 @@ dist-ssr
 # Cargo.lock
 .cargo/
 ~
+
+# External dependencies (use git dependencies instead)
+/Hematite-main
