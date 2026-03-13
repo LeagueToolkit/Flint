@@ -20,7 +20,7 @@ import {
     type BudgetResult,
 } from '../../lib/spritesheet';
 
-type ProjectType = 'skin' | 'loading-screen';
+type ProjectType = 'skin' | 'loading-screen' | 'hud-editor';
 
 const SCALE_OPTIONS = [
     { label: '100%', value: 1.0 },
@@ -365,8 +365,38 @@ export const NewProjectModal: React.FC = () => {
         }
     };
 
+    const handleCreateHudEditor = async () => {
+        if (!projectName || !projectPath) {
+            showToast('error', 'Please fill in all required fields');
+            return;
+        }
+
+        setIsCreating(true);
+        setProgress('Creating HUD editor project...');
+
+        try {
+            const projectPathStr = await api.createHudProject({
+                projectName,
+                creatorName: state.creatorName || 'UnknownCreator',
+                description: 'HUD Editor Project',
+                projectsDir: projectPath,
+            });
+
+            // Load the project
+            const project = await api.openProject(projectPathStr);
+            await finishProjectCreation(project, 'HUD Editor', 0);
+        } catch (err) {
+            const flintError = err as api.FlintError;
+            showToast('error', flintError.getUserMessage?.() || 'Failed to create HUD editor project');
+        } finally {
+            setIsCreating(false);
+            setProgress('');
+        }
+    };
+
     const handleCreate = () => {
         if (projectType === 'skin') return handleCreateSkin();
+        if (projectType === 'hud-editor') return handleCreateHudEditor();
         return handleCreateLoadingScreen();
     };
 
@@ -407,7 +437,10 @@ export const NewProjectModal: React.FC = () => {
     const canCreateLoadingScreen = projectType === 'loading-screen'
         && !!projectName && !!projectPath && !!videoFile && !!budget?.fits && !isCreating;
 
-    const canCreate = canCreateSkin || canCreateLoadingScreen;
+    const canCreateHudEditor = projectType === 'hud-editor'
+        && !!projectName && !!projectPath && !isCreating;
+
+    const canCreate = canCreateSkin || canCreateLoadingScreen || canCreateHudEditor;
 
     // ─── Budget display helper ───────────────────────────────────────────
 
@@ -469,6 +502,26 @@ export const NewProjectModal: React.FC = () => {
                                 <div className="project-type-card__text">
                                     <span className="project-type-card__title">Animated Loading Screen</span>
                                     <span className="project-type-card__desc">Create custom animated loading screens</span>
+                                </div>
+                            </button>
+
+                            <button
+                                className={`project-type-card${projectType === 'hud-editor' ? ' project-type-card--selected' : ''}`}
+                                onClick={() => setProjectType('hud-editor')}
+                            >
+                                <div className="project-type-card__icon">
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                                        <rect x="2" y="3" width="20" height="18" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+                                        <circle cx="6" cy="7" r="1" fill="currentColor"/>
+                                        <circle cx="18" cy="7" r="1" fill="currentColor"/>
+                                        <circle cx="6" cy="17" r="1" fill="currentColor"/>
+                                        <circle cx="18" cy="17" r="1" fill="currentColor"/>
+                                        <rect x="10" y="10" width="4" height="4" rx="0.5" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+                                    </svg>
+                                </div>
+                                <div className="project-type-card__text">
+                                    <span className="project-type-card__title">HUD Editor</span>
+                                    <span className="project-type-card__desc">Visual editor for in-game HUD elements</span>
                                 </div>
                             </button>
                         </div>
@@ -785,6 +838,42 @@ export const NewProjectModal: React.FC = () => {
                                 </div>
                             </>
                         )}
+                    </div>
+
+                    {/* ════════════ HUD Editor Form ════════════ */}
+                    <div className={`project-type-form${projectType === 'hud-editor' ? ' project-type-form--active' : ''}`}>
+                        <div className="form-group">
+                            <label className="form-label">Project Name</label>
+                            <input
+                                type="text"
+                                className="form-input"
+                                placeholder="e.g., My Custom HUD"
+                                value={projectName}
+                                onChange={(e) => setProjectName(e.target.value)}
+                            />
+                        </div>
+
+                        <div className="form-group">
+                            <label className="form-label">Project Location</label>
+                            <div className="form-input--with-button">
+                                <input
+                                    type="text"
+                                    className="form-input"
+                                    placeholder="Select folder..."
+                                    value={projectPath}
+                                    onChange={(e) => setProjectPath(e.target.value)}
+                                />
+                                <button className="btn btn--secondary" onClick={handleBrowsePath}>Browse</button>
+                            </div>
+                        </div>
+
+                        <div className="form-hint">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{marginRight: '8px'}}>
+                                <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+                                <path d="M8 5v3M8 10v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                            </svg>
+                            The HUD editor allows you to visually edit League of Legends HUD files (uibase.nx.py). After creating the project, you can import an existing HUD file to edit.
+                        </div>
                     </div>
                 </div>
 

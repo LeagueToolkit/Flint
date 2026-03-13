@@ -208,6 +208,11 @@ fn main() {
             // Fantome import commands
             commands::fantome_import::analyze_fantome,
             commands::fantome_import::import_fantome_wad,
+            // HUD Editor commands
+            commands::hud::parse_hud_py_file,
+            commands::hud::save_hud_py_file,
+            commands::hud::create_hud_project,
+            commands::hud::get_hud_file_stats,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -84,6 +84,10 @@ export class FlintError extends Error {
             'sync_project_to_launcher': 'Failed to sync project to LTK Manager.',
             'analyze_fantome': 'Failed to analyze Fantome WAD file.',
             'import_fantome_wad': 'Failed to import Fantome mod.',
+            'create_hud_project': 'Failed to create HUD editor project.',
+            'parse_hud_py_file': 'Failed to parse HUD file.',
+            'save_hud_py_file': 'Failed to save HUD file.',
+            'get_hud_file_stats': 'Failed to get HUD file statistics.',
         };
         return messages[this.command] || this.message;
     }
@@ -250,6 +254,22 @@ export async function createLoadingScreenProject(params: CreateLoadingScreenPara
         totalFrames: params.totalFrames,
         cols: params.cols,
         rows: params.rows,
+    });
+}
+
+export interface CreateHudProjectParams {
+    projectName: string;
+    creatorName: string;
+    description: string;
+    projectsDir: string;
+}
+
+export async function createHudProject(params: CreateHudProjectParams): Promise<string> {
+    return invokeCommand('create_hud_project', {
+        projectName: params.projectName,
+        creatorName: params.creatorName,
+        description: params.description,
+        projectsDir: params.projectsDir,
     });
 }
 
@@ -1042,4 +1062,81 @@ export async function importFantomeWad(
     options: ImportOptions
 ): Promise<Project> {
     return invokeCommand('import_fantome_wad', { wadPath, projectDir, options });
+}
+
+// =============================================================================
+// HUD Editor Commands
+// =============================================================================
+
+export interface HudData {
+    type: string;
+    version: number;
+    linked: string[];
+    entries: Record<string, HudEntry>;
+}
+
+export interface HudEntry {
+    name: string;
+    type: string;
+    enabled: boolean;
+    Layer: number;
+    position?: HudPosition;
+    TextureData?: TextureData;
+    Scene?: string;
+    extra?: Record<string, unknown>;
+}
+
+export interface HudPosition {
+    UIRect: UiRect;
+    Anchors?: Anchors;
+}
+
+export interface UiRect {
+    position: Vec2;
+    Size: Vec2;
+    SourceResolutionWidth: number;
+    SourceResolutionHeight: number;
+}
+
+export interface Vec2 {
+    x: number;
+    y: number;
+}
+
+export interface Anchors {
+    Anchor: Vec2;
+}
+
+export interface TextureData {
+    mTextureName: string;
+    mTextureUV?: Vec4;
+}
+
+export interface Vec4 {
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+}
+
+export interface HudFileStats {
+    total_elements: number;
+    by_type: Record<string, number>;
+    by_layer: Record<number, number>;
+}
+
+export async function parseHudPyFile(filePath: string): Promise<HudData> {
+    return invokeCommand('parse_hud_py_file', { filePath });
+}
+
+export async function saveHudPyFile(
+    filePath: string,
+    data: HudData,
+    originalContent: string
+): Promise<void> {
+    return invokeCommand('save_hud_py_file', { filePath, data, originalContent });
+}
+
+export async function getHudFileStats(filePath: string): Promise<HudFileStats> {
+    return invokeCommand('get_hud_file_stats', { filePath });
 }
