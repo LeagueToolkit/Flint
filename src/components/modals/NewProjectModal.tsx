@@ -872,7 +872,7 @@ export const NewProjectModal: React.FC = () => {
                                 <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" fill="none"/>
                                 <path d="M8 5v3M8 10v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
                             </svg>
-                            The HUD editor allows you to visually edit League of Legends HUD files (uibase.nx.py). After creating the project, you can import an existing HUD file to edit.
+                            The HUD editor allows you to visually edit League of Legends HUD files (uibase.ritobin). After creating the project, you can import an existing HUD BIN file to edit.
                         </div>
                     </div>
                 </div>

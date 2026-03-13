@@ -1,11 +1,10 @@
 use crate::core::hud::{parse_hud_file, serialize_hud_file, HudData};
 use std::fs;
-use std::path::{Path, PathBuf};
-use anyhow::{Context, Result};
+use std::path::PathBuf;
 
 #[tauri::command]
-pub async fn parse_hud_py_file(file_path: String) -> Result<HudData, String> {
-    tracing::info!("Parsing HUD file: {}", file_path);
+pub async fn parse_hud_ritobin_file(file_path: String) -> Result<HudData, String> {
+    tracing::info!("Parsing HUD ritobin file: {}", file_path);
 
     let content = fs::read_to_string(&file_path)
         .map_err(|e| format!("Failed to read file: {}", e))?;
@@ -18,12 +17,12 @@ pub async fn parse_hud_py_file(file_path: String) -> Result<HudData, String> {
 }
 
 #[tauri::command]
-pub async fn save_hud_py_file(
+pub async fn save_hud_ritobin_file(
     file_path: String,
     data: HudData,
     original_content: String,
 ) -> Result<(), String> {
-    tracing::info!("Saving HUD file: {}", file_path);
+    tracing::info!("Saving HUD ritobin file: {}", file_path);
 
     let serialized = serialize_hud_file(&data, &original_content)
         .map_err(|e| format!("Failed to serialize HUD data: {}", e))?;
@@ -60,7 +59,7 @@ pub async fn create_hud_project(
         .map_err(|e| format!("Failed to create content directory: {}", e))?;
 
     // Create default HUD file structure path
-    let hud_base_path = content_dir.join("UI.wad.client/clientstates/loadingscreen/ux/loadingscreenclassic");
+    let hud_base_path = content_dir.join("UI.wad.client/clientstates/loadingscreen/ux/loadingscreenclassic/uibase");
     fs::create_dir_all(&hud_base_path)
         .map_err(|e| format!("Failed to create HUD directory structure: {}", e))?;
 
@@ -72,7 +71,7 @@ pub async fn create_hud_project(
         "project_type": "hud_editor",
         "version": "1.0.0",
         "created_at": chrono::Utc::now().to_rfc3339(),
-        "hud_file_path": "UI.wad.client/clientstates/loadingscreen/ux/loadingscreenclassic/uibase.nx.py"
+        "hud_file_path": "UI.wad.client/clientstates/loadingscreen/ux/loadingscreenclassic/uibase/uibase.ritobin"
     });
 
     let config_path = project_path.join("project.json");

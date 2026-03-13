@@ -85,8 +85,8 @@ export class FlintError extends Error {
             'analyze_fantome': 'Failed to analyze Fantome WAD file.',
             'import_fantome_wad': 'Failed to import Fantome mod.',
             'create_hud_project': 'Failed to create HUD editor project.',
-            'parse_hud_py_file': 'Failed to parse HUD file.',
-            'save_hud_py_file': 'Failed to save HUD file.',
+            'parse_hud_ritobin_file': 'Failed to parse HUD ritobin file.',
+            'save_hud_ritobin_file': 'Failed to save HUD ritobin file.',
             'get_hud_file_stats': 'Failed to get HUD file statistics.',
         };
         return messages[this.command] || this.message;
@@ -1125,16 +1125,16 @@ export interface HudFileStats {
     by_layer: Record<number, number>;
 }
 
-export async function parseHudPyFile(filePath: string): Promise<HudData> {
-    return invokeCommand('parse_hud_py_file', { filePath });
+export async function parseHudRitobinFile(filePath: string): Promise<HudData> {
+    return invokeCommand('parse_hud_ritobin_file', { filePath });
 }
 
-export async function saveHudPyFile(
+export async function saveHudRitobinFile(
     filePath: string,
     data: HudData,
     originalContent: string
 ): Promise<void> {
-    return invokeCommand('save_hud_py_file', { filePath, data, originalContent });
+    return invokeCommand('save_hud_ritobin_file', { filePath, data, originalContent });
 }
 
 export async function getHudFileStats(filePath: string): Promise<HudFileStats> {
