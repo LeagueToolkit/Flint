@@ -6,14 +6,14 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { useAppState } from '../../lib/stores';
 import { formatRelativeTime } from '../../lib/utils';
-import { open, ask } from '@tauri-apps/plugin-dialog';
+import { open } from '@tauri-apps/plugin-dialog';
 import { appDataDir } from '@tauri-apps/api/path';
 import { getIcon } from '../../lib/fileIcons';
 import * as api from '../../lib/api';
 import { listen } from '@tauri-apps/api/event';
 
 export const ProjectListModal: React.FC = () => {
-    const { state, dispatch, closeModal, setWorking, setReady, setError } = useAppState();
+    const { state, dispatch, closeModal, setWorking, setReady, setError, openConfirmDialog } = useAppState();
     const [removingId, setRemovingId] = useState<string | null>(null);
 
     const isVisible = state.activeModal === 'projectList';
@@ -42,9 +42,10 @@ export const ProjectListModal: React.FC = () => {
             setWorking('Opening project...');
 
             // Normalize path - strip project file name if present
+            // Handles: mod.config.json, flint.json, project.json
             let normalizedPath = projectPath;
-            if (normalizedPath.endsWith('mod.config.json') || normalizedPath.endsWith('project.json')) {
-                normalizedPath = normalizedPath.replace(/[\\/](mod\.config|project)\.json$/, '');
+            if (normalizedPath.endsWith('.json')) {
+                normalizedPath = normalizedPath.replace(/[\\/](mod\.config|flint|project)\.json$/, '');
             }
 
             const project = await api.openProject(normalizedPath);
@@ -101,47 +102,44 @@ export const ProjectListModal: React.FC = () => {
         }
     }, [handleOpenProject]);
 
-    const handleRemoveProject = useCallback(async (e: React.MouseEvent, projectId: string) => {
+    const handleRemoveProject = useCallback((e: React.MouseEvent, projectId: string) => {
         e.stopPropagation();
 
         // Find the project to get its path and name
         const project = savedProjects.find(p => p.id === projectId);
         if (!project) return;
 
-        // Show confirmation dialog
-        const confirmed = await ask(
-            `Are you sure you want to delete "${project.name}"?\n\nThis will permanently delete all project files and cannot be undone.`,
-            {
-                title: 'Delete Project',
-                kind: 'warning',
-                okLabel: 'Delete',
-                cancelLabel: 'Cancel',
-            }
-        );
+        // Show custom confirmation dialog
+        openConfirmDialog({
+            title: 'Delete Project',
+            message: `Are you sure you want to delete "${project.name}"?\n\nThis will permanently delete all project files and cannot be undone.`,
+            confirmLabel: 'Delete',
+            cancelLabel: 'Cancel',
+            danger: true,
+            onConfirm: async () => {
+                try {
+                    // Start fade-out animation
+                    setRemovingId(projectId);
 
-        if (!confirmed) return;
+                    // Delete the project files
+                    setWorking('Deleting project files...');
+                    await api.deleteProject(project.path);
 
-        try {
-            // Start fade-out animation
-            setRemovingId(projectId);
-
-            // Delete the project files
-            setWorking('Deleting project files...');
-            await api.deleteProject(project.path);
-
-            // Allow fade-out animation to play, then remove from list
-            setTimeout(() => {
-                dispatch({ type: 'REMOVE_SAVED_PROJECT', payload: projectId });
-                setRemovingId(null);
-                setReady();
-            }, 200);
-        } catch (error) {
-            console.error('Failed to delete project:', error);
-            const flintError = error as api.FlintError;
-            setError(flintError.getUserMessage?.() || 'Failed to delete project');
-            setRemovingId(null);
-        }
-    }, [savedProjects, dispatch, setWorking, setReady, setError]);
+                    // Allow fade-out animation to play, then remove from list
+                    setTimeout(() => {
+                        dispatch({ type: 'REMOVE_SAVED_PROJECT', payload: projectId });
+                        setRemovingId(null);
+                        setReady();
+                    }, 200);
+                } catch (error) {
+                    console.error('Failed to delete project:', error);
+                    const flintError = error as api.FlintError;
+                    setError(flintError.getUserMessage?.() || 'Failed to delete project');
+                    setRemovingId(null);
+                }
+            },
+        });
+    }, [savedProjects, dispatch, setWorking, setReady, setError, openConfirmDialog]);
 
     const handleImportFantome = useCallback(async () => {
         try {

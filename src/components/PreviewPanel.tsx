@@ -43,8 +43,8 @@ const ErrorState: React.FC<{ message: string }> = ({ message }) => (
 );
 
 const getTypeLabel = (fileType: string, filePath?: string): string => {
-    // Special check for HUD files
-    if (filePath && filePath.endsWith('.ritobin') &&
+    // Special check for HUD files (dev only)
+    if (import.meta.env.DEV && filePath && filePath.endsWith('.ritobin') &&
         (filePath.includes('uibase') || filePath.includes('loadingscreen'))) {
         return 'HUD Configuration';
     }
@@ -152,12 +152,12 @@ export const PreviewPanel: React.FC = () => {
             return <ImagePreview key={filePath} filePath={filePath} zoom={imageZoom} onZoomChange={setImageZoom} />;
         }
 
-        // HUD editor for ritobin files in HUD paths
+        // HUD editor for ritobin files in HUD paths (dev only)
         // Check for uibase.ritobin or any .ritobin in the HUD directory structure
         const isHudFile = (fileInfo.extension === 'ritobin' || selectedFile.endsWith('.ritobin')) &&
             (selectedFile.includes('uibase') || selectedFile.includes('loadingscreen'));
 
-        if (isHudFile) {
+        if (isHudFile && import.meta.env.DEV) {
             return <HUDEditor key={filePath} filePath={filePath} />;
         }
 

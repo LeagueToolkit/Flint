@@ -505,25 +505,28 @@ export const NewProjectModal: React.FC = () => {
                                 </div>
                             </button>
 
-                            <button
-                                className={`project-type-card${projectType === 'hud-editor' ? ' project-type-card--selected' : ''}`}
-                                onClick={() => setProjectType('hud-editor')}
-                            >
-                                <div className="project-type-card__icon">
-                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                                        <rect x="2" y="3" width="20" height="18" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-                                        <circle cx="6" cy="7" r="1" fill="currentColor"/>
-                                        <circle cx="18" cy="7" r="1" fill="currentColor"/>
-                                        <circle cx="6" cy="17" r="1" fill="currentColor"/>
-                                        <circle cx="18" cy="17" r="1" fill="currentColor"/>
-                                        <rect x="10" y="10" width="4" height="4" rx="0.5" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-                                    </svg>
-                                </div>
-                                <div className="project-type-card__text">
-                                    <span className="project-type-card__title">HUD Editor</span>
-                                    <span className="project-type-card__desc">Visual editor for in-game HUD elements</span>
-                                </div>
-                            </button>
+                            {/* HUD Editor - Dev Only */}
+                            {import.meta.env.DEV && (
+                                <button
+                                    className={`project-type-card${projectType === 'hud-editor' ? ' project-type-card--selected' : ''}`}
+                                    onClick={() => setProjectType('hud-editor')}
+                                >
+                                    <div className="project-type-card__icon">
+                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                                            <rect x="2" y="3" width="20" height="18" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+                                            <circle cx="6" cy="7" r="1" fill="currentColor"/>
+                                            <circle cx="18" cy="7" r="1" fill="currentColor"/>
+                                            <circle cx="6" cy="17" r="1" fill="currentColor"/>
+                                            <circle cx="18" cy="17" r="1" fill="currentColor"/>
+                                            <rect x="10" y="10" width="4" height="4" rx="0.5" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+                                        </svg>
+                                    </div>
+                                    <div className="project-type-card__text">
+                                        <span className="project-type-card__title">HUD Editor</span>
+                                        <span className="project-type-card__desc">Visual editor for in-game HUD elements</span>
+                                    </div>
+                                </button>
+                            )}
                         </div>
                     </div>
 
@@ -840,7 +843,8 @@ export const NewProjectModal: React.FC = () => {
                         )}
                     </div>
 
-                    {/* ════════════ HUD Editor Form ════════════ */}
+                    {/* ════════════ HUD Editor Form (Dev Only) ════════════ */}
+                    {import.meta.env.DEV && (
                     <div className={`project-type-form${projectType === 'hud-editor' ? ' project-type-form--active' : ''}`}>
                         <div className="form-group">
                             <label className="form-label">Project Name</label>
@@ -875,6 +879,7 @@ export const NewProjectModal: React.FC = () => {
                             The HUD editor allows you to visually edit League of Legends HUD files (uibase.ritobin). After creating the project, you can import an existing HUD BIN file to edit.
                         </div>
                     </div>
+                    )}
                 </div>
 
                 <div className="modal__footer modal__footer--split">

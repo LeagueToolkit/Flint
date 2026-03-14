@@ -35,6 +35,9 @@ export const SettingsModal: React.FC = () => {
     const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
     const [updateAvailable, setUpdateAvailable] = useState(false);
 
+    // Hash database state
+    const [isRebuildingHashes, setIsRebuildingHashes] = useState(false);
+
     const isVisible = state.activeModal === 'settings';
 
     useEffect(() => {
@@ -153,6 +156,33 @@ export const SettingsModal: React.FC = () => {
                     } as Record<string, unknown>,
                 },
             });
+        }
+    };
+
+    const handleForceRebuildHashes = async () => {
+        setIsRebuildingHashes(true);
+        try {
+            await api.forceRebuildHashes();
+
+            // Clear WAD Explorer cache to force reload with new hashes
+            if (state.wadExplorer.isOpen) {
+                // Reset all loaded WADs to trigger fresh chunk loading
+                state.wadExplorer.wads.forEach(wad => {
+                    if (wad.status === 'loaded') {
+                        dispatch({
+                            type: 'SET_WAD_EXPLORER_WAD_STATUS',
+                            payload: { wadPath: wad.path, status: 'idle', chunks: [], error: null }
+                        });
+                    }
+                });
+            }
+
+            showToast('success', 'Hash database rebuilt - collapse/expand WADs to reload');
+        } catch (error) {
+            console.error('Failed to rebuild hash database:', error);
+            showToast('error', 'Failed to rebuild hash database');
+        } finally {
+            setIsRebuildingHashes(false);
         }
     };
 
@@ -398,6 +428,33 @@ export const SettingsModal: React.FC = () => {
                                     </label>
                                 </div>
 
+                                {/* Hash Database Management */}
+                                <div className="settings-item">
+                                    <div className="settings-item__info">
+                                        <span dangerouslySetInnerHTML={{ __html: state.hashesLoaded ? getIcon('success') : getIcon('warning') }} />
+                                        <div>
+                                            <div className="settings-item__label" style={{ marginBottom: 0 }}>Hash Database</div>
+                                            <div className="settings-item__value">
+                                                {state.hashesLoaded
+                                                    ? `${state.hashCount.toLocaleString()} hashes loaded`
+                                                    : 'Hashes not loaded'}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button
+                                        className="btn btn--secondary btn--sm"
+                                        onClick={handleForceRebuildHashes}
+                                        disabled={isRebuildingHashes}
+                                        style={{ marginTop: '8px' }}
+                                    >
+                                        <span dangerouslySetInnerHTML={{ __html: getIcon('refresh') }} />
+                                        <span>{isRebuildingHashes ? 'Rebuilding...' : 'Force Rebuild Hashes'}</span>
+                                    </button>
+                                    <div className="settings-item__hint">
+                                        Rebuild hash database to apply latest fixes (BIN file resolution, etc.)
+                                    </div>
+                                </div>
+
                                 {/* Version & Update Card */}
                                 <div className="version-card">
                                     <div className="version-card__content">
@@ -445,20 +502,6 @@ export const SettingsModal: React.FC = () => {
                                                 <span>Update Now</span>
                                             </button>
                                         )}
-                                    </div>
-                                </div>
-
-                                <div className="settings-item">
-                                    <div className="settings-item__info">
-                                        <span dangerouslySetInnerHTML={{ __html: state.hashesLoaded ? getIcon('success') : getIcon('warning') }} />
-                                        <div>
-                                            <div className="settings-item__label" style={{ marginBottom: 0 }}>Hash Database</div>
-                                            <div className="settings-item__value">
-                                                {state.hashesLoaded
-                                                    ? `${state.hashCount.toLocaleString()} hashes loaded`
-                                                    : 'Hashes not loaded'}
-                                            </div>
-                                        </div>
                                     </div>
                                 </div>
                             </div>
