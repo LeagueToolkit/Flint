@@ -35,11 +35,12 @@ interface VisibleGroups {
     cooldowns: boolean;
     desaturate: boolean;
     ammo: boolean;
+    [key: string]: boolean;
 }
 
 const UNDO_HISTORY_LIMIT = 200;
 
-const determineElementGroup = (key: string, entry: HudEntry): keyof VisibleGroups => {
+const determineElementGroup = (key: string, entry: HudEntry): string => {
     // Categorize by element type
     if (entry.type === 'UiElementTextData') return 'text';
     if (entry.type === 'UiElementIconData') return 'icons';

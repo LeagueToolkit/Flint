@@ -66,7 +66,7 @@ export const HUDCanvas: React.FC<HUDCanvasProps> = ({
         Object.entries(hudData.entries).forEach(([key, entry]) => {
             if (entry.position?.UIRect) {
                 const rect = entry.position.UIRect;
-                const anchor = entry.position.Anchors?.anchor || { x: 0.5, y: 1 };
+                const anchor = entry.position.Anchors?.Anchor || { x: 0.5, y: 1 };
 
                 if (!rect.position) return;
 
@@ -120,7 +120,7 @@ export const HUDCanvas: React.FC<HUDCanvasProps> = ({
         const rect = canvasRef.current!.getBoundingClientRect();
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
-        const { x: svgStartX, y: svgStartY } = clientToSvg(e.clientX, e.clientY);
+        const { x: startSvgX, y: startSvgY } = clientToSvg(e.clientX, e.clientY);
 
         // Alt+Click to delete
         if (e.altKey) {
