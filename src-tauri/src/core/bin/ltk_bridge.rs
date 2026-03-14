@@ -181,35 +181,83 @@ pub fn tree_to_text_with_hashes<H: ltk_ritobin::HashProvider>(
 /// # Returns
 /// A HashMapProvider populated with all loaded hashes
 pub fn load_bin_hashes() -> HashMapProvider {
+    use crate::core::hash::{get_or_open_env, downloader::get_ritoshark_hash_dir};
+
     let mut hashes = HashMapProvider::new();
-    
+
     // Get the RitoShark hash directory
-    let hash_dir = if let Ok(appdata) = std::env::var("APPDATA") {
-        std::path::PathBuf::from(appdata)
-            .join("RitoShark")
-            .join("Requirements")
-            .join("Hashes")
-    } else {
-        tracing::warn!("APPDATA not set, cannot load hash files");
-        return hashes;
+    let hash_dir = match get_ritoshark_hash_dir() {
+        Ok(dir) => dir.to_string_lossy().into_owned(),
+        Err(e) => {
+            tracing::warn!("Failed to get hash directory: {}", e);
+            return hashes;
+        }
     };
-    
-    if !hash_dir.exists() {
-        tracing::warn!("Hash directory does not exist: {}", hash_dir.display());
-        return hashes;
+
+    // Get LMDB environment
+    let env = match get_or_open_env(&hash_dir) {
+        Some(e) => e,
+        None => {
+            tracing::warn!("Failed to open LMDB, cannot load BIN hashes");
+            return hashes;
+        }
+    };
+
+    // Read all hashes from LMDB and populate HashMapProvider
+    let rtxn = match env.read_txn() {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::warn!("Failed to open LMDB read transaction: {}", e);
+            return hashes;
+        }
+    };
+
+    let db = match env.open_database::<heed::types::Bytes, heed::types::Str>(&rtxn, None) {
+        Ok(Some(d)) => d,
+        _ => {
+            tracing::warn!("Failed to open LMDB database");
+            return hashes;
+        }
+    };
+
+    // Iterate all LMDB entries and add to HashMapProvider
+    let iter = match db.iter(&rtxn) {
+        Ok(i) => i,
+        Err(e) => {
+            tracing::warn!("Failed to create LMDB iterator: {}", e);
+            return hashes;
+        }
+    };
+
+    let mut count = 0;
+    for result in iter {
+        match result {
+            Ok((key_bytes, path_str)) => {
+                if key_bytes.len() == 8 {
+                    let hash = u64::from_be_bytes([
+                        key_bytes[0], key_bytes[1], key_bytes[2], key_bytes[3],
+                        key_bytes[4], key_bytes[5], key_bytes[6], key_bytes[7],
+                    ]);
+
+                    // Only load 32-bit hashes into HashMapProvider (BIN files use 32-bit hashes)
+                    if hash < 0x1_0000_0000 {
+                        let hash_32 = hash as u32;
+                        hashes.insert_type(hash_32, path_str.to_string());
+                        hashes.insert_field(hash_32, path_str.to_string());
+                        hashes.insert_entry(hash_32, path_str.to_string());
+                        hashes.insert_hash(hash_32, path_str.to_string());
+                        count += 1;
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Error reading LMDB entry: {}", e);
+            }
+        }
     }
-    
-    // Use the built-in load_from_directory method
-    // This loads each category from its respective file:
-    // - hashes.binentries.txt -> entries (entry path hashes)
-    // - hashes.binfields.txt  -> fields (property/field name hashes)
-    // - hashes.binhashes.txt  -> hashes (hash value hashes)
-    // - hashes.bintypes.txt   -> types (type/class name hashes)
-    hashes.load_from_directory(&hash_dir);
-    
-    let total = hashes.total_count();
-    tracing::info!("Loaded {} total BIN hashes for name resolution", total);
-    
+
+    tracing::info!("Loaded {} hashes from LMDB for BIN resolution", count);
+
     hashes
 }
 
@@ -230,8 +278,21 @@ pub fn get_cached_bin_hashes() -> &'static RwLock<HashMapProvider> {
     })
 }
 
+/// Reload the BIN hash cache from disk
+///
+/// Call this after updating hash files to refresh the cache
+pub fn reload_bin_hash_cache() {
+    if let Some(cache) = BIN_HASHES_CACHE.get() {
+        tracing::info!("Reloading BIN hash cache from disk...");
+        let new_hashes = load_bin_hashes();
+        let total = new_hashes.total_count();
+        *cache.write() = new_hashes;
+        tracing::info!("BIN hash cache reloaded with {} hashes", total);
+    }
+}
+
 /// Convert a BinTree to ritobin text format using the cached hash provider
-/// 
+///
 /// This is the preferred method for BIN conversion as it reuses the globally
 /// cached hash provider instead of loading from disk each time.
 pub fn tree_to_text_cached(tree: &BinTree) -> Result<String> {

@@ -21,6 +21,8 @@ import { useAppState } from '../lib/stores';
 import * as api from '../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
 import { getIcon } from '../lib/fileIcons';
+import * as monaco from 'monaco-editor';
+import { RITOBIN_LANGUAGE_ID, RITOBIN_THEME_ID, registerRitobinLanguage, registerRitobinTheme } from '../lib/ritobinLanguage';
 
 // =============================================================================
 // File-type detection from magic bytes + path hint
@@ -197,6 +199,59 @@ const ErrorState: React.FC<{ message: string }> = ({ message }) => (
         <span>{message}</span>
     </div>
 );
+
+// =============================================================================
+// Monaco BIN Viewer Component (read-only with syntax highlighting)
+// =============================================================================
+
+// Register Ritobin language once at module load
+registerRitobinLanguage(monaco as any);
+registerRitobinTheme(monaco as any);
+
+const MonacoBinViewer: React.FC<{ text: string }> = ({ text }) => {
+    const containerRef = useRef<HTMLDivElement>(null);
+    const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+
+    useEffect(() => {
+        if (!containerRef.current) return;
+
+        // Create Monaco editor
+        const editor = monaco.editor.create(containerRef.current, {
+            value: text,
+            language: RITOBIN_LANGUAGE_ID,
+            theme: RITOBIN_THEME_ID,
+            readOnly: true,
+            automaticLayout: true,
+            fontFamily: 'var(--font-mono), "Cascadia Code", "Fira Code", Consolas, monospace',
+            fontSize: 13,
+            lineHeight: 20,
+            minimap: { enabled: false },
+            scrollBeyondLastLine: false,
+            renderWhitespace: 'none',
+            folding: false,
+            lineNumbers: 'on',
+        });
+
+        editorRef.current = editor;
+
+        return () => {
+            editor.dispose();
+            editorRef.current = null;
+        };
+    }, []); // Only create once
+
+    // Update content when text changes
+    useEffect(() => {
+        if (editorRef.current) {
+            const model = editorRef.current.getModel();
+            if (model && model.getValue() !== text) {
+                model.setValue(text);
+            }
+        }
+    }, [text]);
+
+    return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />;
+};
 
 // =============================================================================
 // Main component
@@ -383,6 +438,11 @@ export const WadPreviewPanel: React.FC = () => {
 
         // BIN / text
         if (textContent !== null) {
+            // BIN files get Monaco editor with syntax highlighting
+            if (fileType === 'application/x-bin') {
+                return <MonacoBinViewer text={textContent} />;
+            }
+            // Plain text files get simple div
             return (
                 <div
                     style={{

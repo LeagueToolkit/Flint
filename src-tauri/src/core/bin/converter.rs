@@ -3,7 +3,7 @@
 //! This module provides functionality to convert League of Legends .bin files
 //! between different formats using ltk_meta and ltk_ritobin.
 
-use crate::core::bin::ltk_bridge::{read_bin, write_bin, tree_to_text, text_to_tree};
+use crate::core::bin::ltk_bridge::{read_bin, write_bin, tree_to_text_cached, text_to_tree};
 use crate::core::hash::Hashtable;
 use crate::error::{Error, Result};
 use ltk_meta::BinTree;
@@ -20,7 +20,7 @@ fn bin_error(message: impl Into<String>) -> Error {
 ///
 /// # Arguments
 /// * `data` - The binary data to convert
-/// * `_hashtable` - Optional hashtable for resolving hash values (not yet implemented)
+/// * `_hashtable` - Optional hashtable for resolving hash values (uses cached hash provider)
 ///
 /// # Returns
 /// A string containing the Python-like representation
@@ -28,17 +28,17 @@ fn bin_error(message: impl Into<String>) -> Error {
 pub fn bin_to_text_from_data(data: &[u8], _hashtable: Option<&Hashtable>) -> Result<String> {
     let tree = read_bin(data)
         .map_err(|e| bin_error(format!("Failed to parse bin: {}", e)))?;
-    
-    // TODO: Integrate hashtable with ltk_ritobin's HashMapProvider
-    tree_to_text(&tree)
+
+    // Use cached hash provider for hash resolution
+    tree_to_text_cached(&tree)
         .map_err(|e| bin_error(format!("Failed to convert to text: {}", e)))
 }
 
 /// Convert a BinTree to Python-like text format
 ///
-/// This is for legacy compatibility - prefer using ltk_bridge::tree_to_text directly
+/// Uses cached hash provider for resolving hashes to readable names
 pub fn bin_to_text(tree: &BinTree, _hashtable: Option<&Hashtable>) -> Result<String> {
-    tree_to_text(tree)
+    tree_to_text_cached(tree)
         .map_err(|e| bin_error(format!("Failed to convert to text: {}", e)))
 }
 

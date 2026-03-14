@@ -18,6 +18,8 @@ import * as api from '../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
 import { getIcon, getFileIcon } from '../lib/fileIcons';
 import type { WadChunk, WadExplorerWad } from '../lib/types';
+import * as monaco from 'monaco-editor';
+import { RITOBIN_LANGUAGE_ID, RITOBIN_THEME_ID, registerRitobinLanguage, registerRitobinTheme } from '../lib/ritobinLanguage';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Inline SVG icons (fallbacks for any missing icon keys)
@@ -397,6 +399,11 @@ const ChunkPreview: React.FC<{
                     }
 
                     if (text !== null) {
+                        // BIN files get Monaco editor with syntax highlighting
+                        if (fileType === 'application/x-bin') {
+                            return <MonacoBinViewer text={text} />;
+                        }
+                        // Plain text files get simple pre tag
                         return (
                             <pre style={{ margin: 0, padding: '12px 16px', overflow: 'auto', height: '100%', fontFamily: 'var(--font-mono, monospace)', fontSize: '12px', lineHeight: '1.6', color: 'var(--text-primary)', background: 'var(--bg-secondary)', boxSizing: 'border-box', whiteSpace: 'pre-wrap' }}>
                                 {text}
@@ -722,6 +729,59 @@ const QuickActionPanel: React.FC<QuickActionPanelProps> = ({ wads, onSetFilter }
             </div>
         </div>
     );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Monaco BIN Viewer Component (read-only with syntax highlighting)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Register Ritobin language once at module load
+registerRitobinLanguage(monaco as any);
+registerRitobinTheme(monaco as any);
+
+const MonacoBinViewer: React.FC<{ text: string }> = ({ text }) => {
+    const containerRef = useRef<HTMLDivElement>(null);
+    const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+
+    useEffect(() => {
+        if (!containerRef.current) return;
+
+        // Create Monaco editor
+        const editor = monaco.editor.create(containerRef.current, {
+            value: text,
+            language: RITOBIN_LANGUAGE_ID,
+            theme: RITOBIN_THEME_ID,
+            readOnly: true,
+            automaticLayout: true,
+            fontFamily: 'var(--font-mono), "Cascadia Code", "Fira Code", Consolas, monospace',
+            fontSize: 13,
+            lineHeight: 20,
+            minimap: { enabled: false },
+            scrollBeyondLastLine: false,
+            renderWhitespace: 'none',
+            folding: false,
+            lineNumbers: 'on',
+        });
+
+        editorRef.current = editor;
+
+        return () => {
+            editor.dispose();
+            editorRef.current = null;
+        };
+    }, []); // Only create once
+
+    // Update content when text changes
+    useEffect(() => {
+        if (editorRef.current) {
+            const model = editorRef.current.getModel();
+            if (model && model.getValue() !== text) {
+                model.setValue(text);
+            }
+        }
+    }, [text]);
+
+    return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
