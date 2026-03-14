@@ -12,6 +12,7 @@ import { HexViewer } from './preview/HexViewer';
 import { TextPreview } from './preview/TextPreview';
 import { BinEditor } from './preview/BinEditor';
 import { ModelPreview } from './preview/ModelPreview';
+import { HUDEditor } from './preview/HUDEditor';
 
 interface FileInfo {
     path: string;
@@ -41,7 +42,13 @@ const ErrorState: React.FC<{ message: string }> = ({ message }) => (
     </div>
 );
 
-const getTypeLabel = (fileType: string): string => {
+const getTypeLabel = (fileType: string, filePath?: string): string => {
+    // Special check for HUD files
+    if (filePath && filePath.endsWith('.ritobin') &&
+        (filePath.includes('uibase') || filePath.includes('loadingscreen'))) {
+        return 'HUD Configuration';
+    }
+
     const labels: Record<string, string> = {
         'image/dds': 'DDS Texture',
         'image/tex': 'TEX Texture',
@@ -145,6 +152,15 @@ export const PreviewPanel: React.FC = () => {
             return <ImagePreview key={filePath} filePath={filePath} zoom={imageZoom} onZoomChange={setImageZoom} />;
         }
 
+        // HUD editor for ritobin files in HUD paths
+        // Check for uibase.ritobin or any .ritobin in the HUD directory structure
+        const isHudFile = (fileInfo.extension === 'ritobin' || selectedFile.endsWith('.ritobin')) &&
+            (selectedFile.includes('uibase') || selectedFile.includes('loadingscreen'));
+
+        if (isHudFile) {
+            return <HUDEditor key={filePath} filePath={filePath} />;
+        }
+
         if (fileInfo.extension === 'bin' || fileInfo.file_type === 'application/x-bin') {
             return <BinEditor key={filePath} filePath={filePath} />;
         }
@@ -223,7 +239,7 @@ export const PreviewPanel: React.FC = () => {
                 <div className="preview-panel__info-bar">
                     <span className="preview-panel__info-item">
                         <span className="preview-panel__info-label">Type: </span>
-                        {getTypeLabel(fileInfo.file_type)}
+                        {getTypeLabel(fileInfo.file_type, selectedFile)}
                     </span>
                     {fileInfo.dimensions && (
                         <span className="preview-panel__info-item">
