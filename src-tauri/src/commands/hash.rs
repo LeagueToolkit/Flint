@@ -1,4 +1,4 @@
-use crate::core::hash::{build_hash_db, downloader::get_ritoshark_hash_dir, download_hashes as core_download_hashes, DownloadStats};
+use crate::core::hash::{build_hash_db, force_rebuild_hash_db, downloader::get_ritoshark_hash_dir, download_hashes as core_download_hashes, DownloadStats};
 use crate::state::LmdbCacheState;
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -82,6 +82,35 @@ pub async fn reload_hashes(lmdb: State<'_, LmdbCacheState>) -> Result<(), String
         Ok(())
     } else {
         Err("Failed to open hash database after rebuild".to_string())
+    }
+}
+
+/// Force rebuild hashes.lmdb from .txt files regardless of timestamps
+///
+/// Use this when hash resolution logic has changed and databases need regeneration
+#[tauri::command]
+pub async fn force_rebuild_hashes(lmdb: State<'_, LmdbCacheState>) -> Result<(), String> {
+    let hash_dir = get_ritoshark_hash_dir()
+        .map_err(|e| format!("Failed to get hash directory: {}", e))?;
+    let hash_dir_str = hash_dir.to_string_lossy().into_owned();
+
+    // Clear old env first (needed on Windows before deleting/overwriting LMDB files)
+    lmdb.clear();
+
+    // Force rebuild LMDB from .txt files
+    if !force_rebuild_hash_db(&hash_dir_str) {
+        return Err("Failed to force rebuild hash database".to_string());
+    }
+
+    // Reload BIN hash cache to pick up new asset path hashes
+    crate::core::bin::reload_bin_hash_cache();
+
+    // Open the fresh env
+    if lmdb.prime(&hash_dir_str).is_some() {
+        tracing::info!("LMDB hash database force rebuilt from {}", hash_dir_str);
+        Ok(())
+    } else {
+        Err("Failed to open hash database after force rebuild".to_string())
     }
 }
 

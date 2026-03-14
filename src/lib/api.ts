@@ -37,6 +37,7 @@ export class FlintError extends Error {
             'download_hashes': 'Failed to download hash files. Please check your internet connection.',
             'get_hash_status': 'Failed to check hash status.',
             'reload_hashes': 'Failed to reload hash files.',
+            'force_rebuild_hashes': 'Failed to force rebuild hash database.',
             'discover_champions': 'Failed to discover champions.',
             'get_champion_skins': 'Failed to get skins for this champion.',
             'search_champions': 'Champion search failed.',
@@ -152,6 +153,10 @@ export async function getHashStatus(): Promise<HashStatus> {
 
 export async function reloadHashes(): Promise<{ count: number }> {
     return invokeCommand('reload_hashes');
+}
+
+export async function forceRebuildHashes(): Promise<void> {
+    return invokeCommand('force_rebuild_hashes');
 }
 
 // =============================================================================

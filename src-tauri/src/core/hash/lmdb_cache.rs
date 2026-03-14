@@ -193,7 +193,19 @@ pub fn build_hash_db(hash_dir: &str) -> bool {
         .lock()
         .unwrap_or_else(|e| e.into_inner());
 
-    build_hash_db_inner(hash_dir)
+    build_hash_db_inner(hash_dir, false)
+}
+
+/// Force a rebuild of `hashes.lmdb` regardless of timestamps.
+///
+/// Use this when the hash resolution logic has changed (e.g., BIN fallback fix)
+/// and existing databases need to be regenerated.
+pub fn force_rebuild_hash_db(hash_dir: &str) -> bool {
+    let _guard = build_mutex()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+
+    build_hash_db_inner(hash_dir, true)
 }
 
 /// Inner implementation — must only be called while holding `BUILD_LOCK`.
@@ -202,7 +214,11 @@ pub fn build_hash_db(hash_dir: &str) -> bool {
 /// in a single write transaction. This avoids the `remove_dir_all` call that
 /// fails on Windows when the memory-mapped files are still held open by
 /// outstanding `Arc<heed::Env>` clones.
-fn build_hash_db_inner(hash_dir: &str) -> bool {
+///
+/// # Arguments
+/// * `hash_dir` - Directory containing hash .txt files
+/// * `force` - If true, rebuild regardless of timestamps
+fn build_hash_db_inner(hash_dir: &str, force: bool) -> bool {
     let dir = Path::new(hash_dir);
     let lmdb_dir = dir.join("hashes.lmdb");
 
@@ -210,13 +226,17 @@ fn build_hash_db_inner(hash_dir: &str) -> bool {
         ("hashes.game.txt",      16),
         ("hashes.lcu.txt",       16),
         ("hashes.extracted.txt", 16),
+        ("hashes.binentries.txt", 8),  // 32-bit BIN entry hashes
+        ("hashes.binfields.txt",  8),  // 32-bit BIN field hashes
+        ("hashes.binhashes.txt",  8),  // 32-bit BIN hash hashes
+        ("hashes.bintypes.txt",   8),  // 32-bit BIN type hashes
     ];
 
     let db_mtime = std::fs::metadata(lmdb_dir.join("data.mdb"))
         .and_then(|m| m.modified())
         .ok();
 
-    let needs_rebuild = !lmdb_dir.exists() || sources.iter().any(|(name, _)| {
+    let needs_rebuild = force || !lmdb_dir.exists() || sources.iter().any(|(name, _)| {
         let file_mtime = std::fs::metadata(dir.join(name))
             .and_then(|m| m.modified())
             .ok();
@@ -232,7 +252,11 @@ fn build_hash_db_inner(hash_dir: &str) -> bool {
         return true;
     }
 
-    tracing::info!("Rebuilding LMDB hash DB at {}", lmdb_dir.display());
+    if force {
+        tracing::info!("Force rebuilding LMDB hash DB at {}", lmdb_dir.display());
+    } else {
+        tracing::info!("Rebuilding LMDB hash DB at {}", lmdb_dir.display());
+    }
 
     // Ensure the directory exists (first-run case).
     if !lmdb_dir.exists() && std::fs::create_dir_all(&lmdb_dir).is_err() {
@@ -294,6 +318,25 @@ fn build_hash_db_inner(hash_dir: &str) -> bool {
             let path = line[*sep + 1..].trim_end_matches('\r');
             let Ok(hash_u64) = u64::from_str_radix(hash_hex, 16) else { continue };
             entries.push((hash_u64.to_be_bytes(), path.to_string()));
+
+            // BIN file fallback: add hash variants without .bin extension
+            // League hashes BIN paths inconsistently - sometimes with .bin, sometimes without
+            // We need to handle BOTH lowercase normalized AND original-case paths
+            if path.to_lowercase().ends_with(".bin") {
+                // Fallback 1: lowercase normalized path without .bin (League standard)
+                let normalized = path.to_lowercase().replace('\\', "/");
+                let path_no_ext = &normalized[..normalized.len() - 4];
+                let hash_no_ext = xxhash_rust::xxh64::xxh64(path_no_ext.as_bytes(), 0);
+                entries.push((hash_no_ext.to_be_bytes(), path.to_string()));
+
+                // Fallback 2: original-case path without .bin (for mixed-case BIN references)
+                let original_normalized = path.replace('\\', "/");
+                if original_normalized.to_lowercase() != normalized {
+                    let original_no_ext = &original_normalized[..original_normalized.len() - 4];
+                    let hash_original = xxhash_rust::xxh64::xxh64(original_no_ext.as_bytes(), 0);
+                    entries.push((hash_original.to_be_bytes(), path.to_string()));
+                }
+            }
         }
     }
 

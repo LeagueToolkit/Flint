@@ -94,6 +94,7 @@ fn main() {
             commands::hash::download_hashes,
             commands::hash::get_hash_status,
             commands::hash::reload_hashes,
+            commands::hash::force_rebuild_hashes,
             commands::wad::read_wad,
             commands::wad::get_wad_chunks,
             commands::wad::load_all_wad_chunks,

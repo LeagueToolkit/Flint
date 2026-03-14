@@ -500,16 +500,19 @@ const ProjectsPanel: React.FC = () => {
     const handleOpenProject = async (projectPath: string) => {
         try {
             setWorking('Opening project...');
-            const project = await api.openProject(projectPath);
 
-            dispatch({ type: 'SET_PROJECT', payload: { project, path: projectPath } });
-
-            let projectDir = projectPath;
-            if (projectDir.endsWith('project.json')) {
-                projectDir = projectDir.replace(/[\\/]project\.json$/, '');
+            // Normalize path - strip project file name if present
+            // Handles: mod.config.json, flint.json, project.json
+            let normalizedPath = projectPath;
+            if (normalizedPath.endsWith('.json')) {
+                normalizedPath = normalizedPath.replace(/[\\/](mod\.config|flint|project)\.json$/, '');
             }
 
-            const files = await api.listProjectFiles(projectDir);
+            const project = await api.openProject(normalizedPath);
+
+            dispatch({ type: 'SET_PROJECT', payload: { project, path: normalizedPath } });
+
+            const files = await api.listProjectFiles(normalizedPath);
             dispatch({ type: 'SET_FILE_TREE', payload: files });
             setReady();
         } catch (error) {
