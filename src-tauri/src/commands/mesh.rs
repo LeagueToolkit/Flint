@@ -37,23 +37,24 @@ pub async fn read_scb_mesh(path: String) -> Result<ScbMeshData, String> {
     if let Some(bin_text) = ritobin_text {
         tracing::debug!("📄 Loaded ritobin text ({} bytes) for SCB texture lookup", bin_text.len());
 
-        use crate::core::mesh::texture::extract_texture_mapping_from_text;
-        use crate::core::mesh::bin_texture_discovery::TextureHints;
+        use crate::core::mesh::bin_texture_discovery::discover_material_textures;
 
-        #[allow(deprecated)]
-        match extract_texture_mapping_from_text(&bin_text) {
-            Ok(mapping) => {
-                tracing::debug!("✓ Extracted texture mapping from .ritobin for SCB");
+        // Parse ritobin text to JSON for discovery
+        let bin_json: serde_json::Value = match serde_json::from_str(&bin_text) {
+            Ok(json) => json,
+            Err(e) => {
+                tracing::warn!("Failed to parse ritobin as JSON for SCB: {}", e);
+                return Ok(mesh_data);
+            }
+        };
 
-                let hints = TextureHints {
-                    default_texture: mapping.default_texture,
-                    material_hints: mapping.material_properties.into_iter().collect(),
-                    ..Default::default()
-                };
+        // Use the full discovery system which handles Material links and StaticMaterialDef
+        let character_folder = extract_character_folder(scb_path);
+        let hints = discover_material_textures(&bin_json, character_folder.as_deref());
 
-                tracing::debug!("📊 SCB discovery: {} material hints, default={:?}",
-                    hints.material_hints.len(),
-                    hints.default_texture.as_deref().unwrap_or("none"));
+        tracing::debug!("📊 SCB discovery: {} material hints, default={:?}",
+            hints.material_hints.len(),
+            hints.default_texture.as_deref().unwrap_or("none"));
 
                 let base_dir = scb_path.parent().unwrap_or(Path::new("."));
 
@@ -155,11 +156,6 @@ pub async fn read_scb_mesh(path: String) -> Result<ScbMeshData, String> {
                 let elapsed = start_time.elapsed();
                 tracing::info!("✅ SCB: Loaded {} textures in {:.2}s", material_data.len(), elapsed.as_secs_f32());
                 mesh_data.material_data = material_data;
-            }
-            Err(e) => {
-                tracing::warn!("Failed to parse .ritobin text for SCB: {}", e);
-            }
-        }
     } else {
         tracing::warn!("⚠ No .ritobin cache found and could not create one for SCB texture mapping");
         mesh_data.texture_warning = Some(
@@ -324,23 +320,24 @@ pub async fn read_skn_mesh(path: String) -> Result<SknMeshData, String> {
     if let Some(bin_text) = ritobin_text {
         tracing::debug!("📄 Loaded ritobin text ({} bytes) for SKN texture lookup", bin_text.len());
 
-        use crate::core::mesh::texture::extract_texture_mapping_from_text;
-        use crate::core::mesh::bin_texture_discovery::TextureHints;
+        use crate::core::mesh::bin_texture_discovery::discover_material_textures;
 
-        #[allow(deprecated)]
-        match extract_texture_mapping_from_text(&bin_text) {
-            Ok(mapping) => {
-                tracing::debug!("✓ Extracted texture mapping from .ritobin");
+        // Parse ritobin text to JSON for discovery
+        let bin_json: serde_json::Value = match serde_json::from_str(&bin_text) {
+            Ok(json) => json,
+            Err(e) => {
+                tracing::warn!("Failed to parse ritobin as JSON: {}", e);
+                return Ok(mesh_data);
+            }
+        };
 
-                let hints = TextureHints {
-                    default_texture: mapping.default_texture,
-                    material_hints: mapping.material_properties.into_iter().collect(),
-                    ..Default::default()
-                };
+        // Use the full discovery system which handles Material links and StaticMaterialDef
+        let character_folder = extract_character_folder(skn_path);
+        let hints = discover_material_textures(&bin_json, character_folder.as_deref());
 
-                tracing::debug!("📊 Discovery complete: {} material hints, default={:?}",
-                    hints.material_hints.len(),
-                    hints.default_texture.as_deref().unwrap_or("none"));
+        tracing::debug!("📊 Discovery complete: {} material hints, default={:?}",
+            hints.material_hints.len(),
+            hints.default_texture.as_deref().unwrap_or("none"));
 
                 let base_dir = skn_path.parent().unwrap_or(Path::new("."));
 
@@ -445,11 +442,6 @@ pub async fn read_skn_mesh(path: String) -> Result<SknMeshData, String> {
                 let elapsed = start_time.elapsed();
                 tracing::info!("✅ Loaded {} textures in {:.2}s", material_data.len(), elapsed.as_secs_f32());
                 mesh_data.material_data = material_data;
-            }
-            Err(e) => {
-                tracing::warn!("Failed to parse .ritobin text: {}", e);
-            }
-        }
     } else {
         tracing::warn!("⚠ No .ritobin cache found and could not create one for SKN texture mapping");
         mesh_data.texture_warning = Some(

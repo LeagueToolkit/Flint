@@ -181,7 +181,11 @@ impl<'a> AssetPath<'a> {
                     .unwrap_or(subpath);
 
                 // Remap skin IDs in the path (folders AND animation BIN filenames)
-                let remapped = remap_skin_ids_full(after_skins, config.target_skin_id);
+                let mut remapped = remap_skin_ids_full(after_skins, config.target_skin_id);
+
+                // Also replace "Base/" with "skin{ID}/" for custom mods
+                remapped = replace_base_folder_in_path(&remapped, config.target_skin_id);
+
                 format!("ASSETS/{}/{}", prefix, remapped)
             }
             AssetPath::OtherChampion { subpath } => {
@@ -705,21 +709,34 @@ fn repath_value(value: &mut PropertyValueEnum, existing_paths: &HashSet<String>,
     count
 }
 
+/// Replace "Base" folder in file paths with skin ID folder
+/// Example: "Base/Animations/Kayn_Attack1.anm" -> "skin8/Animations/Kayn_Attack1.anm"
+/// Example: "some/path/Base/file.dds" -> "some/path/skin8/file.dds"
+fn replace_base_folder_in_path(path: &str, target_skin_id: u32) -> String {
+    // Handle both leading "Base/" and "/Base/" in the middle of paths
+    let lower = path.to_lowercase();
+
+    // Check if path starts with "base/"
+    if lower.starts_with("base/") {
+        return format!("skin{}/{}", target_skin_id, &path[5..]);
+    }
+
+    // Check if path contains "/base/"
+    if lower.contains("/base/") {
+        let re = regex::Regex::new(r"(?i)/base/").unwrap();
+        return re.replace(path, |_: &regex::Captures| {
+            format!("/skin{}/", target_skin_id)
+        }).into_owned();
+    }
+
+    path.to_string()
+}
+
 /// Replace "Base" folder in animation paths with skin ID folder
 /// Example: "ASSETS/SirDexal/Project/Base/Animations/Kayn_Attack1.anm"
 ///       -> "ASSETS/SirDexal/Project/skin8/Animations/Kayn_Attack1.anm"
 fn replace_base_folder_in_animation_path(path: &str, target_skin_id: u32) -> String {
-    // Only process paths containing "/Base/" or "/base/" (case-insensitive)
-    let lower = path.to_lowercase();
-    if !lower.contains("/base/") {
-        return path.to_string();
-    }
-
-    // Replace /Base/ with /skin{ID}/
-    let re = regex::Regex::new(r"(?i)/base/").unwrap();
-    re.replace(path, |_: &regex::Captures| {
-        format!("/skin{}/", target_skin_id)
-    }).into_owned()
+    replace_base_folder_in_path(path, target_skin_id)
 }
 
 fn relocate_assets(content_base: &Path, existing_paths: &HashSet<String>, prefix: &str, config: &RepathConfig) -> Result<usize> {
@@ -1487,5 +1504,43 @@ mod tests {
         // These values can be verified against League's BIN files
         let hash = fnv1a_hash("championSkinName");
         assert_ne!(hash, 0); // Should not be zero
+    }
+
+    #[test]
+    fn test_replace_base_folder_in_path() {
+        // Test leading Base/ folder
+        assert_eq!(
+            replace_base_folder_in_path("Base/Animations/Attack.anm", 8),
+            "skin8/Animations/Attack.anm"
+        );
+
+        // Test Base/ in middle of path
+        assert_eq!(
+            replace_base_folder_in_path("some/path/Base/file.dds", 42),
+            "some/path/skin42/file.dds"
+        );
+
+        // Test case-insensitive
+        assert_eq!(
+            replace_base_folder_in_path("base/textures/skin.tex", 17),
+            "skin17/textures/skin.tex"
+        );
+
+        assert_eq!(
+            replace_base_folder_in_path("path/BASE/mesh.skn", 99),
+            "path/skin99/mesh.skn"
+        );
+
+        // Test paths without Base/ (should be unchanged)
+        assert_eq!(
+            replace_base_folder_in_path("skin10/animations/idle.anm", 42),
+            "skin10/animations/idle.anm"
+        );
+
+        // Test empty path
+        assert_eq!(
+            replace_base_folder_in_path("", 42),
+            ""
+        );
     }
 }
