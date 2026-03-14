@@ -146,6 +146,7 @@ pub fn write_bin(tree: &BinTree) -> Result<Vec<u8>> {
 ///
 /// # Returns
 /// A String containing the ritobin text format
+#[allow(dead_code)]
 pub fn tree_to_text(tree: &BinTree) -> Result<String> {
     ltk_ritobin::write(tree)
         .map_err(|e| BinError(format!("Failed to convert to text: {}", e)))

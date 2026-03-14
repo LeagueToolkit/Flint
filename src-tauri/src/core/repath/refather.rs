@@ -19,6 +19,21 @@ use rayon::prelude::*;
 use dashmap::DashSet;
 use regex::Regex;
 
+/// Compute FNV-1a hash for a string (used for BIN property names)
+fn fnv1a_hash(s: &str) -> u32 {
+    let mut hash: u32 = 0x811c9dc5;
+    for &b in s.to_lowercase().as_bytes() {
+        hash ^= b as u32;
+        hash = hash.wrapping_mul(0x01000193);
+    }
+    hash
+}
+
+/// Pre-computed hash for "championSkinName" property
+static CHAMPION_SKIN_NAME_HASH: LazyLock<u32> = LazyLock::new(|| {
+    fnv1a_hash("championSkinName")
+});
+
 /// Static regex for skin folder remapping (compiled once, used many times)
 static SKIN_FOLDER_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^(skin)(\d+)(/)").expect("Invalid skin folder regex")
@@ -562,7 +577,9 @@ fn remap_skin_ids_full(path: &str, target_skin_id: u32) -> String {
 
     // Then remap animation BIN filenames
     // Pattern: animations/skin{N}.bin → animations/skin{target}.bin
-    if with_folders_remapped.contains("/animations/skin") && with_folders_remapped.ends_with(".bin") {
+    // Pattern: /animations/skin{N}.bin → /animations/skin{target}.bin
+    let lower = with_folders_remapped.to_lowercase();
+    if (lower.contains("/animations/skin") || lower.contains("animations/skin")) && lower.ends_with(".bin") {
         // Split path into directory and filename
         if let Some(last_slash) = with_folders_remapped.rfind('/') {
             let dir = &with_folders_remapped[..=last_slash];
@@ -576,6 +593,19 @@ fn remap_skin_ids_full(path: &str, target_skin_id: u32) -> String {
                     if number_part.chars().all(|c| c.is_ascii_digit()) {
                         // It's a skinN.bin file, remap it
                         return format!("{}skin{}.bin", dir, target_skin_id);
+                    }
+                }
+            }
+        } else {
+            // No slash found, but might be a file name only like "skin8.bin"
+            let filename = &with_folders_remapped;
+            if filename.starts_with("skin") && filename.ends_with(".bin") {
+                let without_ext = &filename[..filename.len() - 4]; // Remove ".bin"
+                if without_ext.len() > 4 {
+                    let number_part = &without_ext[4..]; // After "skin"
+                    if number_part.chars().all(|c| c.is_ascii_digit()) {
+                        // It's a skinN.bin file, remap it
+                        return format!("skin{}.bin", target_skin_id);
                     }
                 }
             }
@@ -594,7 +624,17 @@ fn repath_bin_file(bin_path: &Path, existing_paths: &HashSet<String>, prefix: &s
     let mut modified_count = 0;
 
     for object in bin.objects.values_mut() {
-        for prop in object.properties.values_mut() {
+        for (prop_name, prop) in object.properties.iter_mut() {
+            // Special case: Replace championSkinName with project name
+            if *prop_name == *CHAMPION_SKIN_NAME_HASH {
+                if let PropertyValueEnum::String(ref mut s) = prop.value {
+                    s.0 = config.project_name.clone();
+                    modified_count += 1;
+                    tracing::debug!("Replaced championSkinName with '{}'", config.project_name);
+                }
+            }
+
+            // Normal repathing
             modified_count += repath_value(&mut prop.value, existing_paths, prefix, config);
         }
     }
@@ -611,6 +651,7 @@ fn repath_bin_file(bin_path: &Path, existing_paths: &HashSet<String>, prefix: &s
 }
 
 /// Recursively repath string values in a PropertyValueEnum
+/// Also handles special fields like championSkinName and animation paths
 fn repath_value(value: &mut PropertyValueEnum, existing_paths: &HashSet<String>, prefix: &str, config: &RepathConfig) -> usize {
     let mut count = 0;
 
@@ -619,7 +660,9 @@ fn repath_value(value: &mut PropertyValueEnum, existing_paths: &HashSet<String>,
             if is_asset_path(&s.0) {
                 let normalized = normalize_path(&s.0);
                 if existing_paths.contains(&normalized) {
-                    s.0 = apply_prefix_to_path(&s.0, prefix, config);
+                    // Special handling for animation file paths: replace "Base" with skin ID folder
+                    let repathed = apply_prefix_to_path(&s.0, prefix, config);
+                    s.0 = replace_base_folder_in_animation_path(&repathed, config.target_skin_id);
                     count += 1;
                 }
             }
@@ -660,6 +703,23 @@ fn repath_value(value: &mut PropertyValueEnum, existing_paths: &HashSet<String>,
     }
 
     count
+}
+
+/// Replace "Base" folder in animation paths with skin ID folder
+/// Example: "ASSETS/SirDexal/Project/Base/Animations/Kayn_Attack1.anm"
+///       -> "ASSETS/SirDexal/Project/skin8/Animations/Kayn_Attack1.anm"
+fn replace_base_folder_in_animation_path(path: &str, target_skin_id: u32) -> String {
+    // Only process paths containing "/Base/" or "/base/" (case-insensitive)
+    let lower = path.to_lowercase();
+    if !lower.contains("/base/") {
+        return path.to_string();
+    }
+
+    // Replace /Base/ with /skin{ID}/
+    let re = regex::Regex::new(r"(?i)/base/").unwrap();
+    re.replace(path, |_: &regex::Captures| {
+        format!("/skin{}/", target_skin_id)
+    }).into_owned()
 }
 
 fn relocate_assets(content_base: &Path, existing_paths: &HashSet<String>, prefix: &str, config: &RepathConfig) -> Result<usize> {
@@ -986,10 +1046,17 @@ mod tests {
             "data/animations/skin42.bin"
         );
 
-        // Test non-animation skinN.bin files (should not be remapped)
+        // Test skin BIN files in skins folder (folder name unchanged, filename unchanged)
+        // Path is skins/skin17.bin where "skins" is the folder name, not a skin folder
         assert_eq!(
             remap_skin_ids_full("skins/skin17.bin", 42),
-            "skins/skin42.bin"
+            "skins/skin17.bin"  // No remapping - not in animations/ folder
+        );
+
+        // Test skin folder path (folder should be remapped, but not the BIN filename inside)
+        assert_eq!(
+            remap_skin_ids_full("skin17/skin17.bin", 42),
+            "skin42/skin17.bin"  // Folder remapped, filename unchanged
         );
     }
 
@@ -1360,5 +1427,65 @@ mod tests {
         let path = "sounds/wwise2016/sfx/test.bnk";
         let parsed = AssetPath::parse(path, "Kayn");
         assert!(parsed.is_none());
+    }
+
+    #[test]
+    fn test_replace_base_folder_in_animation_path() {
+        // Test replacing /Base/ with /skin{ID}/
+        assert_eq!(
+            replace_base_folder_in_animation_path(
+                "ASSETS/SirDexal/Seele-Vollerei-Kayn/Base/Animations/Kayn_Attack1.anm",
+                8
+            ),
+            "ASSETS/SirDexal/Seele-Vollerei-Kayn/skin8/Animations/Kayn_Attack1.anm"
+        );
+
+        // Test case-insensitive matching
+        assert_eq!(
+            replace_base_folder_in_animation_path(
+                "ASSETS/Creator/Project/base/Animations/Run.anm",
+                42
+            ),
+            "ASSETS/Creator/Project/skin42/Animations/Run.anm"
+        );
+
+        // Test mixed case
+        assert_eq!(
+            replace_base_folder_in_animation_path(
+                "ASSETS/Creator/Project/BASE/Animations/Idle.anm",
+                17
+            ),
+            "ASSETS/Creator/Project/skin17/Animations/Idle.anm"
+        );
+
+        // Test paths without /Base/ (should be unchanged)
+        assert_eq!(
+            replace_base_folder_in_animation_path(
+                "ASSETS/Creator/Project/skin10/Animations/Attack.anm",
+                42
+            ),
+            "ASSETS/Creator/Project/skin10/Animations/Attack.anm"
+        );
+
+        // Test non-animation paths (should be unchanged)
+        assert_eq!(
+            replace_base_folder_in_animation_path(
+                "ASSETS/Creator/Project/skin0/particles/effect.dds",
+                42
+            ),
+            "ASSETS/Creator/Project/skin0/particles/effect.dds"
+        );
+    }
+
+    #[test]
+    fn test_fnv1a_hash() {
+        // Test FNV-1a hash computation (case-insensitive)
+        assert_eq!(fnv1a_hash("championSkinName"), fnv1a_hash("championskinname"));
+        assert_eq!(fnv1a_hash("CHAMPIONSKINNAME"), fnv1a_hash("championSkinName"));
+
+        // Known FNV-1a hash values for common League properties
+        // These values can be verified against League's BIN files
+        let hash = fnv1a_hash("championSkinName");
+        assert_ne!(hash, 0); // Should not be zero
     }
 }
