@@ -136,12 +136,16 @@ pub fn organize_project(
         repath_result: None,
     };
 
+    // Sanitize champion name: lowercase + replace spaces with hyphens
+    // (e.g., "Miss Fortune" -> "miss-fortune")
+    // League doesn't support spaces in asset paths or folder names
+    let champion_sanitized = config.champion.to_lowercase().replace(' ', "-");
+
     // Compute the WAD folder path: content_base/{champion}.wad.client/
     // This is required for league-mod compatible project structure
-    let champion_lower = config.champion.to_lowercase();
-    let wad_folder_name = format!("{}.wad.client", champion_lower);
+    let wad_folder_name = format!("{}.wad.client", champion_sanitized);
     let wad_base = content_base.join(&wad_folder_name);
-    
+
     // Determine which base to use for file operations
     // Use WAD folder if it exists (new structure), otherwise fall back to content_base (legacy)
     let file_base = if wad_base.exists() {
@@ -153,8 +157,8 @@ pub fn organize_project(
     };
 
     // Step 1: Find the main skin BIN (needed for both concat and repath)
-    let main_bin_path = if !config.champion.is_empty() {
-        find_main_skin_bin(&file_base, &config.champion, config.target_skin_id)
+    let main_bin_path = if !champion_sanitized.is_empty() {
+        find_main_skin_bin(&file_base, &champion_sanitized, config.target_skin_id)
     } else {
         None
     };
@@ -167,7 +171,7 @@ pub fn organize_project(
                 main_path,
                 &config.project_name,
                 &config.creator_name,
-                &config.champion,
+                &champion_sanitized,
                 &file_base,
                 path_mappings,
             ) {
@@ -197,7 +201,7 @@ pub fn organize_project(
         let repath_config = RepathConfig {
             creator_name: config.creator_name.clone(),
             project_name: config.project_name.clone(),
-            champion: config.champion.clone(),
+            champion: champion_sanitized.clone(),
             target_skin_id: config.target_skin_id,
             cleanup_unused: config.cleanup_unused,
         };

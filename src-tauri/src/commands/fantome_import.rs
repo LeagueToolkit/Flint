@@ -707,6 +707,13 @@ fn import_fantome_internal(
     let total_files = chunk_hashes.len();
 
     for (hash, path) in chunk_hashes.iter().zip(resolved_paths.iter()) {
+        // SKIP testcuberenderer files - these are debug assets that shouldn't be in mods
+        let path_lower = path.to_lowercase();
+        if path_lower.contains("testcuberenderer") {
+            tracing::debug!("Skipping testcuberenderer file: {}", path);
+            continue;
+        }
+
         // Get chunk by hash (copy it to end the immutable borrow)
         let chunk = *reader.chunks().get(*hash)
             .ok_or_else(|| format!("Chunk not found for hash: {:x}", hash))?;

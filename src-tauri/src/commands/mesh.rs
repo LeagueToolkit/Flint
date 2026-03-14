@@ -37,67 +37,68 @@ pub async fn read_scb_mesh(path: String) -> Result<ScbMeshData, String> {
     if let Some(bin_text) = ritobin_text {
         tracing::debug!("📄 Loaded ritobin text ({} bytes) for SCB texture lookup", bin_text.len());
 
-        use crate::core::mesh::bin_texture_discovery::discover_material_textures;
+        // Also load concat BIN ritobin for additional material definitions
+        let concat_text = find_concat_ritobin_text(scb_path);
+        let combined_text = if let Some(concat) = concat_text {
+            tracing::debug!("📄 Also loaded concat ritobin ({} bytes)", concat.len());
 
-        // Parse ritobin text to JSON for discovery
-        let bin_json: serde_json::Value = match serde_json::from_str(&bin_text) {
-            Ok(json) => json,
+            // DEBUG: List all StaticMaterialDef definitions in concat
+            let material_def_pattern = regex::Regex::new(r#""([^"]+)"\s*=\s*StaticMaterialDef"#).unwrap();
+            let concat_materials: Vec<String> = material_def_pattern
+                .captures_iter(&concat)
+                .filter_map(|cap| cap.get(1).map(|m| m.as_str().to_string()))
+                .collect();
+            tracing::debug!("📋 Concat BIN contains {} StaticMaterialDef definitions:", concat_materials.len());
+            for (i, mat) in concat_materials.iter().enumerate() {
+                tracing::debug!("  {}. {}", i + 1, mat);
+            }
+
+            format!("{}\n\n{}", bin_text, concat)
+        } else {
+            tracing::warn!("⚠️ No concat BIN found - using main BIN only");
+            bin_text
+        };
+
+        #[allow(deprecated)]
+        use crate::core::mesh::texture::extract_texture_mapping_from_text;
+
+        // Extract all texture mappings from combined ritobin text (main + concat)
+        let texture_mapping = match extract_texture_mapping_from_text(&combined_text) {
+            Ok(mapping) => mapping,
             Err(e) => {
-                tracing::warn!("Failed to parse ritobin as JSON for SCB: {}", e);
+                tracing::warn!("Failed to extract texture mapping from ritobin: {}", e);
+                mesh_data.texture_warning = Some(format!("Failed to parse texture mapping: {}", e));
                 return Ok(mesh_data);
             }
         };
 
-        // Use the full discovery system which handles Material links and StaticMaterialDef
-        let character_folder = extract_character_folder(scb_path);
-        let hints = discover_material_textures(&bin_json, character_folder.as_deref());
+        #[allow(deprecated)]
+        let material_props = &texture_mapping.material_properties;
+        #[allow(deprecated)]
+        let default_tex = &texture_mapping.default_texture;
 
-        tracing::debug!("📊 SCB discovery: {} material hints, default={:?}",
-            hints.material_hints.len(),
-            hints.default_texture.as_deref().unwrap_or("none"));
+        tracing::debug!("📊 Extracted {} material mappings, default={:?}",
+            material_props.len(),
+            default_tex.as_deref().unwrap_or("none"));
 
-                let base_dir = scb_path.parent().unwrap_or(Path::new("."));
+        let base_dir = scb_path.parent().unwrap_or(Path::new("."));
+        let mut material_props_map: HashMap<String, MaterialProperties> = HashMap::new();
+        let mut texture_tasks: Vec<(String, std::path::PathBuf)> = Vec::new();
 
-                let mut material_props_map: HashMap<String, MaterialProperties> = HashMap::new();
-                let mut texture_tasks: Vec<(String, std::path::PathBuf)> = Vec::new();
+        // Look up texture for each material
+        for material_name in &mesh_data.materials {
+            // Try direct lookup, then fallback to default
+            let mat_props = material_props.get(material_name).cloned()
+                .or_else(|| {
+                    default_tex.as_ref().map(|tex| MaterialProperties {
+                        texture_path: tex.clone(),
+                        ..Default::default()
+                    })
+                });
 
-                for material_name in &mesh_data.materials {
-                    // Try multiple matching strategies (same as SKN)
-                    let mat_props = hints.material_hints.get(material_name).cloned()
-                        .or_else(|| {
-                            let simple = material_name.to_lowercase().chars()
-                                .filter(|c| c.is_alphanumeric())
-                                .collect::<String>();
-                            hints.material_hints.get(&simple).cloned()
-                        })
-                        .or_else(|| {
-                            material_name.strip_prefix("mesh_")
-                                .and_then(|stripped| hints.material_hints.get(stripped).cloned())
-                        })
-                        .or_else(|| {
-                            hints.material_hints.get(&format!("mesh_{}", material_name)).cloned()
-                        })
-                        .or_else(|| {
-                            let lower = material_name.to_lowercase();
-                            hints.material_hints.iter()
-                                .find(|(k, _)| k.to_lowercase() == lower)
-                                .map(|(_, v)| v.clone())
-                        })
-                        // Also try: lookup directly from the ritobin content by material name
-                        .or_else(|| {
-                            use crate::core::mesh::texture::lookup_material_texture_by_name;
-                            lookup_material_texture_by_name(&bin_text, material_name)
-                        })
-                        .or_else(|| {
-                            hints.default_texture.as_ref().map(|tex| MaterialProperties {
-                                texture_path: tex.clone(),
-                                ..Default::default()
-                            })
-                        });
-
-                    if let Some(props) = mat_props {
-                        tracing::debug!("✓ SCB Material '{}' → {}", material_name, props.texture_path);
-                        material_props_map.insert(material_name.clone(), props.clone());
+            if let Some(props) = mat_props {
+                tracing::info!("🎨 SCB Material '{}' → TEXTURE: '{}'", material_name, props.texture_path);
+                material_props_map.insert(material_name.clone(), props.clone());
 
                         if let Some(resolved) = resolve_texture_path(base_dir, &props.texture_path) {
                             let path_key = resolved.to_string_lossy().to_string();
@@ -225,6 +226,74 @@ fn find_ritobin_text(mesh_path: &Path) -> Option<String> {
     None
 }
 
+/// Find concat BIN ritobin text for additional material definitions
+///
+/// Concat BINs contain merged material definitions that may not be in the main skin BIN
+fn find_concat_ritobin_text(mesh_path: &Path) -> Option<String> {
+    tracing::debug!("🔎 Looking for concat BIN for: {}", mesh_path.display());
+
+    // Find project root and character folder
+    let root = find_project_root(mesh_path)?;
+    tracing::debug!("  Project root: {}", root.display());
+
+    let character_folder = extract_character_folder(mesh_path)?;
+    tracing::debug!("  Character folder: {}", character_folder);
+
+    // Search in multiple locations:
+    // 1. data/characters/{champion}/skins/ (standard location)
+    // 2. data/ (after refathering, concat might be here)
+    let search_dirs = vec![
+        root.join("data").join("characters").join(&character_folder).join("skins"),
+        root.join("data"),
+    ];
+
+    for search_dir in search_dirs {
+        tracing::debug!("  Searching in: {}", search_dir.display());
+
+        if !search_dir.exists() {
+            tracing::debug!("    Directory doesn't exist, skipping");
+            continue;
+        }
+
+        // Look for concat BIN files (they typically have "concat" or "Concat" in the name)
+        if let Ok(entries) = std::fs::read_dir(&search_dir) {
+            let files: Vec<_> = entries.filter_map(|e| e.ok()).collect();
+            tracing::debug!("    Found {} files", files.len());
+
+            for entry in &files {
+                let path = entry.path();
+                let name = path.file_name()?.to_string_lossy().to_lowercase();
+
+                // Check if this is a concat BIN
+                if name.contains("concat") && name.ends_with(".bin") {
+                    tracing::debug!("  ✓ Found concat BIN: {}", path.display());
+
+                    // Check for existing .ritobin cache
+                    let ritobin_path = std::path::PathBuf::from(format!("{}.ritobin", path.display()));
+                    if ritobin_path.exists() {
+                        if let Ok(text) = std::fs::read_to_string(&ritobin_path) {
+                            tracing::debug!("  ✓ Loaded concat ritobin cache: {}", ritobin_path.display());
+                            return Some(text);
+                        }
+                    }
+
+                    // Create cache if it doesn't exist
+                    tracing::debug!("  Creating ritobin cache for concat BIN...");
+                    if let Ok(text) = create_ritobin_cache(&path, &ritobin_path) {
+                        tracing::debug!("  ✓ Created concat ritobin cache: {}", ritobin_path.display());
+                        return Some(text);
+                    } else {
+                        tracing::debug!("  ✗ Failed to create concat ritobin cache");
+                    }
+                }
+            }
+        }
+    }
+
+    tracing::debug!("  ✗ No concat BIN found in any location");
+    None
+}
+
 /// Create a .ritobin cache file from a BIN file
 ///
 /// Reads the BIN file, converts it to text using cached hashes, and writes to .ritobin
@@ -320,70 +389,81 @@ pub async fn read_skn_mesh(path: String) -> Result<SknMeshData, String> {
     if let Some(bin_text) = ritobin_text {
         tracing::debug!("📄 Loaded ritobin text ({} bytes) for SKN texture lookup", bin_text.len());
 
-        use crate::core::mesh::bin_texture_discovery::discover_material_textures;
+        // Also load concat BIN ritobin for additional material definitions
+        let concat_text = find_concat_ritobin_text(skn_path);
+        let combined_text = if let Some(concat) = concat_text {
+            tracing::debug!("📄 Also loaded concat ritobin ({} bytes)", concat.len());
 
-        // Parse ritobin text to JSON for discovery
-        let bin_json: serde_json::Value = match serde_json::from_str(&bin_text) {
-            Ok(json) => json,
+            // DEBUG: List all StaticMaterialDef definitions in concat
+            let material_def_pattern = regex::Regex::new(r#""([^"]+)"\s*=\s*StaticMaterialDef"#).unwrap();
+            let concat_materials: Vec<String> = material_def_pattern
+                .captures_iter(&concat)
+                .filter_map(|cap| cap.get(1).map(|m| m.as_str().to_string()))
+                .collect();
+            tracing::debug!("📋 Concat BIN contains {} StaticMaterialDef definitions:", concat_materials.len());
+            for (i, mat) in concat_materials.iter().enumerate() {
+                tracing::debug!("  {}. {}", i + 1, mat);
+            }
+
+            format!("{}\n\n{}", bin_text, concat)
+        } else {
+            tracing::warn!("⚠️ No concat BIN found - using main BIN only");
+            bin_text
+        };
+
+        #[allow(deprecated)]
+        use crate::core::mesh::texture::extract_texture_mapping_from_text;
+
+        // Extract all texture mappings from combined ritobin text (main + concat)
+        let texture_mapping = match extract_texture_mapping_from_text(&combined_text) {
+            Ok(mapping) => mapping,
             Err(e) => {
-                tracing::warn!("Failed to parse ritobin as JSON: {}", e);
+                tracing::warn!("Failed to extract texture mapping from ritobin: {}", e);
+                mesh_data.texture_warning = Some(format!("Failed to parse texture mapping: {}", e));
                 return Ok(mesh_data);
             }
         };
 
-        // Use the full discovery system which handles Material links and StaticMaterialDef
-        let character_folder = extract_character_folder(skn_path);
-        let hints = discover_material_textures(&bin_json, character_folder.as_deref());
+        #[allow(deprecated)]
+        let material_props = &texture_mapping.material_properties;
+        #[allow(deprecated)]
+        let default_tex = &texture_mapping.default_texture;
 
-        tracing::debug!("📊 Discovery complete: {} material hints, default={:?}",
-            hints.material_hints.len(),
-            hints.default_texture.as_deref().unwrap_or("none"));
+        tracing::debug!("📊 Extracted {} material mappings, default={:?}",
+            material_props.len(),
+            default_tex.as_deref().unwrap_or("none"));
 
-                let base_dir = skn_path.parent().unwrap_or(Path::new("."));
+        let base_dir = skn_path.parent().unwrap_or(Path::new("."));
+        let mut material_props_map: HashMap<String, MaterialProperties> = HashMap::new();
+        let mut texture_tasks: Vec<(String, std::path::PathBuf)> = Vec::new();
 
-                let mut material_props_map: HashMap<String, MaterialProperties> = HashMap::new();
-                let mut texture_tasks: Vec<(String, std::path::PathBuf)> = Vec::new();
+        // Look up texture for each material
+        for material in &mesh_data.materials {
+            let material_name = &material.name;
 
-                for material in &mesh_data.materials {
-                    let material_name = &material.name;
+            // Try direct lookup from materialOverride list
+            let mat_props = material_props.get(material_name).cloned()
+                .or_else(|| {
+                    // If not in override list, search for StaticMaterialDef by material name
+                    tracing::info!("  Material '{}' not in override list, searching for StaticMaterialDef...", material_name);
+                    #[allow(deprecated)]
+                    use crate::core::mesh::texture::lookup_material_texture_by_name;
+                    lookup_material_texture_by_name(&combined_text, material_name)
+                })
+                .or_else(|| {
+                    // Last resort: use default texture
+                    tracing::warn!("  Material '{}' not found anywhere, using default texture", material_name);
+                    default_tex.as_ref().map(|tex| MaterialProperties {
+                        texture_path: tex.clone(),
+                        ..Default::default()
+                    })
+                });
 
-                    let mat_props = hints.material_hints.get(material_name).cloned()
-                        .or_else(|| {
-                            let simple = material_name.to_lowercase().chars()
-                                .filter(|c| c.is_alphanumeric())
-                                .collect::<String>();
-                            hints.material_hints.get(&simple).cloned()
-                        })
-                        .or_else(|| {
-                            material_name.strip_prefix("mesh_")
-                                .and_then(|stripped| hints.material_hints.get(stripped).cloned())
-                        })
-                        .or_else(|| {
-                            hints.material_hints.get(&format!("mesh_{}", material_name)).cloned()
-                        })
-                        .or_else(|| {
-                            let lower = material_name.to_lowercase();
-                            hints.material_hints.iter()
-                                .find(|(k, _)| k.to_lowercase() == lower)
-                                .map(|(_, v)| v.clone())
-                        })
-                        // Lookup directly from ritobin content by material name
-                        .or_else(|| {
-                            use crate::core::mesh::texture::lookup_material_texture_by_name;
-                            lookup_material_texture_by_name(&bin_text, material_name)
-                        })
-                        .or_else(|| {
-                            hints.default_texture.as_ref().map(|tex| MaterialProperties {
-                                texture_path: tex.clone(),
-                                ..Default::default()
-                            })
-                        });
+            if let Some(props) = mat_props {
+                tracing::info!("🎨 Material '{}' → TEXTURE: '{}'",
+                    material_name, props.texture_path);
 
-                    if let Some(props) = mat_props {
-                        tracing::debug!("✓ Material '{}' → {} (uv_scale={:?})",
-                            material_name, props.texture_path, props.uv_scale);
-
-                        material_props_map.insert(material_name.clone(), props.clone());
+                material_props_map.insert(material_name.clone(), props.clone());
 
                         if let Some(resolved) = resolve_texture_path(base_dir, &props.texture_path) {
                             let path_key = resolved.to_string_lossy().to_string();

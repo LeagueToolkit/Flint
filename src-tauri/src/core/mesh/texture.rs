@@ -327,8 +327,8 @@ pub fn extract_texture_mapping_from_text(content: &str) -> anyhow::Result<Textur
                     let parts: Vec<&str> = list_content.split("SkinMeshDataProperties_MaterialOverride").collect();
                     
                     for (idx, part) in parts.iter().enumerate() {
-                        // Check if this part has a submesh definition
-                        let submesh_regex = Regex::new(r#"submesh:\s*string\s*=\s*"([^"]+)""#).unwrap();
+                        // Check if this part has a submesh definition (case insensitive - can be "Submesh" or "submesh")
+                        let submesh_regex = Regex::new(r#"(?i)submesh:\s*string\s*=\s*"([^"]+)""#).unwrap();
                         if let Some(sub_captures) = submesh_regex.captures(part) {
                             let submesh_name = sub_captures.get(1).unwrap().as_str().to_string();
                             tracing::debug!("Found materialOverride[{}]: submesh='{}'", idx, submesh_name);
@@ -365,9 +365,9 @@ pub fn extract_texture_mapping_from_text(content: &str) -> anyhow::Result<Textur
                                 continue;
                             }
 
-                            // Check for material link (hash)
-                            // material: link = 0x12345678
-                            let mat_hash_regex = Regex::new(r#"material:\s*link\s*=\s*(0x[0-9a-fA-F]+)"#).unwrap();
+                            // Check for material link (hash) - CASE INSENSITIVE
+                            // Material: link = 0x12345678 or material: link = 0x12345678
+                            let mat_hash_regex = Regex::new(r#"(?i)material:\s*link\s*=\s*(0x[0-9a-fA-F]+)"#).unwrap();
                             if let Some(hash_match) = mat_hash_regex.captures(part) {
                                 let mat_hash = hash_match.get(1).unwrap().as_str();
                                 tracing::debug!("  -> Material link (hash): {}", mat_hash);
@@ -399,9 +399,18 @@ pub fn extract_texture_mapping_from_text(content: &str) -> anyhow::Result<Textur
 /// 
 /// This is used for materials that aren't in the materialOverride list but have their 
 /// own StaticMaterialDef block in the BIN file.
+#[allow(dead_code)]
 pub fn lookup_material_texture_by_name(ritobin_content: &str, material_name: &str) -> Option<MaterialProperties> {
-    tracing::debug!("Looking up StaticMaterialDef for material: {}", material_name);
-    
+    tracing::debug!("🔎 Looking up StaticMaterialDef for material: '{}'", material_name);
+
+    // DEBUG: Check if material name exists ANYWHERE in content
+    if ritobin_content.contains(material_name) {
+        tracing::debug!("  ✓ Material name '{}' found in content", material_name);
+    } else {
+        tracing::debug!("  ✗ Material name '{}' NOT FOUND in content at all!", material_name);
+        return None;
+    }
+
     // Helper to extract MaterialProperties from a block
     let extract_props = |block: &str| -> Option<MaterialProperties> {
         if let Some(texture_path) = extract_diffuse_texture_from_block(block) {
@@ -414,70 +423,88 @@ pub fn lookup_material_texture_by_name(ritobin_content: &str, material_name: &st
                 flipbook_frame,
             })
         } else {
+            tracing::warn!("  ✗ Could not extract texture from block");
             None
         }
     };
-    
+
     // Strategy 1: Exact path match
     // Pattern: "ExactMaterialName" = StaticMaterialDef
     let exact_pattern = format!(r#""{}"\s*=\s*StaticMaterialDef\s*"#, regex::escape(material_name));
+    tracing::debug!("  Strategy 1: Trying exact match pattern");
     if let Ok(regex) = Regex::new(&exact_pattern) {
         if let Some(mat) = regex.find(ritobin_content) {
-            tracing::debug!("Found exact StaticMaterialDef match at position {}", mat.start());
+            tracing::debug!("  ✓ Found exact StaticMaterialDef match at position {}", mat.start());
             if let Some(block) = extract_braced_block(ritobin_content, mat.end() - 1) {
+                tracing::debug!("  ✓ Extracted block ({} chars)", block.len());
                 if let Some(props) = extract_props(&block) {
-                    tracing::debug!("Resolved '{}' to texture: {}", material_name, props.texture_path);
+                    tracing::debug!("  ✅ SUCCESS: Resolved '{}' to texture: {}", material_name, props.texture_path);
                     return Some(props);
                 }
             }
+        } else {
+            tracing::debug!("  ✗ Strategy 1 failed - no exact match");
         }
     }
-    
+
     // Strategy 2: Path ends with material name
     // Pattern: ".../{material_name}" = StaticMaterialDef
+    tracing::debug!("  Strategy 2: Trying path-ending match");
     let ends_with_pattern = format!(r#""[^"]*/{}"[^=]*=\s*StaticMaterialDef\s*"#, regex::escape(material_name));
     if let Ok(regex) = Regex::new(&ends_with_pattern) {
         if let Some(mat) = regex.find(ritobin_content) {
-            tracing::debug!("Found path-ending StaticMaterialDef match at position {}", mat.start());
+            tracing::debug!("  ✓ Found path-ending StaticMaterialDef match at position {}", mat.start());
             if let Some(block) = extract_braced_block(ritobin_content, mat.end() - 1) {
+                tracing::debug!("  ✓ Extracted block ({} chars)", block.len());
                 if let Some(props) = extract_props(&block) {
-                    tracing::debug!("Resolved '{}' to texture: {}", material_name, props.texture_path);
+                    tracing::debug!("  ✅ SUCCESS: Resolved '{}' to texture: {}", material_name, props.texture_path);
                     return Some(props);
                 }
             }
+        } else {
+            tracing::debug!("  ✗ Strategy 2 failed - no path-ending match");
         }
     }
-    
+
     // Strategy 3: Contains material name anywhere in path (partial match)
     // Pattern: "...{material_name}..." = StaticMaterialDef
+    tracing::debug!("  Strategy 3: Trying partial match");
     let contains_pattern = format!(r#""[^"]*{}[^"]*"\s*=\s*StaticMaterialDef\s*"#, regex::escape(material_name));
     if let Ok(regex) = Regex::new(&contains_pattern) {
         if let Some(mat) = regex.find(ritobin_content) {
-            tracing::debug!("Found partial StaticMaterialDef match at position {}", mat.start());
+            tracing::debug!("  ✓ Found partial StaticMaterialDef match at position {}", mat.start());
             if let Some(block) = extract_braced_block(ritobin_content, mat.end() - 1) {
+                tracing::debug!("  ✓ Extracted block ({} chars)", block.len());
                 if let Some(props) = extract_props(&block) {
-                    tracing::debug!("Resolved '{}' to texture: {}", material_name, props.texture_path);
+                    tracing::debug!("  ✅ SUCCESS: Resolved '{}' to texture: {}", material_name, props.texture_path);
                     return Some(props);
                 }
             }
+        } else {
+            tracing::debug!("  ✗ Strategy 3 failed - no partial match");
         }
     }
-    
+
     // Strategy 4: Case-insensitive search
+    tracing::debug!("  Strategy 4: Trying case-insensitive match");
     let lower_name = material_name.to_lowercase();
     let case_insensitive_pattern = format!(r#"(?i)"[^"]*{}[^"]*"\s*=\s*StaticMaterialDef\s*"#, regex::escape(&lower_name));
     if let Ok(regex) = Regex::new(&case_insensitive_pattern) {
         if let Some(mat) = regex.find(ritobin_content) {
-            tracing::debug!("Found case-insensitive StaticMaterialDef match at position {}", mat.start());
+            tracing::debug!("  ✓ Found case-insensitive StaticMaterialDef match at position {}", mat.start());
             if let Some(block) = extract_braced_block(ritobin_content, mat.end() - 1) {
+                tracing::debug!("  ✓ Extracted block ({} chars)", block.len());
                 if let Some(props) = extract_props(&block) {
-                    tracing::debug!("Resolved '{}' to texture: {}", material_name, props.texture_path);
+                    tracing::debug!("  ✅ SUCCESS: Resolved '{}' to texture: {}", material_name, props.texture_path);
                     return Some(props);
                 }
             }
+        } else {
+            tracing::debug!("  ✗ Strategy 4 failed - no case-insensitive match");
         }
     }
-    tracing::debug!("No StaticMaterialDef found for material: {}", material_name);
+
+    tracing::debug!("  ❌ FAILED: No StaticMaterialDef found for material '{}' using any strategy", material_name);
     None
 }
 
@@ -566,62 +593,92 @@ fn extract_param_values(material_block: &str) -> (Option<[f32; 2]>, Option<[f32;
 }
 
 /// Resolve a material path to MaterialProperties by searching the BIN content
-/// 
+///
 /// Returns texture path AND UV transform parameters
 fn resolve_material_texture(content: &str, material_path: &str) -> Option<MaterialProperties> {
-    tracing::debug!("Resolving material link: '{}'", material_path);
-    
+    tracing::info!("🔍 Resolving material link: '{}'", material_path);
+
+    // DEBUG: Search for ANY occurrence of the material name (case-insensitive)
+    let material_name_lower = material_path.to_lowercase();
+    if content.to_lowercase().contains(&material_name_lower) {
+        tracing::info!("  ✓ Material name FOUND in content (case-insensitive)");
+    } else {
+        tracing::warn!("  ✗ Material name NOT FOUND anywhere in content");
+        // Try searching for just the last part of the path
+        if let Some(last_part) = material_path.split('/').last() {
+            if content.to_lowercase().contains(&last_part.to_lowercase()) {
+                tracing::info!("  ✓ Last part '{}' found in content", last_part);
+            } else {
+                tracing::warn!("  ✗ Even last part '{}' not found", last_part);
+            }
+        }
+        return None;
+    }
+
+    // DEBUG: Count how many StaticMaterialDef blocks exist
+    let material_def_count = content.matches("StaticMaterialDef").count();
+    tracing::info!("  📊 Total StaticMaterialDef blocks in content: {}", material_def_count);
+
     // Escape special characters in material path for regex
     let escaped_path = regex::escape(material_path);
-    
-    // Find the definition header: "MaterialPath" = StaticMaterialDef {
-    let def_pattern = format!(r#""{}"\s*=\s*StaticMaterialDef\s*"#, escaped_path);
-    tracing::debug!("Searching with pattern: {}", def_pattern);
-    
-    let def_regex = match Regex::new(&def_pattern) {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::error!("Invalid regex pattern: {}", e);
-            return None;
-        }
-    };
-    
-    if let Some(def_match) = def_regex.find(content) {
-        tracing::debug!("Found StaticMaterialDef for '{}' at position {}", material_path, def_match.start());
-        
-        // Use brace counting to extract the full block
-        if let Some(block) = extract_braced_block(content, def_match.end() - 1) {
-            tracing::debug!("Extracted block ({} chars)", block.len());
-            
-            // Extract texture path
-            if let Some(texture_path) = extract_diffuse_texture_from_block(&block) {
-                tracing::debug!("Found texture: {}", texture_path);
-                
-                // Extract UV transform parameters
-                let (uv_scale, uv_offset, flipbook_size, flipbook_frame) = extract_param_values(&block);
-                
-                let props = MaterialProperties {
-                    texture_path,
-                    uv_scale,
-                    uv_offset,
-                    flipbook_size,
-                    flipbook_frame,
-                };
-                
-                tracing::debug!("SUCCESS: '{}' resolved with transforms", material_path);
-                return Some(props);
-            } else {
-                tracing::warn!("FAILED: Could not find diffuse texture in StaticMaterialDef block for '{}'", material_path);
-                let preview: String = block.chars().take(500).collect();
-                tracing::debug!("Block preview: {}", preview);
+
+    // Try multiple search strategies
+    let patterns = vec![
+        // Exact match
+        format!(r#""{}"\s*=\s*StaticMaterialDef"#, escaped_path),
+        // Case-insensitive
+        format!(r#"(?i)"{}"\s*=\s*StaticMaterialDef"#, escaped_path),
+        // Just the last part of the path
+        format!(r#""[^"]*{}"\s*=\s*StaticMaterialDef"#, regex::escape(material_path.split('/').last().unwrap_or(material_path))),
+    ];
+
+    for (i, def_pattern) in patterns.iter().enumerate() {
+        tracing::debug!("Trying pattern #{}: {}", i + 1, def_pattern);
+
+        let def_regex = match Regex::new(def_pattern) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::error!("Invalid regex pattern: {}", e);
+                continue;
             }
-        } else {
-            tracing::warn!("Failed to extract braced block after StaticMaterialDef header");
+        };
+
+        if let Some(def_match) = def_regex.find(content) {
+            tracing::debug!("✓ Found StaticMaterialDef at position {} using pattern #{}", def_match.start(), i + 1);
+
+            // Use brace counting to extract the full block
+            if let Some(block) = extract_braced_block(content, def_match.end() - 1) {
+                tracing::debug!("Extracted block ({} chars)", block.len());
+
+                // Extract texture path
+                if let Some(texture_path) = extract_diffuse_texture_from_block(&block) {
+                    tracing::debug!("Found texture: {}", texture_path);
+
+                    // Extract UV transform parameters
+                    let (uv_scale, uv_offset, flipbook_size, flipbook_frame) = extract_param_values(&block);
+
+                    let props = MaterialProperties {
+                        texture_path,
+                        uv_scale,
+                        uv_offset,
+                        flipbook_size,
+                        flipbook_frame,
+                    };
+
+                    tracing::info!("SUCCESS: '{}' resolved with transforms using pattern #{}", material_path, i + 1);
+                    return Some(props);
+                } else {
+                    tracing::warn!("FAILED: Could not find diffuse texture in StaticMaterialDef block");
+                    let preview: String = block.chars().take(500).collect();
+                    tracing::debug!("Block preview: {}", preview);
+                }
+            } else {
+                tracing::warn!("Failed to extract braced block after StaticMaterialDef header");
+            }
         }
-    } else {
-        tracing::warn!("Could not find StaticMaterialDef for material path: '{}'", material_path);
     }
-    
+
+    tracing::error!("FAILED ALL STRATEGIES for material: '{}'", material_path);
     None
 }
 
@@ -692,68 +749,177 @@ fn extract_braced_block(content: &str, start_after: usize) -> Option<String> {
 /// Looks for common diffuse texture names in samplerValues, with fallback to first sampler
 #[allow(clippy::regex_creation_in_loops)]
 fn extract_diffuse_texture_from_block(block: &str) -> Option<String> {
+    tracing::debug!("  📝 Extracting diffuse texture from block ({} chars)", block.len());
+
     // Find samplerValues list inside the block
     // Can be list[embed] or list2[embed]
     let sampler_regex = Regex::new(r"(?i)samplerValues:\s*list2?\[embed\]\s*=\s*").ok()?;
-    let sampler_match = sampler_regex.find(block)?;
-    
-    tracing::trace!("Found samplerValues at position {}", sampler_match.start());
-    
+    let sampler_match = sampler_regex.find(block);
+
+    if sampler_match.is_none() {
+        tracing::debug!("  ✗ No samplerValues found in block");
+        return None;
+    }
+
+    let sampler_match = sampler_match?;
+    tracing::debug!("  ✓ Found samplerValues at position {}", sampler_match.start());
+
     // Extract the samplerValues block using brace counting
     if let Some(sampler_block) = extract_braced_block(block, sampler_match.end() - 1) {
+        tracing::debug!("  ✓ Extracted samplerValues block ({} chars)", sampler_block.len());
+
         // Split by StaticMaterialShaderSamplerDef to process each sampler
         let samplers: Vec<&str> = sampler_block.split("StaticMaterialShaderSamplerDef").collect();
-        
-        // First pass: look for known diffuse texture names
-        let diffuse_names = [
-            "diffuse_color",
-            "diffuse_texture", 
-            "diffuse",
-            "base_color",
-            "basecolor",
-            "albedo",
-            "color",
-            "_cm",  // Common suffix for color maps
-        ];
-        
-        for sampler in &samplers {
+        tracing::debug!("  📊 Found {} StaticMaterialShaderSamplerDef blocks", samplers.len().saturating_sub(1));
+
+        // PRIORITY 1: Look for "Main_Texture" with project-specific path
+        // This is the primary skin texture, not a generic fallback
+        tracing::debug!("  🔍 Priority 1: Looking for Main_Texture with project-specific path");
+        for (i, sampler) in samplers.iter().enumerate() {
+            if i == 0 { continue; }
+
             let lower_sampler = sampler.to_lowercase();
-            
-            // Check if this sampler has a known diffuse-like name
-            let is_diffuse = diffuse_names.iter().any(|name| lower_sampler.contains(name));
-            
-            if is_diffuse {
-                // Extract texturePath
+            if lower_sampler.contains("texturename") && lower_sampler.contains("main_texture") {
+                tracing::debug!("  ✓ Found Main_Texture sampler #{}", i);
+
                 let path_regex = Regex::new(r#"texturePath:\s*string\s*=\s*"([^"]+)""#).ok()?;
                 if let Some(path_match) = path_regex.captures(sampler) {
                     let texture_path = path_match.get(1).unwrap().as_str().to_string();
-                    tracing::debug!("Found diffuse texture: {}", texture_path);
-                    return Some(texture_path);
+                    let lower_path = texture_path.to_lowercase();
+
+                    // Check if this is a project-specific texture (not a shared/generic texture)
+                    // Project textures should contain "skin" followed by digits
+                    let is_project_texture = lower_path.contains("skin") &&
+                        lower_path.chars().any(|c| c.is_ascii_digit());
+
+                    if is_project_texture {
+                        tracing::debug!("  ✅ MAIN_TEXTURE (project-specific): {}", texture_path);
+                        return Some(texture_path);
+                    } else {
+                        tracing::debug!("  ⏭️ Main_Texture is generic/shared: {}", texture_path);
+                    }
                 }
             }
         }
-        
-        // Fallback: Use the first sampler with a texturePath (often the diffuse)
-        tracing::debug!("No named diffuse found, trying first sampler as fallback");
-        for sampler in &samplers {
+
+        // PRIORITY 2: Look for "Diffuse_Texture" with project-specific path
+        tracing::debug!("  🔍 Priority 2: Looking for Diffuse_Texture with project-specific path");
+        for (i, sampler) in samplers.iter().enumerate() {
+            if i == 0 { continue; }
+
+            let lower_sampler = sampler.to_lowercase();
+            if lower_sampler.contains("texturename") && lower_sampler.contains("diffuse") {
+                tracing::debug!("  ✓ Found Diffuse_Texture sampler #{}", i);
+
+                let path_regex = Regex::new(r#"texturePath:\s*string\s*=\s*"([^"]+)""#).ok()?;
+                if let Some(path_match) = path_regex.captures(sampler) {
+                    let texture_path = path_match.get(1).unwrap().as_str().to_string();
+                    let lower_path = texture_path.to_lowercase();
+
+                    // Check if this is a project-specific texture
+                    let is_project_texture = lower_path.contains("skin") &&
+                        lower_path.chars().any(|c| c.is_ascii_digit());
+
+                    if is_project_texture {
+                        tracing::debug!("  ✅ DIFFUSE_TEXTURE (project-specific): {}", texture_path);
+                        return Some(texture_path);
+                    } else {
+                        tracing::debug!("  ⏭️ Diffuse_Texture is generic/shared: {}", texture_path);
+                    }
+                }
+            }
+        }
+
+        // PRIORITY 3: Any texture with project-specific path (contains "skin" + digit)
+        tracing::debug!("  🔍 Priority 3: Looking for ANY texture with project-specific path");
+        for (i, sampler) in samplers.iter().enumerate() {
+            if i == 0 { continue; }
+
             let path_regex = Regex::new(r#"texturePath:\s*string\s*=\s*"([^"]+)""#).ok()?;
             if let Some(path_match) = path_regex.captures(sampler) {
                 let texture_path = path_match.get(1).unwrap().as_str().to_string();
-                // Skip obvious non-diffuse textures
                 let lower_path = texture_path.to_lowercase();
-                if !lower_path.contains("normal") && 
-                   !lower_path.contains("_nm") && 
-                   !lower_path.contains("mask") &&
-                   !lower_path.contains("noise") &&
-                   !lower_path.contains("ramp") {
-                    tracing::debug!("Using first valid texture as fallback: {}", texture_path);
+
+                // Skip obvious non-diffuse textures
+                if lower_path.contains("normal") || lower_path.contains("_nm") ||
+                   lower_path.contains("mask") || lower_path.contains("noise") ||
+                   lower_path.contains("ramp") || lower_path.contains("matcap") ||
+                   lower_path.contains("outline") || lower_path.contains("fresnel") {
+                    continue;
+                }
+
+                // Check if this is a project-specific texture
+                let is_project_texture = lower_path.contains("skin") &&
+                    lower_path.chars().any(|c| c.is_ascii_digit());
+
+                if is_project_texture {
+                    tracing::debug!("  ✅ PROJECT TEXTURE #{}: {}", i, texture_path);
                     return Some(texture_path);
                 }
             }
         }
+
+        // PRIORITY 4: Fallback to Main_Texture even if generic
+        tracing::debug!("  🔍 Priority 4: Fallback to Main_Texture (even if generic)");
+        for (i, sampler) in samplers.iter().enumerate() {
+            if i == 0 { continue; }
+
+            let lower_sampler = sampler.to_lowercase();
+            if lower_sampler.contains("texturename") && lower_sampler.contains("main_texture") {
+                let path_regex = Regex::new(r#"texturePath:\s*string\s*=\s*"([^"]+)""#).ok()?;
+                if let Some(path_match) = path_regex.captures(sampler) {
+                    let texture_path = path_match.get(1).unwrap().as_str().to_string();
+                    tracing::debug!("  ⚠️ Using Main_Texture as fallback: {}", texture_path);
+                    return Some(texture_path);
+                }
+            }
+        }
+
+        // PRIORITY 5: Fallback to Diffuse_Texture even if generic
+        tracing::debug!("  🔍 Priority 5: Fallback to Diffuse_Texture (even if generic)");
+        for (i, sampler) in samplers.iter().enumerate() {
+            if i == 0 { continue; }
+
+            let lower_sampler = sampler.to_lowercase();
+            if lower_sampler.contains("texturename") && lower_sampler.contains("diffuse") {
+                let path_regex = Regex::new(r#"texturePath:\s*string\s*=\s*"([^"]+)""#).ok()?;
+                if let Some(path_match) = path_regex.captures(sampler) {
+                    let texture_path = path_match.get(1).unwrap().as_str().to_string();
+                    tracing::debug!("  ⚠️ Using Diffuse_Texture as fallback: {}", texture_path);
+                    return Some(texture_path);
+                }
+            }
+        }
+
+        // PRIORITY 6: Last resort - first valid texture
+        tracing::debug!("  🔍 Priority 6: Last resort - first valid texture");
+        for (i, sampler) in samplers.iter().enumerate() {
+            if i == 0 { continue; }
+
+            let path_regex = Regex::new(r#"texturePath:\s*string\s*=\s*"([^"]+)""#).ok()?;
+            if let Some(path_match) = path_regex.captures(sampler) {
+                let texture_path = path_match.get(1).unwrap().as_str().to_string();
+                let lower_path = texture_path.to_lowercase();
+
+                // Skip obvious non-diffuse textures
+                if !lower_path.contains("normal") &&
+                   !lower_path.contains("_nm") &&
+                   !lower_path.contains("mask") &&
+                   !lower_path.contains("noise") &&
+                   !lower_path.contains("ramp") &&
+                   !lower_path.contains("matcap") &&
+                   !lower_path.contains("outline") &&
+                   !lower_path.contains("fresnel") {
+                    tracing::debug!("  ⚠️ Last resort fallback: {}", texture_path);
+                    return Some(texture_path);
+                }
+            }
+        }
+    } else {
+        tracing::debug!("  ✗ Failed to extract samplerValues block");
     }
-    
-    tracing::debug!("No diffuse texture found in block");
+
+    tracing::debug!("  ❌ No diffuse texture found in block");
     None
 }
 

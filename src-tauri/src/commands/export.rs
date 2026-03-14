@@ -302,7 +302,11 @@ pub async fn get_export_preview(project_path: String) -> Result<Vec<String>, Str
     let files: Vec<String> = walkdir::WalkDir::new(&content_base)
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_file())
+        .filter(|e| {
+            // Exclude testcuberenderer folders
+            let path_str = e.path().to_string_lossy().to_lowercase();
+            !path_str.contains("testcuberenderer") && e.path().is_file()
+        })
         .filter_map(|e| {
             e.path()
                 .strip_prefix(&content_base)
@@ -404,20 +408,24 @@ fn export_with_ltk_modpkg(
     // Collect all files and their data
     let content_base = project_path.join("content").join("base");
     let mut file_map: HashMap<String, Vec<u8>> = HashMap::new();
-    
+
     for entry in walkdir::WalkDir::new(&content_base)
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_file())
+        .filter(|e| {
+            // Exclude testcuberenderer folders
+            let path_str = e.path().to_string_lossy().to_lowercase();
+            !path_str.contains("testcuberenderer") && e.path().is_file()
+        })
     {
         let file_path = entry.path();
         let relative_path = file_path
             .strip_prefix(&content_base)
             .map_err(|e| format!("Failed to get relative path: {}", e))?;
-        
+
         let file_data = std::fs::read(file_path)
             .map_err(|e| format!("Failed to read file {}: {}", file_path.display(), e))?;
-        
+
         // Normalize path separators and lowercase (modpkg builder lowercases paths internally)
         let normalized_path = relative_path.to_string_lossy().replace("\\", "/").to_lowercase();
         file_map.insert(normalized_path, file_data);
