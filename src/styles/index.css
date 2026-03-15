@@ -4499,27 +4499,21 @@ input.search-box__input {
 .model-preview__toggle-btn {
   display: flex;
   align-items: center;
-  gap: 3px;
-  padding: 3px 6px;
-  font-size: 9px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  justify-content: center;
+  padding: 4px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background-color: var(--bg-secondary);
   color: var(--text-primary);
   cursor: pointer;
   transition: all var(--transition-fast);
+  width: 24px;
+  height: 24px;
 }
 
 .model-preview__toggle-btn:hover {
   background-color: var(--bg-hover);
   border-color: var(--accent-primary);
-}
-
-.model-preview__toggle-btn svg {
-  opacity: 0.7;
 }
 
 .model-preview__toggle-btn--all:hover {
