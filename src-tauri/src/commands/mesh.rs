@@ -97,7 +97,7 @@ pub async fn read_scb_mesh(path: String) -> Result<ScbMeshData, String> {
                 });
 
             if let Some(props) = mat_props {
-                tracing::info!("🎨 SCB Material '{}' → TEXTURE: '{}'", material_name, props.texture_path);
+                tracing::debug!("🎨 SCB Material '{}' → TEXTURE: '{}'", material_name, props.texture_path);
                 material_props_map.insert(material_name.clone(), props.clone());
 
                         if let Some(resolved) = resolve_texture_path(base_dir, &props.texture_path) {
@@ -155,7 +155,7 @@ pub async fn read_scb_mesh(path: String) -> Result<ScbMeshData, String> {
                 }
 
                 let elapsed = start_time.elapsed();
-                tracing::info!("✅ SCB: Loaded {} textures in {:.2}s", material_data.len(), elapsed.as_secs_f32());
+                tracing::info!("✅ Loaded {} textures for SCB mesh in {:.2}s", material_data.len(), elapsed.as_secs_f32());
                 mesh_data.material_data = material_data;
     } else {
         tracing::warn!("⚠ No .ritobin cache found and could not create one for SCB texture mapping");
@@ -193,10 +193,10 @@ fn find_ritobin_text(mesh_path: &Path) -> Option<String> {
             }
 
             // Cache doesn't exist - try to create it automatically
-            tracing::info!("📦 No .ritobin cache found, creating from BIN: {}", bin_path.display());
+            tracing::debug!("📦 Creating .ritobin cache from BIN: {}", bin_path.display());
             match create_ritobin_cache(&bin_path, &ritobin_path) {
                 Ok(text) => {
-                    tracing::info!("✅ Created .ritobin cache: {}", ritobin_path.display());
+                    tracing::debug!("✅ Created .ritobin cache: {}", ritobin_path.display());
                     return Some(text);
                 }
                 Err(e) => {
@@ -445,7 +445,7 @@ pub async fn read_skn_mesh(path: String) -> Result<SknMeshData, String> {
             let mat_props = material_props.get(material_name).cloned()
                 .or_else(|| {
                     // If not in override list, search for StaticMaterialDef by material name
-                    tracing::info!("  Material '{}' not in override list, searching for StaticMaterialDef...", material_name);
+                    tracing::debug!("  Material '{}' not in override list, searching for StaticMaterialDef...", material_name);
                     #[allow(deprecated)]
                     use crate::core::mesh::texture::lookup_material_texture_by_name;
                     lookup_material_texture_by_name(&combined_text, material_name)
@@ -460,7 +460,7 @@ pub async fn read_skn_mesh(path: String) -> Result<SknMeshData, String> {
                 });
 
             if let Some(props) = mat_props {
-                tracing::info!("🎨 Material '{}' → TEXTURE: '{}'",
+                tracing::debug!("🎨 Material '{}' → TEXTURE: '{}'",
                     material_name, props.texture_path);
 
                 material_props_map.insert(material_name.clone(), props.clone());
@@ -520,7 +520,7 @@ pub async fn read_skn_mesh(path: String) -> Result<SknMeshData, String> {
                 }
 
                 let elapsed = start_time.elapsed();
-                tracing::info!("✅ Loaded {} textures in {:.2}s", material_data.len(), elapsed.as_secs_f32());
+                tracing::info!("✅ Loaded {} textures for SKN mesh in {:.2}s", material_data.len(), elapsed.as_secs_f32());
                 mesh_data.material_data = material_data;
     } else {
         tracing::warn!("⚠ No .ritobin cache found and could not create one for SKN texture mapping");
