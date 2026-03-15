@@ -4452,15 +4452,18 @@ input.search-box__input {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-md);
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
   border-bottom: 1px solid var(--border);
 }
 
 .model-preview__popup-header h4 {
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .model-preview__popup-header button {
@@ -4489,6 +4492,8 @@ input.search-box__input {
   display: flex;
   gap: var(--space-xs);
   align-items: center;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .model-preview__toggle-btn {
