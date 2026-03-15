@@ -14,19 +14,20 @@
     ],
     "windows": {
       "nsis": {
-        "template": "nsis/installer.nsi",
         "installerIcon": "icons/icon.ico",
         "headerImage": "installer-assets/installer-header.bmp",
         "sidebarImage": "installer-assets/installer-sidebar.bmp",
         "installMode": "currentUser",
-        "languages": ["English"],
+        "languages": [
+          "English"
+        ],
         "displayLanguageSelector": false
       }
     },
     "createUpdaterArtifacts": "v1Compatible"
   },
   "productName": "Flint",
-  "version": "1.8.3",
+  "version": "1.8.4",
   "identifier": "com.sirdexal.flint",
   "plugins": {
     "updater": {
