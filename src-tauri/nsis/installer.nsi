@@ -7,29 +7,9 @@
 !include "x64.nsh"
 
 ; ============================================================================
-; Tauri-Provided Variables (injected via handlebars)
+; Tauri-Provided Variables (injected via handlebars at build time)
+; These are used throughout the installer script
 ; ============================================================================
-!define PRODUCTNAME "{{product_name}}"
-!define VERSION "{{version}}"
-!define MANUFACTURER "{{manufacturer}}"
-!define INSTALLMODE "{{install_mode}}"
-!define LICENSE "{{license}}"
-!define INSTALLERICON "{{installer_icon}}"
-!define SIDEBARIMAGE "{{sidebar_image}}"
-!define HEADERIMAGE "{{header_image}}"
-!define MAINBINARYNAME "{{main_binary_name}}"
-!define MAINBINARYSRCPATH "{{main_binary_path}}"
-!define OUTFILE "{{out_file}}"
-!define ARCH "{{arch}}"
-!define BUNDLEID "{{bundle_id}}"
-!define COPYRIGHT "{{copyright}}"
-!define SHORTDESCRIPTION "{{short_description}}"
-!define INSTALLWEBVIEW2MODE "{{install_webview2_mode}}"
-!define WEBVIEW2INSTALLERARGS "{{webview2_installer_args}}"
-!define WEBVIEW2BOOTSTRAPPERPATH "{{webview2_bootstrapper_path}}"
-!define WEBVIEW2INSTALLERPATH "{{webview2_installer_path}}"
-!define ALLOWDOWNGRADES "{{allow_downgrades}}"
-!define DISPLAYLANGUAGESELECTOR "{{display_language_selector}}"
 
 ; ============================================================================
 ; Dark Theme Configuration
@@ -41,47 +21,48 @@
 !define MUI_UNFINISHPAGE_NOAUTOCLOSE
 
 ; Branding
-BrandingText "${PRODUCTNAME} ${VERSION}"
+BrandingText "{{product_name}} {{version}}"
 
 ; ============================================================================
 ; Installer Graphics (Using Tauri Variables)
 ; ============================================================================
 
-!ifdef INSTALLERICON
-  !define MUI_ICON "${INSTALLERICON}"
-  !define MUI_UNICON "${INSTALLERICON}"
-!endif
+{{#if installer_icon}}
+!define MUI_ICON "{{installer_icon}}"
+!define MUI_UNICON "{{installer_icon}}"
+{{/if}}
 
-!ifdef HEADERIMAGE
-  !define MUI_HEADERIMAGE
-  !define MUI_HEADERIMAGE_BITMAP "${HEADERIMAGE}"
-  !define MUI_HEADERIMAGE_UNBITMAP "${HEADERIMAGE}"
-  !define MUI_HEADERIMAGE_RIGHT
-!endif
+{{#if header_image}}
+!define MUI_HEADERIMAGE
+!define MUI_HEADERIMAGE_BITMAP "{{header_image}}"
+!define MUI_HEADERIMAGE_UNBITMAP "{{header_image}}"
+!define MUI_HEADERIMAGE_RIGHT
+{{/if}}
 
-!ifdef SIDEBARIMAGE
-  !define MUI_WELCOMEFINISHPAGE_BITMAP "${SIDEBARIMAGE}"
-  !define MUI_UNWELCOMEFINISHPAGE_BITMAP "${SIDEBARIMAGE}"
-!endif
+{{#if sidebar_image}}
+!define MUI_WELCOMEFINISHPAGE_BITMAP "{{sidebar_image}}"
+!define MUI_UNWELCOMEFINISHPAGE_BITMAP "{{sidebar_image}}"
+{{/if}}
 
 ; ============================================================================
 ; Installer Configuration
 ; ============================================================================
 
-Name "${PRODUCTNAME}"
-OutFile "${OUTFILE}"
+Name "{{product_name}}"
+OutFile "{{out_file}}"
 
-!if "${INSTALLMODE}" == "perMachine"
-  RequestExecutionLevel highest
-  InstallDir "$PROGRAMFILES64\${PRODUCTNAME}"
-  !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCTNAME}"
-!else if "${INSTALLMODE}" == "currentUser"
-  RequestExecutionLevel user
-  InstallDir "$LOCALAPPDATA\${PRODUCTNAME}"
-  !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCTNAME}"
-!endif
+{{#if_eq install_mode "perMachine"}}
+RequestExecutionLevel highest
+InstallDir "$PROGRAMFILES64\{{product_name}}"
+!define INSTALLMODE "perMachine"
+{{else}}
+RequestExecutionLevel user
+InstallDir "$LOCALAPPDATA\{{product_name}}"
+!define INSTALLMODE "currentUser"
+{{/if_eq}}
 
-InstallDirRegKey HKCU "${UNINSTKEY}" "InstallLocation"
+!define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\{{product_name}}"
+
 ShowInstDetails show
 ShowUnInstDetails show
 
@@ -89,15 +70,16 @@ ShowUnInstDetails show
 ; Modern UI Pages
 ; ============================================================================
 
-!ifdef LICENSE
-  !insertmacro MUI_PAGE_LICENSE "${LICENSE}"
-!endif
+; License page (only if license file exists)
+{{#if license}}
+!insertmacro MUI_PAGE_LICENSE "{{license}}"
+{{/if}}
 
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 
-!define MUI_FINISHPAGE_RUN "$INSTDIR\${MAINBINARYNAME}.exe"
-!define MUI_FINISHPAGE_RUN_TEXT "Launch ${PRODUCTNAME}"
+!define MUI_FINISHPAGE_RUN "$INSTDIR\{{main_binary_name}}.exe"
+!define MUI_FINISHPAGE_RUN_TEXT "Launch {{product_name}}"
 !insertmacro MUI_PAGE_FINISH
 
 ; Uninstaller pages
@@ -110,13 +92,19 @@ ShowUnInstDetails show
 ; ============================================================================
 ; Version Info
 ; ============================================================================
-VIProductVersion "${VERSION}.0"
-VIAddVersionKey "ProductName" "${PRODUCTNAME}"
-VIAddVersionKey "FileDescription" "${SHORTDESCRIPTION}"
-VIAddVersionKey "FileVersion" "${VERSION}"
-VIAddVersionKey "ProductVersion" "${VERSION}"
-VIAddVersionKey "LegalCopyright" "${COPYRIGHT}"
-VIAddVersionKey "CompanyName" "${MANUFACTURER}"
+VIProductVersion "{{version}}.0"
+VIAddVersionKey "ProductName" "{{product_name}}"
+{{#if short_description}}
+VIAddVersionKey "FileDescription" "{{short_description}}"
+{{/if}}
+VIAddVersionKey "FileVersion" "{{version}}"
+VIAddVersionKey "ProductVersion" "{{version}}"
+{{#if copyright}}
+VIAddVersionKey "LegalCopyright" "{{copyright}}"
+{{/if}}
+{{#if manufacturer}}
+VIAddVersionKey "CompanyName" "{{manufacturer}}"
+{{/if}}
 
 ; ============================================================================
 ; Installer Sections
@@ -125,35 +113,38 @@ VIAddVersionKey "CompanyName" "${MANUFACTURER}"
 Section "Install" InstallSection
   SetOutPath "$INSTDIR"
 
-  ; Copy main executable
-  File "${MAINBINARYSRCPATH}"
-
-  ; Copy all bundled resources
-  File /r "${RESOURCESPATH}\*"
+  ; Copy main executable and all resources
+  {{#each resources}}
+  File "{{this}}"
+  {{/each}}
 
   ; Create shortcuts
-  CreateDirectory "$SMPROGRAMS\${PRODUCTNAME}"
-  CreateShortcut "$SMPROGRAMS\${PRODUCTNAME}\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
-  CreateShortcut "$DESKTOP\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
+  CreateDirectory "$SMPROGRAMS\{{product_name}}"
+  CreateShortcut "$SMPROGRAMS\{{product_name}}\{{product_name}}.lnk" "$INSTDIR\{{main_binary_name}}.exe"
+  CreateShortcut "$DESKTOP\{{product_name}}.lnk" "$INSTDIR\{{main_binary_name}}.exe"
 
   ; Write uninstaller
   WriteUninstaller "$INSTDIR\uninstall.exe"
 
   ; Registry entries for Windows Add/Remove Programs
   !if "${INSTALLMODE}" == "perMachine"
-    WriteRegStr HKLM "${UNINSTKEY}" "DisplayName" "${PRODUCTNAME}"
-    WriteRegStr HKLM "${UNINSTKEY}" "DisplayIcon" "$INSTDIR\${MAINBINARYNAME}.exe"
-    WriteRegStr HKLM "${UNINSTKEY}" "DisplayVersion" "${VERSION}"
-    WriteRegStr HKLM "${UNINSTKEY}" "Publisher" "${MANUFACTURER}"
+    WriteRegStr HKLM "${UNINSTKEY}" "DisplayName" "{{product_name}}"
+    WriteRegStr HKLM "${UNINSTKEY}" "DisplayIcon" "$INSTDIR\{{main_binary_name}}.exe"
+    WriteRegStr HKLM "${UNINSTKEY}" "DisplayVersion" "{{version}}"
+    {{#if manufacturer}}
+    WriteRegStr HKLM "${UNINSTKEY}" "Publisher" "{{manufacturer}}"
+    {{/if}}
     WriteRegStr HKLM "${UNINSTKEY}" "InstallLocation" "$INSTDIR"
     WriteRegStr HKLM "${UNINSTKEY}" "UninstallString" "$INSTDIR\uninstall.exe"
     WriteRegDWORD HKLM "${UNINSTKEY}" "NoModify" 1
     WriteRegDWORD HKLM "${UNINSTKEY}" "NoRepair" 1
   !else
-    WriteRegStr HKCU "${UNINSTKEY}" "DisplayName" "${PRODUCTNAME}"
-    WriteRegStr HKCU "${UNINSTKEY}" "DisplayIcon" "$INSTDIR\${MAINBINARYNAME}.exe"
-    WriteRegStr HKCU "${UNINSTKEY}" "DisplayVersion" "${VERSION}"
-    WriteRegStr HKCU "${UNINSTKEY}" "Publisher" "${MANUFACTURER}"
+    WriteRegStr HKCU "${UNINSTKEY}" "DisplayName" "{{product_name}}"
+    WriteRegStr HKCU "${UNINSTKEY}" "DisplayIcon" "$INSTDIR\{{main_binary_name}}.exe"
+    WriteRegStr HKCU "${UNINSTKEY}" "DisplayVersion" "{{version}}"
+    {{#if manufacturer}}
+    WriteRegStr HKCU "${UNINSTKEY}" "Publisher" "{{manufacturer}}"
+    {{/if}}
     WriteRegStr HKCU "${UNINSTKEY}" "InstallLocation" "$INSTDIR"
     WriteRegStr HKCU "${UNINSTKEY}" "UninstallString" "$INSTDIR\uninstall.exe"
     WriteRegDWORD HKCU "${UNINSTKEY}" "NoModify" 1
@@ -167,14 +158,14 @@ SectionEnd
 
 Section "Uninstall"
   ; Remove files and directories
-  Delete "$INSTDIR\${MAINBINARYNAME}.exe"
+  Delete "$INSTDIR\{{main_binary_name}}.exe"
   Delete "$INSTDIR\uninstall.exe"
   RMDir /r "$INSTDIR"
 
   ; Remove shortcuts
-  Delete "$DESKTOP\${PRODUCTNAME}.lnk"
-  Delete "$SMPROGRAMS\${PRODUCTNAME}\${PRODUCTNAME}.lnk"
-  RMDir "$SMPROGRAMS\${PRODUCTNAME}"
+  Delete "$DESKTOP\{{product_name}}.lnk"
+  Delete "$SMPROGRAMS\{{product_name}}\{{product_name}}.lnk"
+  RMDir "$SMPROGRAMS\{{product_name}}"
 
   ; Remove registry entries
   !if "${INSTALLMODE}" == "perMachine"
@@ -198,7 +189,7 @@ Function .onInit
 
   ${If} $0 != ""
     MessageBox MB_OKCANCEL|MB_ICONEXCLAMATION \
-      "${PRODUCTNAME} is already installed at:$\n$0$\n$\nClick OK to upgrade or Cancel to abort." \
+      "{{product_name}} is already installed at:$\n$0$\n$\nClick OK to upgrade or Cancel to abort." \
       IDOK upgrade
     Abort
 
