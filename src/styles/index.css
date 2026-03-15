@@ -4500,11 +4500,11 @@ input.search-box__input {
   display: flex;
   align-items: center;
   gap: 3px;
-  padding: 4px 8px;
-  font-size: 10px;
-  font-weight: 500;
+  padding: 3px 6px;
+  font-size: 9px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.5px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background-color: var(--bg-secondary);
