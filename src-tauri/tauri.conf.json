@@ -14,8 +14,13 @@
     ],
     "windows": {
       "nsis": {
+        "template": "nsis/installer.nsi",
         "installerIcon": "icons/icon.ico",
-        "installMode": "currentUser"
+        "headerImage": "installer-assets/installer-header.bmp",
+        "sidebarImage": "installer-assets/installer-sidebar.bmp",
+        "installMode": "currentUser",
+        "languages": ["English"],
+        "displayLanguageSelector": false
       }
     },
     "createUpdaterArtifacts": "v1Compatible"
