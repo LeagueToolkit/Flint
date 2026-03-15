@@ -29,6 +29,13 @@ Replace the placeholder files with your custom Flint-branded images:
 - **Usage**: Installer icon, uninstaller icon, shortcuts
 - **Note**: This is already configured and uses your current Flint icon
 
+### 4. **Logo SVG** (For reference)
+- **Files**:
+  - `flint-logo.svg` - Monochrome version (light on dark)
+  - `flint-logo-colored.svg` - Colored version (orange/yellow flame)
+- **Usage**: Reference for creating installer graphics
+- **Note**: Use these as a basis for your custom BMP images
+
 ## Current Status
 
 🔴 **PLACEHOLDER FILES** - Replace these with your custom images before building the installer!
