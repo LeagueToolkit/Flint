@@ -51,16 +51,10 @@ BrandingText "{{product_name}} {{version}}"
 Name "{{product_name}}"
 OutFile "{{out_file}}"
 
-{{#if_eq install_mode "perMachine"}}
-RequestExecutionLevel highest
-InstallDir "$PROGRAMFILES64\{{product_name}}"
-!define INSTALLMODE "perMachine"
-{{else}}
+; Current user installation (no admin required)
 RequestExecutionLevel user
 InstallDir "$LOCALAPPDATA\{{product_name}}"
 !define INSTALLMODE "currentUser"
-{{/if_eq}}
-
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\{{product_name}}"
 
 ShowInstDetails show
@@ -126,30 +120,17 @@ Section "Install" InstallSection
   ; Write uninstaller
   WriteUninstaller "$INSTDIR\uninstall.exe"
 
-  ; Registry entries for Windows Add/Remove Programs
-  !if "${INSTALLMODE}" == "perMachine"
-    WriteRegStr HKLM "${UNINSTKEY}" "DisplayName" "{{product_name}}"
-    WriteRegStr HKLM "${UNINSTKEY}" "DisplayIcon" "$INSTDIR\{{main_binary_name}}.exe"
-    WriteRegStr HKLM "${UNINSTKEY}" "DisplayVersion" "{{version}}"
-    {{#if manufacturer}}
-    WriteRegStr HKLM "${UNINSTKEY}" "Publisher" "{{manufacturer}}"
-    {{/if}}
-    WriteRegStr HKLM "${UNINSTKEY}" "InstallLocation" "$INSTDIR"
-    WriteRegStr HKLM "${UNINSTKEY}" "UninstallString" "$INSTDIR\uninstall.exe"
-    WriteRegDWORD HKLM "${UNINSTKEY}" "NoModify" 1
-    WriteRegDWORD HKLM "${UNINSTKEY}" "NoRepair" 1
-  !else
-    WriteRegStr HKCU "${UNINSTKEY}" "DisplayName" "{{product_name}}"
-    WriteRegStr HKCU "${UNINSTKEY}" "DisplayIcon" "$INSTDIR\{{main_binary_name}}.exe"
-    WriteRegStr HKCU "${UNINSTKEY}" "DisplayVersion" "{{version}}"
-    {{#if manufacturer}}
-    WriteRegStr HKCU "${UNINSTKEY}" "Publisher" "{{manufacturer}}"
-    {{/if}}
-    WriteRegStr HKCU "${UNINSTKEY}" "InstallLocation" "$INSTDIR"
-    WriteRegStr HKCU "${UNINSTKEY}" "UninstallString" "$INSTDIR\uninstall.exe"
-    WriteRegDWORD HKCU "${UNINSTKEY}" "NoModify" 1
-    WriteRegDWORD HKCU "${UNINSTKEY}" "NoRepair" 1
-  !endif
+  ; Registry entries for Windows Add/Remove Programs (current user)
+  WriteRegStr HKCU "${UNINSTKEY}" "DisplayName" "{{product_name}}"
+  WriteRegStr HKCU "${UNINSTKEY}" "DisplayIcon" "$INSTDIR\{{main_binary_name}}.exe"
+  WriteRegStr HKCU "${UNINSTKEY}" "DisplayVersion" "{{version}}"
+  {{#if manufacturer}}
+  WriteRegStr HKCU "${UNINSTKEY}" "Publisher" "{{manufacturer}}"
+  {{/if}}
+  WriteRegStr HKCU "${UNINSTKEY}" "InstallLocation" "$INSTDIR"
+  WriteRegStr HKCU "${UNINSTKEY}" "UninstallString" "$INSTDIR\uninstall.exe"
+  WriteRegDWORD HKCU "${UNINSTKEY}" "NoModify" 1
+  WriteRegDWORD HKCU "${UNINSTKEY}" "NoRepair" 1
 SectionEnd
 
 ; ============================================================================
@@ -167,12 +148,8 @@ Section "Uninstall"
   Delete "$SMPROGRAMS\{{product_name}}\{{product_name}}.lnk"
   RMDir "$SMPROGRAMS\{{product_name}}"
 
-  ; Remove registry entries
-  !if "${INSTALLMODE}" == "perMachine"
-    DeleteRegKey HKLM "${UNINSTKEY}"
-  !else
-    DeleteRegKey HKCU "${UNINSTKEY}"
-  !endif
+  ; Remove registry entries (current user)
+  DeleteRegKey HKCU "${UNINSTKEY}"
 SectionEnd
 
 ; ============================================================================
@@ -180,12 +157,8 @@ SectionEnd
 ; ============================================================================
 
 Function .onInit
-  ; Check for existing installation
-  !if "${INSTALLMODE}" == "perMachine"
-    ReadRegStr $0 HKLM "${UNINSTKEY}" "InstallLocation"
-  !else
-    ReadRegStr $0 HKCU "${UNINSTKEY}" "InstallLocation"
-  !endif
+  ; Check for existing installation (current user)
+  ReadRegStr $0 HKCU "${UNINSTKEY}" "InstallLocation"
 
   ${If} $0 != ""
     MessageBox MB_OKCANCEL|MB_ICONEXCLAMATION \
