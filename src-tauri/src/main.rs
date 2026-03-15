@@ -25,7 +25,7 @@ fn main() {
             // Default to info level for our app, but suppress noisy dependencies
             EnvFilter::new("info")
                 .add_directive("tauri=warn".parse().unwrap())
-                .add_directive("tao=warn".parse().unwrap())
+                .add_directive("tao=error".parse().unwrap())
                 .add_directive("mio=warn".parse().unwrap())
         });
 
@@ -37,13 +37,13 @@ fn main() {
             // Verbose mode: show everything from our app, suppress deps
             EnvFilter::new("debug")
                 .add_directive("tauri=warn".parse().unwrap())
-                .add_directive("tao=warn".parse().unwrap())
+                .add_directive("tao=error".parse().unwrap())
                 .add_directive("mio=warn".parse().unwrap())
         } else {
             // Normal mode: info level with suppressed deps
             EnvFilter::new("info")
                 .add_directive("tauri=warn".parse().unwrap())
-                .add_directive("tao=warn".parse().unwrap())
+                .add_directive("tao=error".parse().unwrap())
                 .add_directive("mio=warn".parse().unwrap())
         };
 
