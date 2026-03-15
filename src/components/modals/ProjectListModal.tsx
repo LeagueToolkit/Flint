@@ -68,13 +68,13 @@ export const ProjectListModal: React.FC = () => {
 
             setReady();
 
-            // Update recent projects
-            const recent = state.recentProjects.filter(p => p.path !== projectPath);
+            // Update recent projects (use normalized path)
+            const recent = state.recentProjects.filter(p => p.path !== normalizedPath);
             recent.unshift({
                 name: project.display_name || project.name,
                 champion: project.champion,
                 skin: project.skin_id,
-                path: projectPath,
+                path: normalizedPath,
                 lastOpened: new Date().toISOString(),
             });
             dispatch({ type: 'SET_RECENT_PROJECTS', payload: recent.slice(0, 10) });
@@ -121,9 +121,14 @@ export const ProjectListModal: React.FC = () => {
                     // Start fade-out animation
                     setRemovingId(projectId);
 
-                    // Delete the project files
+                    // Try to delete the project files, but if folder doesn't exist, just remove from list
                     setWorking('Deleting project files...');
-                    await api.deleteProject(project.path);
+                    try {
+                        await api.deleteProject(project.path);
+                    } catch (deleteError) {
+                        // If folder doesn't exist, that's fine - just remove from list
+                        console.warn('Project folder may not exist, removing from list anyway:', deleteError);
+                    }
 
                     // Allow fade-out animation to play, then remove from list
                     setTimeout(() => {
