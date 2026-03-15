@@ -744,8 +744,28 @@ fn extract_braced_block(content: &str, start_after: usize) -> Option<String> {
     None
 }
 
+/// Check if a texture path is project-specific (not a shared/generic fallback)
+///
+/// Project-specific textures have `/skin{digit}/` in the path and are NOT in shared folders
+fn is_project_specific_texture(path: &str) -> bool {
+    let lower = path.to_lowercase();
+
+    // Must contain /skin{digit}/ pattern (e.g., /skin0/, /skin8/, /skin42/)
+    let skin_folder_regex = Regex::new(r"/skin\d+/").unwrap();
+    if !skin_folder_regex.is_match(&lower) {
+        return false;
+    }
+
+    // Exclude shared folders - these are generic fallbacks
+    if lower.contains("/shared/") {
+        return false;
+    }
+
+    true
+}
+
 /// Extract Diffuse/Color texture path from a StaticMaterialDef block
-/// 
+///
 /// Looks for common diffuse texture names in samplerValues, with fallback to first sampler
 #[allow(clippy::regex_creation_in_loops)]
 fn extract_diffuse_texture_from_block(block: &str) -> Option<String> {
@@ -785,14 +805,8 @@ fn extract_diffuse_texture_from_block(block: &str) -> Option<String> {
                 let path_regex = Regex::new(r#"texturePath:\s*string\s*=\s*"([^"]+)""#).ok()?;
                 if let Some(path_match) = path_regex.captures(sampler) {
                     let texture_path = path_match.get(1).unwrap().as_str().to_string();
-                    let lower_path = texture_path.to_lowercase();
 
-                    // Check if this is a project-specific texture (not a shared/generic texture)
-                    // Project textures should contain "skin" followed by digits
-                    let is_project_texture = lower_path.contains("skin") &&
-                        lower_path.chars().any(|c| c.is_ascii_digit());
-
-                    if is_project_texture {
+                    if is_project_specific_texture(&texture_path) {
                         tracing::debug!("  ✅ MAIN_TEXTURE (project-specific): {}", texture_path);
                         return Some(texture_path);
                     } else {
@@ -814,13 +828,8 @@ fn extract_diffuse_texture_from_block(block: &str) -> Option<String> {
                 let path_regex = Regex::new(r#"texturePath:\s*string\s*=\s*"([^"]+)""#).ok()?;
                 if let Some(path_match) = path_regex.captures(sampler) {
                     let texture_path = path_match.get(1).unwrap().as_str().to_string();
-                    let lower_path = texture_path.to_lowercase();
 
-                    // Check if this is a project-specific texture
-                    let is_project_texture = lower_path.contains("skin") &&
-                        lower_path.chars().any(|c| c.is_ascii_digit());
-
-                    if is_project_texture {
+                    if is_project_specific_texture(&texture_path) {
                         tracing::debug!("  ✅ DIFFUSE_TEXTURE (project-specific): {}", texture_path);
                         return Some(texture_path);
                     } else {
@@ -830,7 +839,7 @@ fn extract_diffuse_texture_from_block(block: &str) -> Option<String> {
             }
         }
 
-        // PRIORITY 3: Any texture with project-specific path (contains "skin" + digit)
+        // PRIORITY 3: Any texture with project-specific path (contains /skin{digit}/ folder)
         tracing::debug!("  🔍 Priority 3: Looking for ANY texture with project-specific path");
         for (i, sampler) in samplers.iter().enumerate() {
             if i == 0 { continue; }
@@ -848,11 +857,7 @@ fn extract_diffuse_texture_from_block(block: &str) -> Option<String> {
                     continue;
                 }
 
-                // Check if this is a project-specific texture
-                let is_project_texture = lower_path.contains("skin") &&
-                    lower_path.chars().any(|c| c.is_ascii_digit());
-
-                if is_project_texture {
+                if is_project_specific_texture(&texture_path) {
                     tracing::debug!("  ✅ PROJECT TEXTURE #{}: {}", i, texture_path);
                     return Some(texture_path);
                 }
