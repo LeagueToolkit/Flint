@@ -1382,9 +1382,19 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 <div className="model-preview__popup model-preview__popup--top-right model-preview__popup--wide">
                     <div className="model-preview__popup-header">
                         <h4>Materials ({meshData.materials.length})</h4>
-                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                            <button className="btn btn--sm" onClick={() => toggleAllMaterials(true)}>All</button>
-                            <button className="btn btn--sm" onClick={() => toggleAllMaterials(false)}>None</button>
+                        <div className="model-preview__header-actions">
+                            <button className="model-preview__toggle-btn model-preview__toggle-btn--all" onClick={() => toggleAllMaterials(true)}>
+                                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                                    <path d="M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z"/>
+                                </svg>
+                                All
+                            </button>
+                            <button className="model-preview__toggle-btn model-preview__toggle-btn--none" onClick={() => toggleAllMaterials(false)}>
+                                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                                    <path d="M4.646 4.646a.5.5 0 01.708 0L8 7.293l2.646-2.647a.5.5 0 01.708.708L8.707 8l2.647 2.646a.5.5 0 01-.708.708L8 8.707l-2.646 2.647a.5.5 0 01-.708-.708L7.293 8 4.646 5.354a.5.5 0 010-.708z"/>
+                                </svg>
+                                None
+                            </button>
                             <button onClick={() => setActivePopup(null)}>×</button>
                         </div>
                     </div>
@@ -1413,10 +1423,11 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                                         meshData.textures?.[matName]
                                     )) ||
                                     (!isSknMeshData(meshData) && (meshData as ScbMeshData).material_data?.[matName]);
+                                const isVisible = visibleMaterials.has(matName);
                                 return (
                                     <label
                                         key={matName || index}
-                                        className={`material-toggle ${hasTexture ? 'material-toggle--has-texture' : 'material-toggle--no-texture'}`}
+                                        className={`material-toggle ${isVisible ? 'material-toggle--visible' : ''} ${hasTexture ? 'material-toggle--has-texture' : 'material-toggle--no-texture'}`}
                                         onMouseEnter={(e) => {
                                             setHoveredMaterial(matName);
                                             setPreviewPosition({ x: e.clientX, y: e.clientY });
@@ -1428,21 +1439,26 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                                     >
                                         <input
                                             type="checkbox"
-                                            checked={visibleMaterials.has(matName)}
+                                            checked={isVisible}
                                             onChange={() => toggleMaterial(matName)}
                                         />
-                                        <span
-                                            className="material-toggle__color"
-                                            style={{
-                                                backgroundColor: hasTexture ? '#4ade80' : '#f87171'
-                                            }}
-                                        />
-                                        <span className="material-toggle__name" title={matName}>
-                                            {matName || `Material ${index}`}
-                                        </span>
-                                        <span className="material-toggle__status">
-                                            {hasTexture ? '✓' : '✗'}
-                                        </span>
+                                        <div className="material-toggle__info">
+                                            <span className="material-toggle__name" title={matName}>
+                                                {matName || `Material ${index}`}
+                                            </span>
+                                            <span className={`material-toggle__status ${hasTexture ? 'material-toggle__status--loaded' : 'material-toggle__status--missing'}`}>
+                                                {hasTexture ? (
+                                                    <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
+                                                        <path d="M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z"/>
+                                                    </svg>
+                                                ) : (
+                                                    <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
+                                                        <path d="M4.646 4.646a.5.5 0 01.708 0L8 7.293l2.646-2.647a.5.5 0 01.708.708L8.707 8l2.647 2.646a.5.5 0 01-.708.708L8 8.707l-2.646 2.647a.5.5 0 01-.708-.708L7.293 8 4.646 5.354a.5.5 0 010-.708z"/>
+                                                    </svg>
+                                                )}
+                                                {hasTexture ? 'Texture loaded' : 'No texture'}
+                                            </span>
+                                        </div>
                                     </label>
                                 );
                             })}
