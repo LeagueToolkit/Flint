@@ -907,21 +907,22 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         };
     }, []);
 
+    // Track our canvas for cleanup
+    const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
     // Clean up WebGL context and event listeners on unmount
     useEffect(() => {
         return () => {
-            // Find the canvas element and call cleanup if it exists
-            const canvases = document.querySelectorAll('canvas');
-            canvases.forEach(canvas => {
-                if ((canvas as any)._flintCleanup) {
-                    try {
-                        (canvas as any)._flintCleanup();
-                        delete (canvas as any)._flintCleanup;
-                    } catch (e) {
-                        // Ignore errors during cleanup
-                    }
+            const canvas = canvasRef.current;
+            if (canvas && (canvas as any)._flintCleanup) {
+                try {
+                    (canvas as any)._flintCleanup();
+                    delete (canvas as any)._flintCleanup;
+                } catch (_e) {
+                    // Ignore errors during cleanup
                 }
-            });
+            }
+            canvasRef.current = null;
         };
     }, []);
 
@@ -1217,13 +1218,16 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             <div className="model-preview__canvas">
                 <Canvas
                     key={filePath} // Force unmount/remount on file change
-                    onCreated={({ gl }) => {
+                    onCreated={({ gl, invalidate }) => {
                         const canvas = gl.domElement;
+                        canvasRef.current = canvas;
+
                         const handleContextLost = (e: Event) => {
                             e.preventDefault();
                         };
                         const handleContextRestored = () => {
                             gl.clear();
+                            invalidate();
                         };
                         canvas.addEventListener('webglcontextlost', handleContextLost);
                         canvas.addEventListener('webglcontextrestored', handleContextRestored);
@@ -1233,7 +1237,6 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                             canvas.removeEventListener('webglcontextlost', handleContextLost);
                             canvas.removeEventListener('webglcontextrestored', handleContextRestored);
                             gl.dispose();
-                            gl.forceContextLoss();
                         };
                     }}
                 >

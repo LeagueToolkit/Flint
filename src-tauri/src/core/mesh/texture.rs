@@ -623,7 +623,7 @@ fn resolve_material_texture(content: &str, material_path: &str) -> Option<Materi
     let escaped_path = regex::escape(material_path);
 
     // Try multiple search strategies
-    let patterns = vec![
+    let patterns = [
         // Exact match
         format!(r#""{}"\s*=\s*StaticMaterialDef"#, escaped_path),
         // Case-insensitive

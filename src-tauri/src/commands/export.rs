@@ -1,11 +1,10 @@
 //! Tauri commands for export operations
 //!
 //! These commands expose export and repathing functionality to the frontend.
-//! Uses ltk_fantome for league-mod compatible .fantome export.
+//! Builds proper WAD binary files for fantome export.
 
 use crate::core::export::generate_fantome_filename;
 use crate::core::repath::{organize_project, OrganizerConfig};
-use ltk_fantome::pack_to_fantome;
 use ltk_mod_project::{ModProject, ModProjectAuthor};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -126,21 +125,21 @@ pub async fn repath_project_cmd(
     }
 }
 
-/// Export a project as a .fantome mod package using ltk_fantome
+/// Export a project as a .fantome mod package (read-only, does NOT modify project)
 ///
 /// # Arguments
 /// * `project_path` - Path to the project directory
 /// * `output_path` - Path where the .fantome file will be created
-/// * `champion` - Champion name for WAD structure (unused by ltk_fantome, kept for API compat)
+/// * `champion` - Kept for API compat
 /// * `metadata` - Mod metadata
-/// * `auto_repath` - Whether to run repathing before export (default: true)
+/// * `auto_repath` - Ignored (kept for API compat, repathing is a separate operation)
 #[tauri::command]
 pub async fn export_fantome(
     project_path: String,
     output_path: String,
-    champion: String,
+    _champion: String,
     metadata: ExportMetadata,
-    auto_repath: Option<bool>,
+    _auto_repath: Option<bool>,
     app: tauri::AppHandle,
 ) -> Result<ExportResult, String> {
     tracing::info!(
@@ -151,43 +150,10 @@ pub async fn export_fantome(
 
     let path = PathBuf::from(&project_path);
     let output = PathBuf::from(&output_path);
-    let do_repath = auto_repath.unwrap_or(true);
 
-    // Step 1: Repath if requested
-    if do_repath {
-        let _ = app.emit("export-progress", serde_json::json!({
-            "status": "repathing",
-            "progress": 0.2,
-            "message": "Repathing assets..."
-        }));
-
-        let config = OrganizerConfig {
-            enable_concat: true,
-            enable_repath: true,
-            creator_name: metadata.author.clone(),
-            project_name: slugify(&metadata.name),
-            champion: champion.clone(),
-            target_skin_id: 0,
-            cleanup_unused: false,
-        };
-
-        let repath_path = path.join("content").join("base");
-        let repath_result = tokio::task::spawn_blocking(move || {
-            let path_mappings: HashMap<String, String> = HashMap::new();
-            organize_project(&repath_path, &config, &path_mappings)
-        })
-        .await
-        .map_err(|e| format!("Repath task failed: {}", e))?;
-
-        if let Err(e) = repath_result {
-            tracing::warn!("Repathing failed (continuing anyway): {}", e);
-        }
-    }
-
-    // Step 2: Export using ltk_fantome
     let _ = app.emit("export-progress", serde_json::json!({
         "status": "exporting",
-        "progress": 0.5,
+        "progress": 0.3,
         "message": "Creating fantome package..."
     }));
 
@@ -253,34 +219,173 @@ pub async fn export_fantome(
     }
 }
 
-/// Helper function to export using ltk_fantome::pack_to_fantome
+/// Build a proper WAD binary from a .wad.client directory
+///
+/// Uses league_toolkit's WadBuilder to create a valid WAD v3.4 binary
+/// with compressed chunks that mod managers can read.
+pub fn build_wad_from_directory(wad_dir: &Path) -> Result<Vec<u8>, String> {
+    use league_toolkit::wad::{WadBuilder, WadChunkBuilder};
+    use std::io::{Cursor, Write};
+
+    // Collect all files with their WAD-relative paths
+    let mut wad_files: HashMap<String, PathBuf> = HashMap::new();
+    for entry in walkdir::WalkDir::new(wad_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            let p = e.path().to_string_lossy().to_lowercase();
+            !p.contains("testcuberenderer")
+                && !p.ends_with(".ritobin")
+                && e.path().is_file()
+        })
+    {
+        let relative = entry
+            .path()
+            .strip_prefix(wad_dir)
+            .map_err(|e| format!("Failed to strip prefix: {}", e))?;
+        let wad_path = relative.to_string_lossy().replace('\\', "/");
+        wad_files.insert(wad_path, entry.path().to_path_buf());
+    }
+
+    if wad_files.is_empty() {
+        return Err(format!("No files found in WAD directory: {}", wad_dir.display()));
+    }
+
+    tracing::info!("Building WAD from {} files in {}", wad_files.len(), wad_dir.display());
+
+    // Build hash -> file path lookup (WadBuilder callback receives hash, not path)
+    let mut hash_to_path: HashMap<u64, PathBuf> = HashMap::with_capacity(wad_files.len());
+    let mut builder = WadBuilder::default();
+
+    for (wad_path, file_path) in &wad_files {
+        let hash = xxhash_rust::xxh64::xxh64(wad_path.to_lowercase().as_bytes(), 0);
+        hash_to_path.insert(hash, file_path.clone());
+        builder = builder.with_chunk(WadChunkBuilder::default().with_path(wad_path));
+    }
+
+    // Build WAD binary to memory
+    let mut wad_buffer = Cursor::new(Vec::new());
+    builder
+        .build_to_writer(&mut wad_buffer, |path_hash, cursor| {
+            if let Some(file_path) = hash_to_path.get(&path_hash) {
+                let data = std::fs::read(file_path).map_err(|e| {
+                    league_toolkit::wad::WadBuilderError::IoError(std::io::Error::other(
+                        format!("Failed to read {}: {}", file_path.display(), e),
+                    ))
+                })?;
+                cursor.write_all(&data)?;
+            }
+            Ok(())
+        })
+        .map_err(|e| format!("Failed to build WAD: {}", e))?;
+
+    tracing::info!("WAD built: {} bytes from {} chunks", wad_buffer.get_ref().len(), wad_files.len());
+    Ok(wad_buffer.into_inner())
+}
+
+/// Helper function to export as a fantome package with proper WAD binaries
 fn export_with_ltk_fantome(
     project_path: &Path,
     output_path: &Path,
     mod_project: &ModProject,
 ) -> Result<(usize, u64), String> {
-    // Create output file
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+    use zip::ZipWriter;
+
     let file = File::create(output_path)
         .map_err(|e| format!("Failed to create output file: {}", e))?;
 
-    // Count files before export
+    let mut zip = ZipWriter::new(file);
     let content_base = project_path.join("content").join("base");
-    let file_count = walkdir::WalkDir::new(&content_base)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_file())
-        .count();
+    let mut total_files = 0;
 
-    // Use ltk_fantome to pack
-    pack_to_fantome(file, mod_project, project_path)
-        .map_err(|e| format!("ltk_fantome export failed: {}", e))?;
+    // Find all .wad.client directories and build proper WAD binaries for each
+    for entry in std::fs::read_dir(&content_base)
+        .map_err(|e| format!("Failed to read content/base: {}", e))?
+    {
+        let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
+        let path = entry.path();
 
-    // Get output file size
+        if path.is_dir()
+            && path
+                .file_name()
+                .map(|n| n.to_string_lossy().ends_with(".wad.client"))
+                .unwrap_or(false)
+        {
+            let wad_name = path.file_name().unwrap().to_string_lossy().to_string();
+
+            // Count files for this WAD
+            let file_count = walkdir::WalkDir::new(&path)
+                .into_iter()
+                .filter_map(|e| e.ok())
+                .filter(|e| {
+                    let p = e.path().to_string_lossy().to_lowercase();
+                    !p.contains("testcuberenderer")
+                        && !p.ends_with(".ritobin")
+                        && e.path().is_file()
+                })
+                .count();
+            total_files += file_count;
+
+            // Build WAD binary from directory contents
+            let wad_bytes = build_wad_from_directory(&path)?;
+
+            // Write WAD binary into ZIP at WAD/{name}.wad.client
+            let options = SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            zip.start_file(format!("WAD/{}", wad_name), options)
+                .map_err(|e| format!("Failed to create WAD entry in ZIP: {}", e))?;
+            zip.write_all(&wad_bytes)
+                .map_err(|e| format!("Failed to write WAD to ZIP: {}", e))?;
+
+            tracing::info!("Packed WAD/{} ({} files, {} bytes)", wad_name, file_count, wad_bytes.len());
+        }
+    }
+
+    // Write META/info.json
+    let info = serde_json::json!({
+        "Name": mod_project.display_name,
+        "Author": format_authors(&mod_project.authors),
+        "Version": mod_project.version,
+        "Description": mod_project.description,
+    });
+
+    let meta_options = SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    zip.start_file("META/info.json", meta_options)
+        .map_err(|e| format!("Failed to create info.json entry: {}", e))?;
+    zip.write_all(
+        serde_json::to_string_pretty(&info)
+            .map_err(|e| format!("Failed to serialize info.json: {}", e))?
+            .as_bytes(),
+    )
+    .map_err(|e| format!("Failed to write info.json: {}", e))?;
+
+    zip.finish()
+        .map_err(|e| format!("Failed to finalize ZIP: {}", e))?;
+
     let total_size = std::fs::metadata(output_path)
         .map(|m| m.len())
         .unwrap_or(0);
 
-    Ok((file_count, total_size))
+    tracing::info!("Fantome export complete: {} files, {} bytes", total_files, total_size);
+    Ok((total_files, total_size))
+}
+
+/// Format authors list to a single string
+fn format_authors(authors: &[ModProjectAuthor]) -> String {
+    if authors.is_empty() {
+        return "Unknown".to_string();
+    }
+    authors
+        .iter()
+        .map(|a| match a {
+            ModProjectAuthor::Name(name) => name.clone(),
+            ModProjectAuthor::Role { name, .. } => name.clone(),
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Generate a suggested filename for the fantome export

@@ -103,43 +103,40 @@ pub async fn sync_project_to_launcher(
 
     tracing::info!("Loaded project: {} v{}", project.name, project.version);
 
-    // 2. Package the project as .modpkg
+    // 2. Package the project as .fantome (with proper WAD binaries)
     let package_start = Instant::now();
     let temp_dir = std::env::temp_dir();
-    let modpkg_filename = format!("{}.modpkg", project.name);
-    let modpkg_path = temp_dir.join(&modpkg_filename);
+    let fantome_filename = format!("{}.fantome", project.name);
+    let fantome_path = temp_dir.join(&fantome_filename);
 
-    tracing::info!("Packaging project to: {:?}", modpkg_path);
+    tracing::info!("Packaging project to: {:?}", fantome_path);
 
-    // Use the ltk_mod_project library to package
-    package_project(&project_path_buf, &modpkg_path)
+    package_project(&project_path_buf, &fantome_path)
         .map_err(|e| format!("Failed to package project: {}", e))?;
 
-    tracing::info!("Successfully packaged project as .modpkg in {:.2}s", package_start.elapsed().as_secs_f32());
+    tracing::info!("Successfully packaged project as .fantome in {:.2}s", package_start.elapsed().as_secs_f32());
 
     // 3. Install to LTK Manager
     let install_start = Instant::now();
-    let mod_id = install_to_ltk_manager(&modpkg_path, &ltk_storage_buf)
+    let mod_id = install_to_ltk_manager(&fantome_path, &ltk_storage_buf)
         .map_err(|e| format!("Failed to install to LTK Manager: {}", e))?;
 
     tracing::info!("Successfully installed to LTK Manager with ID: {} in {:.2}s", mod_id, install_start.elapsed().as_secs_f32());
     tracing::info!("Total sync time: {:.2}s", sync_start.elapsed().as_secs_f32());
 
     // Clean up temp file
-    let _ = fs::remove_file(&modpkg_path);
+    let _ = fs::remove_file(&fantome_path);
 
     Ok(mod_id)
 }
 
-/// Package a Flint project as a .modpkg file
+/// Package a Flint project as a .fantome file with proper WAD binaries
 fn package_project(project_path: &std::path::Path, output_path: &std::path::Path) -> Result<(), String> {
-    use ltk_mod_project::ModProject;
-    use ltk_modpkg::builder::{ModpkgBuilder, ModpkgChunkBuilder, ModpkgLayerBuilder};
-    use ltk_modpkg::{ModpkgMetadata, ModpkgAuthor};
-    use std::collections::HashMap;
-    use std::fs::File;
+    use crate::commands::export::build_wad_from_directory;
+    use ltk_mod_project::{ModProject, ModProjectAuthor};
     use std::io::Write;
-    use walkdir::WalkDir;
+    use zip::write::SimpleFileOptions;
+    use zip::ZipWriter;
 
     // Read mod.config.json
     let mod_config_path = project_path.join("mod.config.json");
@@ -149,123 +146,100 @@ fn package_project(project_path: &std::path::Path, output_path: &std::path::Path
     let mod_project: ModProject = serde_json::from_str(&config_data)
         .map_err(|e| format!("Failed to parse mod.config.json: {}", e))?;
 
-    // Collect all files from the content directory
-    let content_base = project_path.join("content");
+    let content_base = project_path.join("content").join("base");
     if !content_base.exists() {
-        return Err("Project content directory not found".to_string());
+        return Err("Project content/base directory not found".to_string());
     }
 
-    // OPTIMIZATION: Instead of loading all files into memory, just collect paths
-    // This reduces memory usage dramatically for large projects
+    let file = std::fs::File::create(output_path)
+        .map_err(|e| format!("Failed to create output file: {}", e))?;
+    let mut zip = ZipWriter::new(file);
 
-    // First, collect all file entries
-    let entries: Vec<_> = WalkDir::new(&content_base)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_file())
-        .collect();
+    // Find all .wad.client directories and build proper WAD binaries
+    for entry in std::fs::read_dir(&content_base)
+        .map_err(|e| format!("Failed to read content/base: {}", e))?
+    {
+        let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
+        let path = entry.path();
 
-    // Pre-allocate HashMap with known capacity to avoid reallocations
-    let mut file_paths: HashMap<String, PathBuf> = HashMap::with_capacity(entries.len());
+        if path.is_dir()
+            && path
+                .file_name()
+                .map(|n| n.to_string_lossy().ends_with(".wad.client"))
+                .unwrap_or(false)
+        {
+            let wad_name = path.file_name().unwrap().to_string_lossy().to_string();
+            let wad_bytes = build_wad_from_directory(&path)?;
 
-    // Process file paths
-    for entry in entries {
-        let file_path = entry.path();
-        let relative_path = file_path
-            .strip_prefix(&content_base)
-            .map_err(|e| format!("Failed to get relative path: {}", e))?;
+            let options = SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            zip.start_file(format!("WAD/{}", wad_name), options)
+                .map_err(|e| format!("Failed to create WAD entry: {}", e))?;
+            zip.write_all(&wad_bytes)
+                .map_err(|e| format!("Failed to write WAD: {}", e))?;
 
-        // Normalize path separators and lowercase
-        let normalized_path = relative_path.to_string_lossy().replace("\\", "/").to_lowercase();
-        file_paths.insert(normalized_path, file_path.to_path_buf());
+            tracing::info!("Packed WAD/{} ({} bytes)", wad_name, wad_bytes.len());
+        }
     }
 
-    tracing::info!("Found {} files to package", file_paths.len());
-
-    let package_config_start = Instant::now();
-
-    // Parse version
-    let version = semver::Version::parse(&mod_project.version)
-        .unwrap_or_else(|_| semver::Version::new(1, 0, 0));
-
-    // Create metadata
-    let metadata = ModpkgMetadata {
-        name: mod_project.name.clone(),
-        display_name: mod_project.display_name.clone(),
-        version,
-        description: if mod_project.description.is_empty() {
-            None
-        } else {
-            Some(mod_project.description.clone())
-        },
-        authors: mod_project.authors.iter().map(|author| {
-            match author {
-                ltk_mod_project::ModProjectAuthor::Name(name) => ModpkgAuthor::new(name.clone(), None),
-                ltk_mod_project::ModProjectAuthor::Role { name, role } => ModpkgAuthor::new(name.clone(), Some(role.clone())),
-            }
-        }).collect(),
-        ..Default::default()
+    // Write META/info.json
+    let author_str = if mod_project.authors.is_empty() {
+        "Unknown".to_string()
+    } else {
+        mod_project.authors.iter().map(|a| match a {
+            ModProjectAuthor::Name(name) => name.clone(),
+            ModProjectAuthor::Role { name, .. } => name.clone(),
+        }).collect::<Vec<_>>().join(", ")
     };
 
-    // Build the modpkg
-    let mut builder = ModpkgBuilder::default()
-        .with_metadata(metadata)
-        .map_err(|e| format!("Failed to set metadata: {}", e))?
-        .with_layer(ModpkgLayerBuilder::base());
+    let info = serde_json::json!({
+        "Name": mod_project.display_name,
+        "Author": author_str,
+        "Version": mod_project.version,
+        "Description": mod_project.description,
+    });
 
-    // Add all files as chunks with Zstd compression
-    // Zstd typically achieves 40-60% compression ratio for League assets
-    for path in file_paths.keys() {
-        let chunk = ModpkgChunkBuilder::new()
-            .with_path(path)
-            .map_err(|e| format!("Failed to set chunk path: {}", e))?
-            .with_compression(ltk_modpkg::ModpkgCompression::Zstd)
-            .with_layer("base");
-        builder = builder.with_chunk(chunk);
-    }
+    let meta_options = SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    zip.start_file("META/info.json", meta_options)
+        .map_err(|e| format!("Failed to create info.json: {}", e))?;
+    zip.write_all(
+        serde_json::to_string_pretty(&info)
+            .map_err(|e| format!("Failed to serialize info.json: {}", e))?
+            .as_bytes(),
+    )
+    .map_err(|e| format!("Failed to write info.json: {}", e))?;
 
-    tracing::info!("Configured {} chunks with Zstd compression in {:.2}s",
-        file_paths.len(), package_config_start.elapsed().as_secs_f32());
-
-    // Create output file
-    let mut output_file = File::create(output_path)
-        .map_err(|e| format!("Failed to create output file: {}", e))?;
-
-    // Build to writer - OPTIMIZATION: Read files on-demand instead of from pre-loaded HashMap
-    // For small files (< 1MB), read into memory. For larger files, use buffered I/O
-    builder.build_to_writer(&mut output_file, |chunk_builder, cursor| {
-        if let Some(file_path) = file_paths.get(&chunk_builder.path) {
-            // For most League assets, direct read is fine since they're typically < 10MB
-            // Using read() is actually faster than buffered I/O for small files due to syscall overhead
-            let data = std::fs::read(file_path)
-                .map_err(ltk_modpkg::builder::ModpkgBuilderError::IoError)?;
-            cursor.write_all(&data)?;
-        }
-        Ok(())
-    })
-    .map_err(|e| format!("Failed to build modpkg: {}", e))?;
+    zip.finish()
+        .map_err(|e| format!("Failed to finalize ZIP: {}", e))?;
 
     Ok(())
 }
 
-/// Install a .modpkg file to LTK Manager's library
+/// Install a .fantome file to LTK Manager's library
 fn install_to_ltk_manager(
-    modpkg_path: &std::path::Path,
+    fantome_path: &std::path::Path,
     ltk_storage_path: &std::path::Path,
 ) -> Result<String, String> {
-    use ltk_modpkg::Modpkg;
     use uuid::Uuid;
-    use std::io::Cursor;
+    use std::io::Read;
 
-    // Read the modpkg to get metadata first
-    let modpkg_bytes = fs::read(modpkg_path)
-        .map_err(|e| format!("Failed to read modpkg: {}", e))?;
+    // Read info.json from the fantome ZIP to get metadata
+    let fantome_file = fs::File::open(fantome_path)
+        .map_err(|e| format!("Failed to open fantome: {}", e))?;
+    let mut archive = zip::ZipArchive::new(fantome_file)
+        .map_err(|e| format!("Failed to read fantome ZIP: {}", e))?;
 
-    let mut modpkg = Modpkg::mount_from_reader(Cursor::new(&modpkg_bytes))
-        .map_err(|e| format!("Failed to parse modpkg: {}", e))?;
-
-    let metadata = modpkg.load_metadata()
-        .map_err(|e| format!("Failed to load metadata from modpkg: {}", e))?;
+    let mod_name = {
+        let mut info_file = archive.by_name("META/info.json")
+            .map_err(|e| format!("Failed to find META/info.json in fantome: {}", e))?;
+        let mut info_str = String::new();
+        info_file.read_to_string(&mut info_str)
+            .map_err(|e| format!("Failed to read info.json: {}", e))?;
+        let info: serde_json::Value = serde_json::from_str(&info_str)
+            .map_err(|e| format!("Failed to parse info.json: {}", e))?;
+        info.get("Name").and_then(|n| n.as_str()).unwrap_or("Unknown").to_string()
+    };
 
     // Check if a mod with this name already exists in the library
     let library_path = ltk_storage_path.join("library.json");
@@ -275,15 +249,13 @@ fn install_to_ltk_manager(
         let library: LibraryIndex = serde_json::from_str(&contents)
             .map_err(|e| format!("Failed to parse library.json: {}", e))?;
 
-        // Find existing mod by name
         library.mods.iter()
             .find(|m| {
-                // Check if the mod's name matches
                 let mod_dir = ltk_storage_path.join("mods").join(&m.id);
                 if let Ok(config_contents) = fs::read_to_string(mod_dir.join("mod.config.json")) {
                     if let Ok(config) = serde_json::from_str::<serde_json::Value>(&config_contents) {
                         if let Some(name) = config.get("name").and_then(|n| n.as_str()) {
-                            return name == metadata.name;
+                            return name == mod_name;
                         }
                     }
                 }
@@ -294,7 +266,6 @@ fn install_to_ltk_manager(
         None
     };
 
-    // Use existing ID or generate new one
     let (mod_id, _is_update) = if let Some(existing_id) = existing_mod_id {
         tracing::info!("Updating existing mod with ID: {}", existing_id);
         (existing_id, true)
@@ -304,35 +275,43 @@ fn install_to_ltk_manager(
         (new_id, false)
     };
 
-    // Create archives directory if it doesn't exist
+    // Create archives directory and copy fantome there
     let archives_dir = ltk_storage_path.join("archives");
     fs::create_dir_all(&archives_dir)
         .map_err(|e| format!("Failed to create archives directory: {}", e))?;
 
-    // Copy the modpkg to the archives directory
-    let archive_dest = archives_dir.join(format!("{}.modpkg", mod_id));
-    fs::copy(modpkg_path, &archive_dest)
-        .map_err(|e| format!("Failed to copy modpkg to archives: {}", e))?;
+    let archive_dest = archives_dir.join(format!("{}.fantome", mod_id));
+    fs::copy(fantome_path, &archive_dest)
+        .map_err(|e| format!("Failed to copy fantome to archives: {}", e))?;
 
-    // Create mods metadata directory
+    // Create mods metadata directory with mod.config.json
     let mods_dir = ltk_storage_path.join("mods").join(&mod_id);
     fs::create_dir_all(&mods_dir)
         .map_err(|e| format!("Failed to create mods metadata directory: {}", e))?;
 
-    // Write mod.config.json to metadata directory (use minimal representation)
-    let mod_config = serde_json::json!({
-        "name": metadata.name,
-        "display_name": metadata.display_name,
-        "version": metadata.version.to_string(),
-        "description": metadata.description,
-        "authors": metadata.authors.iter().map(|a| {
-            if let Some(role) = &a.role {
-                serde_json::json!({"name": a.name, "role": role})
-            } else {
-                serde_json::json!(a.name)
-            }
-        }).collect::<Vec<_>>(),
-    });
+    // Re-open to read metadata for config
+    let fantome_file2 = fs::File::open(fantome_path)
+        .map_err(|e| format!("Failed to reopen fantome: {}", e))?;
+    let mut archive2 = zip::ZipArchive::new(fantome_file2)
+        .map_err(|e| format!("Failed to re-read fantome ZIP: {}", e))?;
+
+    let mod_config = {
+        let mut info_file = archive2.by_name("META/info.json")
+            .map_err(|e| format!("Failed to find META/info.json: {}", e))?;
+        let mut info_str = String::new();
+        info_file.read_to_string(&mut info_str)
+            .map_err(|e| format!("Failed to read info.json: {}", e))?;
+        let info: serde_json::Value = serde_json::from_str(&info_str)
+            .map_err(|e| format!("Failed to parse info.json: {}", e))?;
+
+        serde_json::json!({
+            "name": info.get("Name").and_then(|n| n.as_str()).unwrap_or("Unknown"),
+            "display_name": info.get("Name").and_then(|n| n.as_str()).unwrap_or("Unknown"),
+            "version": info.get("Version").and_then(|v| v.as_str()).unwrap_or("1.0.0"),
+            "description": info.get("Description").and_then(|d| d.as_str()).unwrap_or(""),
+            "authors": [info.get("Author").and_then(|a| a.as_str()).unwrap_or("Unknown")],
+        })
+    };
 
     let config_json = serde_json::to_string_pretty(&mod_config)
         .map_err(|e| format!("Failed to serialize project config: {}", e))?;
@@ -341,7 +320,7 @@ fn install_to_ltk_manager(
         .map_err(|e| format!("Failed to write mod.config.json: {}", e))?;
 
     // Update library.json
-    update_library_index(ltk_storage_path, &mod_id)
+    update_library_index(ltk_storage_path, &mod_id, "fantome")
         .map_err(|e| format!("Failed to update library index: {}", e))?;
 
     Ok(mod_id)
@@ -396,7 +375,7 @@ impl Default for LibraryIndex {
 }
 
 /// Update LTK Manager's library.json to include the new mod
-fn update_library_index(ltk_storage_path: &std::path::Path, mod_id: &str) -> Result<(), String> {
+fn update_library_index(ltk_storage_path: &std::path::Path, mod_id: &str, format: &str) -> Result<(), String> {
     let library_path = ltk_storage_path.join("library.json");
 
     // Load existing library or create new one
@@ -421,7 +400,7 @@ fn update_library_index(ltk_storage_path: &std::path::Path, mod_id: &str) -> Res
         library.mods.push(LibraryModEntry {
             id: mod_id.to_string(),
             installed_at: Utc::now().to_rfc3339(),
-            format: "modpkg".to_string(),
+            format: format.to_string(),
         });
         tracing::info!("Added new mod entry to library");
 
