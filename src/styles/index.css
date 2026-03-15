@@ -4494,10 +4494,12 @@ input.search-box__input {
 .model-preview__toggle-btn {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 6px 10px;
-  font-size: var(--text-xs);
+  gap: 3px;
+  padding: 4px 8px;
+  font-size: 10px;
   font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background-color: var(--bg-secondary);
