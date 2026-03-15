@@ -629,12 +629,14 @@ fn repath_bin_file(bin_path: &Path, existing_paths: &HashSet<String>, prefix: &s
 
     for object in bin.objects.values_mut() {
         for (prop_name, prop) in object.properties.iter_mut() {
-            // Special case: Replace championSkinName with project name
+            // Special case: Replace championSkinName with project name (sanitized)
             if *prop_name == *CHAMPION_SKIN_NAME_HASH {
                 if let PropertyValueEnum::String(ref mut s) = prop.value {
-                    s.0 = config.project_name.clone();
+                    // Sanitize project name: replace spaces with hyphens
+                    let sanitized_name = config.project_name.replace(' ', "-");
+                    s.0 = sanitized_name.clone();
                     modified_count += 1;
-                    tracing::debug!("Replaced championSkinName with '{}'", config.project_name);
+                    tracing::debug!("Replaced championSkinName with '{}' (sanitized from '{}')", sanitized_name, config.project_name);
                 }
             }
 
