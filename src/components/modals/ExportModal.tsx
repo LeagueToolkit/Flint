@@ -7,6 +7,7 @@ import { useAppState } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { save } from '@tauri-apps/plugin-dialog';
 import { getIcon } from '../../lib/fileIcons';
+import { sanitizeChampionName } from '../../lib/utils';
 
 export const ExportModal: React.FC = () => {
     const { state, closeModal, showToast } = useAppState();
@@ -54,7 +55,7 @@ export const ExportModal: React.FC = () => {
                 projectPath: currentProjectPath,
                 outputPath,
                 format,
-                champion: currentProject.champion,
+                champion: sanitizeChampionName(currentProject.champion),
                 metadata: {
                     name: currentProject.name,
                     author: currentProject.creator || state.creatorName || 'Unknown',
@@ -128,7 +129,7 @@ export const ExportModal: React.FC = () => {
                     <div className="form-group">
                         <label className="form-label">Project</label>
                         <div style={{ color: 'var(--text-secondary)' }}>
-                            {currentProject?.champion} - {currentProject?.display_name || currentProject?.name}
+                            {currentProject?.champion ? sanitizeChampionName(currentProject.champion) : ''} - {currentProject?.display_name || currentProject?.name}
                         </div>
                     </div>
                 </div>

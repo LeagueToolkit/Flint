@@ -8,6 +8,7 @@ import { save } from '@tauri-apps/plugin-dialog';
 import { useAppState } from '../lib/stores';
 import { getIcon } from '../lib/fileIcons';
 import * as api from '../lib/api';
+import { sanitizeChampionName } from '../lib/utils';
 import type { ProjectTab, ExtractSession } from '../lib/types';
 
 // Window control icons as inline SVGs
@@ -266,7 +267,7 @@ export const TitleBar: React.FC = () => {
                 projectPath: currentProjectPath,
                 outputPath,
                 format,
-                champion: currentProject.champion,
+                champion: sanitizeChampionName(currentProject.champion),
                 metadata: {
                     name: currentProject.name,
                     author: currentProject.creator || state.creatorName || 'Unknown',

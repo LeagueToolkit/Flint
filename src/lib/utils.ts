@@ -47,6 +47,15 @@ export function formatRelativeTime(date: string | Date): string {
 }
 
 /**
+ * Sanitize champion name for use in paths and file names
+ * Converts to lowercase and replaces spaces with hyphens
+ * Example: "Miss Fortune" → "miss-fortune"
+ */
+export function sanitizeChampionName(name: string): string {
+    return name.toLowerCase().replace(/\s+/g, '-');
+}
+
+/**
  * Truncate path for display, keeping filename visible
  */
 export function truncatePath(path: string, maxLength = 40): string {

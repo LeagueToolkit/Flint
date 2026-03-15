@@ -7,6 +7,7 @@ import { useAppState } from '../lib/stores';
 import { getIcon } from '../lib/fileIcons';
 import { save } from '@tauri-apps/plugin-dialog';
 import * as api from '../lib/api';
+import { sanitizeChampionName } from '../lib/utils';
 
 /**
  * Flint flame logo SVG
@@ -119,7 +120,7 @@ export const TopBar: React.FC = () => {
                 projectPath: currentProjectPath,
                 outputPath,
                 format,
-                champion: currentProject.champion,
+                champion: sanitizeChampionName(currentProject.champion),
                 metadata: {
                     name: currentProject.name,
                     author: currentProject.creator || state.creatorName || 'Unknown',
@@ -206,11 +207,11 @@ export const TopBar: React.FC = () => {
                                 className={`tabbar__tab ${tab.id === state.activeTabId && state.currentView === 'preview' ? 'tabbar__tab--active' : ''}`}
                                 onClick={() => handleSwitchTab(tab.id)}
                                 onMouseDown={(e) => e.button === 1 && handleCloseTab(e, tab.id)}
-                                title={`${tab.project.champion} - ${tab.project.display_name || tab.project.name}\n${tab.projectPath}`}
+                                title={`${sanitizeChampionName(tab.project.champion)} - ${tab.project.display_name || tab.project.name}\n${tab.projectPath}`}
                             >
                                 <span className="tabbar__tab-icon" dangerouslySetInnerHTML={{ __html: getIcon('folder') }} />
                                 <span className="tabbar__tab-name">
-                                    {tab.project.champion} - {tab.project.display_name || tab.project.name}
+                                    {sanitizeChampionName(tab.project.champion)} - {tab.project.display_name || tab.project.name}
                                 </span>
                                 <button
                                     className="tabbar__tab-close"
