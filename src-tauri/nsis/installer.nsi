@@ -27,22 +27,12 @@
 BrandingText "${PRODUCT_NAME} ${PRODUCT_VERSION}"
 
 ; ============================================================================
-; Installer Graphics (Placeholders - replace these!)
+; Installer Graphics
 ; ============================================================================
 
-; Sidebar image (left side): 164x314 pixels, BMP format
-!define MUI_WELCOMEFINISHPAGE_BITMAP "..\installer-assets\installer-sidebar.bmp"
-!define MUI_UNWELCOMEFINISHPAGE_BITMAP "..\installer-assets\installer-sidebar.bmp"
-
-; Header image (top banner): 150x57 pixels, BMP format
-!define MUI_HEADERIMAGE
-!define MUI_HEADERIMAGE_BITMAP "..\installer-assets\installer-header.bmp"
-!define MUI_HEADERIMAGE_UNBITMAP "..\installer-assets\installer-header.bmp"
-!define MUI_HEADERIMAGE_RIGHT
-
-; Icon
-!define MUI_ICON "..\icons\icon.ico"
-!define MUI_UNICON "..\icons\icon.ico"
+; Tauri provides these paths via variables - don't hardcode relative paths
+; The icon, sidebar, and header images are configured in tauri.conf.json
+; and Tauri will inject them automatically
 
 ; ============================================================================
 ; Installer Configuration
