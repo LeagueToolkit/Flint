@@ -1,4 +1,8 @@
 //! Logging commands — runtime log level switching
+//!
+//! Provides commands to switch between normal and verbose logging modes:
+//! - Normal mode (info): Shows important app events and user-facing operations
+//! - Verbose mode (debug): Shows detailed internal operations and diagnostics
 
 use parking_lot::Mutex;
 
@@ -12,14 +16,56 @@ pub fn set_reload_fn(f: ReloadFn) {
 }
 
 /// Switch between normal (`info`) and verbose (`debug`) log levels.
+///
+/// # Arguments
+/// * `verbose` - If true, enables verbose (debug) logging; if false, uses normal (info) logging
+///
+/// # Log Levels
+/// - **Normal mode** (verbose=false): Shows important operations (info/warn/error)
+///   - Project operations (create, open, save)
+///   - Export operations
+///   - Error conditions
+///
+/// - **Verbose mode** (verbose=true): Shows everything above plus:
+///   - File operations (read, write, hash lookups)
+///   - WAD chunk parsing
+///   - BIN conversion details
+///   - Cache operations
 #[tauri::command]
 pub async fn set_log_level(verbose: bool) -> Result<(), String> {
     let filter_str = if verbose { "debug" } else { "info" };
+    let mode_name = if verbose { "verbose (debug)" } else { "normal (info)" };
 
     let guard = RELOAD_FN.lock();
     let reload = guard.as_ref().ok_or("Reload handle not initialized")?;
     reload(filter_str)?;
 
-    tracing::info!("Log level set to: {}", filter_str);
+    tracing::info!("📊 Log level changed to: {}", mode_name);
+
+    // Emit a test log at each level to verify the filter is working
+    if verbose {
+        tracing::debug!("🔍 Verbose logging enabled - you will see detailed debug information");
+        tracing::info!("ℹ️  Info logs visible");
+        tracing::warn!("⚠️  Warning logs visible");
+    } else {
+        tracing::info!("ℹ️  Normal logging enabled - only important events will be shown");
+        tracing::warn!("⚠️  Warning logs visible");
+        // Debug log won't be shown in normal mode
+        tracing::debug!("This debug message should NOT appear in normal mode");
+    }
+
+    Ok(())
+}
+
+/// Emit test logs at all levels to verify the logging system is working
+///
+/// This is useful for testing that the frontend is receiving logs from the backend
+/// and that the log level filter is working correctly.
+#[tauri::command]
+pub async fn test_logging() -> Result<(), String> {
+    tracing::debug!("🧪 Test DEBUG log - only visible in verbose mode");
+    tracing::info!("🧪 Test INFO log - visible in normal and verbose modes");
+    tracing::warn!("🧪 Test WARN log - visible in all modes");
+    tracing::error!("🧪 Test ERROR log - visible in all modes");
     Ok(())
 }

@@ -605,7 +605,7 @@ fn resolve_material_texture(content: &str, material_path: &str) -> Option<Materi
     } else {
         tracing::warn!("  ✗ Material name NOT FOUND anywhere in content");
         // Try searching for just the last part of the path
-        if let Some(last_part) = material_path.split('/').last() {
+        if let Some(last_part) = material_path.split('/').next_back() {
             if content.to_lowercase().contains(&last_part.to_lowercase()) {
                 tracing::info!("  ✓ Last part '{}' found in content", last_part);
             } else {
@@ -629,7 +629,7 @@ fn resolve_material_texture(content: &str, material_path: &str) -> Option<Materi
         // Case-insensitive
         format!(r#"(?i)"{}"\s*=\s*StaticMaterialDef"#, escaped_path),
         // Just the last part of the path
-        format!(r#""[^"]*{}"\s*=\s*StaticMaterialDef"#, regex::escape(material_path.split('/').last().unwrap_or(material_path))),
+        format!(r#""[^"]*{}"\s*=\s*StaticMaterialDef"#, regex::escape(material_path.split('/').next_back().unwrap_or(material_path))),
     ];
 
     for (i, def_pattern) in patterns.iter().enumerate() {

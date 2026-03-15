@@ -6,59 +6,24 @@
 
 import type { LogEntry } from './types';
 
-// Buffer for logs before React state is available
-let logBuffer: LogEntry[] = [];
-let logIdCounter = 0;
-let stateDispatcher: ((log: LogEntry) => void) | null = null;
+// Direct import of the store - no dispatcher pattern needed
+let addLogToStore: ((level: LogEntry['level'], message: string) => void) | null = null;
 
 /**
- * Create a log entry
+ * Set the store's addLog function (called once when store is ready)
  */
-function createLog(level: LogEntry['level'], message: string): LogEntry {
-    return {
-        id: ++logIdCounter,
-        timestamp: Date.now(),
-        level,
-        message,
-    };
+export function setLogStore(addLog: (level: LogEntry['level'], message: string) => void) {
+    addLogToStore = addLog;
 }
 
 /**
- * Add a log entry - either buffers it or dispatches to state
+ * Add a log entry directly to the store
  */
 function addLogEntry(level: LogEntry['level'], message: string) {
-    const log = createLog(level, message);
-
-    if (stateDispatcher) {
-        stateDispatcher(log);
-    } else {
-        // Buffer until state is ready
-        logBuffer.push(log);
-        // Keep only last 100 buffered logs
-        if (logBuffer.length > 100) {
-            logBuffer = logBuffer.slice(-100);
-        }
+    if (addLogToStore) {
+        addLogToStore(level, message);
     }
-}
-
-/**
- * Connect the logger to React state dispatch
- * Called from LogPanel when it mounts
- */
-export function connectLogger(dispatcher: (log: LogEntry) => void): LogEntry[] {
-    stateDispatcher = dispatcher;
-
-    // Return buffered logs so they can be added to state
-    const buffered = [...logBuffer];
-    logBuffer = [];
-    return buffered;
-}
-
-/**
- * Disconnect the logger (cleanup)
- */
-export function disconnectLogger() {
-    stateDispatcher = null;
+    // If store not ready yet, just drop the log (rare, only very early logs)
 }
 
 // Store original console methods
@@ -125,7 +90,7 @@ export function initializeLogger() {
     };
 
     // Log initialization
-    addLogEntry('info', 'Flint logger initialized');
+    addLogEntry('info', '🔥 Flint frontend logger initialized');
 }
 
 /**
@@ -148,7 +113,7 @@ export async function initBackendLogListener() {
         await listen<{ timestamp: number; level: string; target: string; message: string }>(
             'log-event',
             (event) => {
-                const { level, target, message } = event.payload;
+                const { level, message } = event.payload;
 
                 // Map Rust log levels to our levels
                 let logLevel: 'info' | 'warning' | 'error' = 'info';
@@ -157,16 +122,21 @@ export async function initBackendLogListener() {
                     logLevel = 'warning';
                 } else if (levelLower === 'error') {
                     logLevel = 'error';
+                } else if (levelLower === 'debug') {
+                    // Map debug to info for frontend display
+                    logLevel = 'info';
                 }
 
-                // Format message with target
-                const formattedMessage = `[${target}] ${message}`;
+                // Format message - include [rust] prefix to distinguish from frontend logs
+                const formattedMessage = `[rust] ${message}`;
                 addLogEntry(logLevel, formattedMessage);
             }
         );
 
-        originalConsole.log('[Logger] Backend log listener initialized');
+        originalConsole.log('✓ Backend log listener initialized');
+        addLogEntry('info', '✓ Backend log listener connected');
     } catch (error) {
-        originalConsole.error('[Logger] Failed to initialize backend log listener:', error);
+        originalConsole.error('✗ Failed to initialize backend log listener:', error);
+        addLogEntry('error', '✗ Failed to initialize backend log listener');
     }
 }

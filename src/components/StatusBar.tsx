@@ -5,13 +5,21 @@
 
 import React, { useEffect, useRef } from 'react';
 import { useAppState } from '../lib/stores';
-import { connectLogger, disconnectLogger } from '../lib/logger';
+import { useAppMetadataStore } from '../lib/stores/appMetadataStore';
+import { setLogStore } from '../lib/logger';
 
 // SVG Icons
 const TrashIcon = () => (
     <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
         <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z" />
         <path fillRule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z" />
+    </svg>
+);
+
+const CopyIcon = () => (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/>
+        <path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z"/>
     </svg>
 );
 
@@ -29,30 +37,20 @@ const TerminalIcon = () => (
 );
 
 export const LogPanel: React.FC = () => {
-    const { state, dispatch, toggleLogPanel, clearLogs } = useAppState();
+    const { state, toggleLogPanel, clearLogs, showToast } = useAppState();
     const { logs, logPanelExpanded } = state;
+    const addLog = useAppMetadataStore((s) => s.addLog);
     const contentRef = useRef<HTMLDivElement>(null);
     const hasConnectedRef = useRef(false);
 
-    // Connect to the logger service on mount
+    // Connect the logger to the store on mount
     useEffect(() => {
         if (hasConnectedRef.current) return;
         hasConnectedRef.current = true;
 
-        // Connect and get buffered logs
-        const bufferedLogs = connectLogger((log) => {
-            dispatch({ type: 'ADD_LOG', payload: log });
-        });
-
-        // Add buffered logs to state
-        bufferedLogs.forEach(log => {
-            dispatch({ type: 'ADD_LOG', payload: log });
-        });
-
-        return () => {
-            disconnectLogger();
-        };
-    }, [dispatch]);
+        // Give the logger direct access to the store's addLog function
+        setLogStore(addLog);
+    }, [addLog]);
 
     // Auto-scroll to bottom when new logs appear
     useEffect(() => {
@@ -86,6 +84,18 @@ export const LogPanel: React.FC = () => {
                 return 'log-panel__entry--warning';
             default:
                 return 'log-panel__entry--info';
+        }
+    };
+
+    // Get emoji indicator for log level
+    const getLevelEmoji = (level: string) => {
+        switch (level) {
+            case 'error':
+                return '❌';
+            case 'warning':
+                return '⚠️';
+            default:
+                return 'ℹ️';
         }
     };
 
@@ -129,6 +139,25 @@ export const LogPanel: React.FC = () => {
         clearLogs();
     };
 
+    // Handle copy logs button click
+    const handleCopyLogs = (e: React.MouseEvent) => {
+        e.stopPropagation();
+
+        // Format logs as plain text
+        const logText = logs.map(log => {
+            const time = formatTime(log.timestamp);
+            const level = log.level.toUpperCase().padEnd(7);
+            return `[${time}] ${level} ${log.message}`;
+        }).join('\n');
+
+        // Copy to clipboard
+        navigator.clipboard.writeText(logText).then(() => {
+            showToast('success', 'Logs copied to clipboard');
+        }).catch(() => {
+            showToast('error', 'Failed to copy logs');
+        });
+    };
+
     if (logPanelExpanded) {
         return (
             <div className="log-panel log-panel--expanded" onClick={handleClose}>
@@ -138,6 +167,9 @@ export const LogPanel: React.FC = () => {
                             <TerminalIcon /> Output
                         </span>
                         <div className="log-panel__actions">
+                            <button className="log-panel__btn" onClick={handleCopyLogs} title="Copy logs to clipboard">
+                                <CopyIcon /> Copy
+                            </button>
                             <button className="log-panel__btn" onClick={handleClear} title="Clear logs">
                                 <TrashIcon /> Clear
                             </button>
@@ -148,12 +180,20 @@ export const LogPanel: React.FC = () => {
                     </div>
                     <div className="log-panel__content" ref={contentRef}>
                         {logs.length === 0 ? (
-                            <div className="log-panel__empty">No logs yet</div>
+                            <div className="log-panel__empty">
+                                No logs yet. Logs will appear here as you use Flint.
+                                <br />
+                                <small style={{ opacity: 0.7, marginTop: '8px', display: 'block' }}>
+                                    Enable verbose logging in Settings to see more details.
+                                </small>
+                            </div>
                         ) : (
                             logs.map((log) => (
                                 <div key={log.id} className={`log-panel__entry ${getLevelClass(log.level)}`}>
                                     <span className="log-panel__time">{formatTime(log.timestamp)}</span>
-                                    <span className="log-panel__level">[{log.level.toUpperCase()}]</span>
+                                    <span className="log-panel__level" title={log.level}>
+                                        {getLevelEmoji(log.level)}
+                                    </span>
                                     <span className="log-panel__message">{log.message}</span>
                                 </div>
                             ))

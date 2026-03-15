@@ -16,16 +16,38 @@ use tracing_subscriber::{fmt, prelude::*, reload, EnvFilter};
 fn main() {
     // Initialize tracing/logging with frontend layer
     // Use reload layer so log level can be changed at runtime via set_log_level command
+    //
+    // Default filter configuration:
+    // - Normal mode (info): Show important app events and user-facing operations
+    // - Verbose mode (debug): Show detailed internal operations and diagnostics
     let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+        .unwrap_or_else(|_| {
+            // Default to info level for our app, but suppress noisy dependencies
+            EnvFilter::new("info")
+                .add_directive("tauri=warn".parse().unwrap())
+                .add_directive("tao=warn".parse().unwrap())
+                .add_directive("mio=warn".parse().unwrap())
+        });
 
     let (filter_layer, reload_handle) = reload::Layer::new(filter);
 
     // Store a closure that captures the reload handle — avoids spelling out the full type
     commands::logging::set_reload_fn(Box::new(move |filter_str: &str| {
-        let new_filter = EnvFilter::try_new(filter_str)
-            .map_err(|e| format!("Invalid filter: {}", e))?;
-        reload_handle.reload(new_filter)
+        let directive = if filter_str == "debug" {
+            // Verbose mode: show everything from our app, suppress deps
+            EnvFilter::new("debug")
+                .add_directive("tauri=warn".parse().unwrap())
+                .add_directive("tao=warn".parse().unwrap())
+                .add_directive("mio=warn".parse().unwrap())
+        } else {
+            // Normal mode: info level with suppressed deps
+            EnvFilter::new("info")
+                .add_directive("tauri=warn".parse().unwrap())
+                .add_directive("tao=warn".parse().unwrap())
+                .add_directive("mio=warn".parse().unwrap())
+        };
+
+        reload_handle.reload(directive)
             .map_err(|e| format!("Failed to reload filter: {}", e))
     }));
 
@@ -35,7 +57,7 @@ fn main() {
         .with(filter_layer)
         .init();
 
-    tracing::info!("Starting Flint");
+    tracing::info!("🔥 Flint starting...");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -198,6 +220,7 @@ fn main() {
             commands::fixer::batch_fix_projects,
             // Logging commands
             commands::logging::set_log_level,
+            commands::logging::test_logging,
             // LTK Manager integration commands
             commands::ltk_manager::get_ltk_manager_mod_path,
             commands::ltk_manager::sync_project_to_launcher,
