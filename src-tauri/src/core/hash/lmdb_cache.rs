@@ -57,6 +57,7 @@ fn build_mutex() -> &'static Mutex<()> {
 pub fn get_or_open_env(hash_dir: &str) -> Option<Arc<heed::Env>> {
     let lmdb_dir = Path::new(hash_dir).join("hashes.lmdb");
     if !lmdb_dir.exists() {
+        tracing::debug!("LMDB directory does not exist: {}", lmdb_dir.display());
         return None;
     }
     let key = lmdb_dir.to_string_lossy().into_owned();
@@ -66,11 +67,13 @@ pub fn get_or_open_env(hash_dir: &str) -> Option<Arc<heed::Env>> {
     // Fast path — same dir already open.
     if let Some((ref k, ref env)) = *g {
         if *k == key {
+            tracing::debug!("Using cached LMDB env for: {}", hash_dir);
             return Some(Arc::clone(env));
         }
     }
 
     // Slow path — open (or swap to) a new env.
+    tracing::info!("Opening LMDB env from: {}", lmdb_dir.display());
     let env = match unsafe {
         EnvOpenOptions::new()
             .map_size(1024 * 1024 * 1024) // 1 GB virtual — OS pages in only what's touched
@@ -86,6 +89,7 @@ pub fn get_or_open_env(hash_dir: &str) -> Option<Arc<heed::Env>> {
 
     let arc = Arc::new(env);
     *g = Some((key, Arc::clone(&arc)));
+    tracing::info!("LMDB env opened successfully");
     Some(arc)
 }
 
@@ -308,10 +312,15 @@ fn build_hash_db_inner(hash_dir: &str, force: bool) -> bool {
     // Collect all entries across all sources, sort by key for fast MDB_APPEND-style insert.
     let mut entries: Vec<([u8; 8], String)> = Vec::with_capacity(2_000_000);
 
+    tracing::info!("Loading hash files from: {}", hash_dir);
     for (filename, sep) in sources {
         let file_path = dir.join(filename);
-        let Ok(content) = std::fs::read_to_string(&file_path) else { continue };
+        let Ok(content) = std::fs::read_to_string(&file_path) else {
+            tracing::debug!("Skipping missing hash file: {}", filename);
+            continue;
+        };
 
+        let start_count = entries.len();
         for line in content.lines() {
             if line.len() <= sep + 1 || line.starts_with('#') { continue; }
             let hash_hex = &line[..*sep];
@@ -338,10 +347,14 @@ fn build_hash_db_inner(hash_dir: &str, force: bool) -> bool {
                 }
             }
         }
+        let added = entries.len() - start_count;
+        tracing::debug!("  Loaded {} from {} ({} entries)", added, filename, added);
     }
 
+    tracing::info!("Total hash entries collected: {} (sorting...)", entries.len());
     // Sorted inserts are ~2× faster on LMDB's B-tree.
     entries.sort_unstable_by_key(|(k, _)| *k);
+    tracing::debug!("Hash entries sorted, inserting into LMDB...");
     entries.dedup_by_key(|(k, _)| *k);
 
     tracing::info!("Inserting {} hash entries into LMDB", entries.len());

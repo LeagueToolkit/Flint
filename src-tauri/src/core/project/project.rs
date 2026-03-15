@@ -289,16 +289,29 @@ pub fn create_project(
 /// Opens an existing project from a path
 ///
 /// # Arguments
-/// * `path` - Path to the project directory or mod.config.json file
+/// * `path` - Path to the project directory, mod.config.json, flint.json, or project.json file
 pub fn open_project(path: &Path) -> Result<Project> {
-    let project_path = if path.is_file() && path.file_name().and_then(|n| n.to_str()) == Some(PROJECT_FILE) {
-        path.parent().unwrap_or(path).to_path_buf()
+    tracing::debug!("Attempting to open project from path: {}", path.display());
+
+    // Normalize path - if it points to a project file, get the parent directory
+    let project_path = if path.is_file() {
+        let file_name = path.file_name().and_then(|n| n.to_str());
+        match file_name {
+            Some("mod.config.json") | Some("flint.json") | Some("project.json") => {
+                tracing::debug!("Path points to project file, using parent directory");
+                path.parent().unwrap_or(path).to_path_buf()
+            }
+            _ => {
+                tracing::debug!("Path is a file but not a known project file, treating as directory");
+                path.to_path_buf()
+            }
+        }
     } else {
         path.to_path_buf()
     };
 
     let config_path = project_path.join(PROJECT_FILE);
-    
+
     if !config_path.exists() {
         return Err(Error::InvalidInput(format!(
             "Project file not found: {}",
