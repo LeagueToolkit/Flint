@@ -194,7 +194,7 @@ pub fn write(bin: &Bin) -> Result<Vec<u8>> {
             w.write_u32(items.len() as u32)?;
             for item in items {
                 if let BinValue::String(s) = item {
-                    w.write_string(&s)?;
+                    w.write_string(s)?;
                 }
             }
         } else {

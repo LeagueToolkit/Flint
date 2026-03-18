@@ -21,26 +21,36 @@ pub async fn detect_jade_installation() -> Result<Option<String>, String> {
 fn get_jade_search_locations() -> Vec<PathBuf> {
     let mut locations = Vec::new();
 
-    // LocalAppData\Programs\Jade\Jade.exe (typical Tauri installation)
+    // LocalAppData\Programs\Jade\Jade.exe or jade-rust.exe (typical Tauri installation)
     if let Ok(localappdata) = std::env::var("LOCALAPPDATA") {
+        // Jade.exe locations
         locations.push(PathBuf::from(&localappdata).join("Programs").join("Jade").join("Jade.exe"));
         locations.push(PathBuf::from(&localappdata).join("Jade").join("Jade.exe"));
+        // jade-rust.exe locations
+        locations.push(PathBuf::from(&localappdata).join("Programs").join("Jade").join("jade-rust.exe"));
+        locations.push(PathBuf::from(&localappdata).join("Jade").join("jade-rust.exe"));
+        locations.push(PathBuf::from(&localappdata).join("Programs").join("jade-rust").join("jade-rust.exe"));
     }
 
-    // AppData\Roaming\LeagueToolkit\Jade\Jade.exe
+    // AppData\Roaming\LeagueToolkit\Jade\Jade.exe or jade-rust.exe
     if let Ok(appdata) = std::env::var("APPDATA") {
         locations.push(PathBuf::from(&appdata).join("LeagueToolkit").join("Jade").join("Jade.exe"));
+        locations.push(PathBuf::from(&appdata).join("LeagueToolkit").join("Jade").join("jade-rust.exe"));
     }
 
     // Common installation directories
     locations.push(PathBuf::from("C:\\Program Files\\Jade\\Jade.exe"));
     locations.push(PathBuf::from("C:\\Program Files (x86)\\Jade\\Jade.exe"));
+    locations.push(PathBuf::from("C:\\Program Files\\Jade\\jade-rust.exe"));
+    locations.push(PathBuf::from("C:\\Program Files (x86)\\Jade\\jade-rust.exe"));
 
     // Desktop (users sometimes keep executables there)
     if let Ok(userprofile) = std::env::var("USERPROFILE") {
         locations.push(PathBuf::from(&userprofile).join("Desktop").join("Jade.exe"));
+        locations.push(PathBuf::from(&userprofile).join("Desktop").join("jade-rust.exe"));
     }
 
+    tracing::debug!("[external_apps] Searching {} Jade locations", locations.len());
     locations
 }
 

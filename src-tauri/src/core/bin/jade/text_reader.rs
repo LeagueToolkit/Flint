@@ -179,7 +179,7 @@ impl<'a> TextReader<'a> {
                         match self.read_hex_digits(4) {
                             Some(v) => {
                                 // Handle UTF-16 surrogate pairs
-                                if v >= 0xD800 && v <= 0xDBFF {
+                                if (0xD800..=0xDBFF).contains(&v) {
                                     // High surrogate — look for \uLOW
                                     if !self.is_eof() && self.peek() == b'\\' {
                                         let saved = self.pos;
@@ -187,7 +187,7 @@ impl<'a> TextReader<'a> {
                                         if !self.is_eof() && self.peek() == b'u' {
                                             self.read_char(); // consume 'u'
                                             if let Some(low) = self.read_hex_digits(4) {
-                                                if low >= 0xDC00 && low <= 0xDFFF {
+                                                if (0xDC00..=0xDFFF).contains(&low) {
                                                     let cp = ((v - 0xD800) << 10 | (low - 0xDC00)) + 0x10000;
                                                     Self::write_utf8(&mut result, cp);
                                                 } else {
@@ -272,6 +272,7 @@ impl<'a> TextReader<'a> {
         BinType::from_name(&name.to_ascii_lowercase())
     }
 
+    #[allow(clippy::type_complexity)]
     fn read_type_annotation(&mut self) -> Option<(BinType, Option<BinType>, Option<BinType>, Option<BinType>)> {
         let type_name = self.read_word();
         if type_name.is_empty() { self.add_error("Expected type name"); return None; }
@@ -436,8 +437,8 @@ impl<'a> TextReader<'a> {
         self.next_newline();
         if self.read_symbol(b'}') { self.add_error("Mtx44 requires 16 values"); return None; }
         let mut values = [0.0f32; 16];
-        for i in 0..16 {
-            values[i] = self.read_float_value()?;
+        for (i, value) in values.iter_mut().enumerate().take(16) {
+            *value = self.read_float_value()?;
             match self.read_nested_separator_or_end() {
                 Some(end) => {
                     if i < 15 && end { self.add_error(format!("Mtx44 requires 16 values, only got {}", i + 1)); return None; }

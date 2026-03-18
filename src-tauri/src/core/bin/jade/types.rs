@@ -187,6 +187,12 @@ pub struct Bin {
 
 impl Bin {
     pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl Default for Bin {
+    fn default() -> Self {
         Self { sections: IndexMap::new() }
     }
 }

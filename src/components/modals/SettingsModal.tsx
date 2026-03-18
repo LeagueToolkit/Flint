@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { useAppState } from '../../lib/stores';
+import { useAppState, useConfigStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import * as updater from '../../lib/updater';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -15,6 +15,7 @@ type SettingsTab = 'paths' | 'general';
 
 export const SettingsModal: React.FC = () => {
     const { state, dispatch, closeModal, showToast } = useAppState();
+    const configStore = useConfigStore();
 
     const [activeTab, setActiveTab] = useState<SettingsTab>('general');
 
@@ -27,9 +28,9 @@ export const SettingsModal: React.FC = () => {
     const [verboseLogging, setVerboseLogging] = useState(state.verboseLogging);
     const [ltkManagerModPath, setLtkManagerModPath] = useState(state.ltkManagerModPath || '');
     const [autoSyncToLauncher, setAutoSyncToLauncher] = useState(state.autoSyncToLauncher);
-    const [binConverterEngine, setBinConverterEngine] = useState<'ltk' | 'jade'>(state.binConverterEngine);
-    const [jadePath, setJadePath] = useState(state.jadePath || '');
-    const [quartzPath, setQuartzPath] = useState(state.quartzPath || '');
+    const [binConverterEngine, setBinConverterEngine] = useState<'ltk' | 'jade'>(configStore.binConverterEngine);
+    const [jadePath, setJadePath] = useState(configStore.jadePath || '');
+    const [quartzPath, setQuartzPath] = useState(configStore.quartzPath || '');
     const [isValidating, setIsValidating] = useState(false);
 
     // Update checker state
@@ -53,12 +54,12 @@ export const SettingsModal: React.FC = () => {
             setVerboseLogging(state.verboseLogging);
             setLtkManagerModPath(state.ltkManagerModPath || '');
             setAutoSyncToLauncher(state.autoSyncToLauncher);
-            setBinConverterEngine(state.binConverterEngine);
-            setJadePath(state.jadePath || '');
-            setQuartzPath(state.quartzPath || '');
+            setBinConverterEngine(configStore.binConverterEngine);
+            setJadePath(configStore.jadePath || '');
+            setQuartzPath(configStore.quartzPath || '');
             getVersion().then(setCurrentVersion).catch(() => setCurrentVersion('0.0.0'));
         }
-    }, [isVisible, state.leaguePath, state.leaguePathPbe, state.defaultProjectPath, state.creatorName, state.autoUpdateEnabled, state.verboseLogging, state.ltkManagerModPath, state.autoSyncToLauncher, state.binConverterEngine, state.jadePath, state.quartzPath]);
+    }, [isVisible, state.leaguePath, state.leaguePathPbe, state.defaultProjectPath, state.creatorName, state.autoUpdateEnabled, state.verboseLogging, state.ltkManagerModPath, state.autoSyncToLauncher, configStore.binConverterEngine, configStore.jadePath, configStore.quartzPath]);
 
     const handleBrowse = async (setter: (v: string) => void, title: string) => {
         const selected = await open({ title, directory: true });
@@ -255,11 +256,13 @@ export const SettingsModal: React.FC = () => {
                 verboseLogging,
                 ltkManagerModPath: ltkManagerModPath || null,
                 autoSyncToLauncher,
-                binConverterEngine,
-                jadePath: jadePath || null,
-                quartzPath: quartzPath || null,
             },
         });
+
+        // Save to configStore
+        configStore.setBinConverterEngine(binConverterEngine);
+        configStore.setJadePath(jadePath || null);
+        configStore.setQuartzPath(quartzPath || null);
 
         api.setLogLevel(verboseLogging).catch(() => { });
         showToast('success', 'Settings saved');

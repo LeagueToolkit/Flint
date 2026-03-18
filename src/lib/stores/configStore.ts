@@ -67,7 +67,10 @@ export const useConfigStore = create<ConfigState>()(
       setRecentProjects: (projects) => set({ recentProjects: projects }),
       setLtkManagerModPath: (path) => set({ ltkManagerModPath: path }),
       setAutoSyncToLauncher: (enabled) => set({ autoSyncToLauncher: enabled }),
-      setBinConverterEngine: (engine) => set({ binConverterEngine: engine }),
+      setBinConverterEngine: (engine) => {
+        console.log(`[Config] Switching BIN converter engine: ${engine === 'ltk' ? 'LTK' : 'Jade'}`);
+        set({ binConverterEngine: engine });
+      },
       setJadePath: (path) => set({ jadePath: path }),
       setQuartzPath: (path) => set({ quartzPath: path }),
       setSavedProjects: (projects) => set({ savedProjects: projects }),

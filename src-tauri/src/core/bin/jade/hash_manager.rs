@@ -6,6 +6,7 @@ use crate::core::hash::get_ritoshark_hash_dir;
 /// High-performance hash manager with sorted arrays and binary search.
 /// Matches the C# HashManager design: packed offset+length in a single
 /// byte pool to minimize allocations.
+#[derive(Default)]
 pub struct HashManager {
     fnv_keys: Vec<u32>,
     fnv_data: Vec<u64>, // packed: (offset << 16) | length
@@ -16,13 +17,7 @@ pub struct HashManager {
 
 impl HashManager {
     pub fn new() -> Self {
-        Self {
-            fnv_keys: Vec::new(),
-            fnv_data: Vec::new(),
-            xxh_keys: Vec::new(),
-            xxh_data: Vec::new(),
-            string_storage: Vec::new(),
-        }
+        Self::default()
     }
 
     /// Look up an FNV1a hash name.
@@ -267,11 +262,13 @@ fn sort_parallel_u64(keys: &mut Vec<u64>, data: &mut Vec<u64>) {
 
 impl HashManager {
     /// Total number of hashes loaded.
+    #[allow(dead_code)]
     pub fn total_count(&self) -> usize {
         self.fnv_keys.len() + self.xxh_keys.len()
     }
 
     /// Estimate memory usage in bytes.
+    #[allow(dead_code)]
     pub fn memory_bytes(&self) -> usize {
         self.fnv_keys.len() * std::mem::size_of::<u32>()
             + self.fnv_data.len() * std::mem::size_of::<u64>()
@@ -282,6 +279,7 @@ impl HashManager {
 }
 
 /// Check if the Jade hash manager is already loaded.
+#[allow(dead_code)]
 pub fn are_jade_hashes_loaded() -> bool {
     JADE_HASHES.get().is_some()
 }
@@ -307,6 +305,7 @@ pub fn get_cached_hashes() -> &'static RwLock<HashManager> {
 }
 
 /// Reload cached hashes from disk and return total loaded count.
+#[allow(dead_code)]
 pub fn reload_cached_hashes() -> usize {
     let lock = get_cached_hashes();
     let mut guard = lock.write();

@@ -25,6 +25,8 @@ import {
     registerRitobinTheme
 } from '../../lib/ritobinLanguage';
 import { AssetPreviewTooltip } from './AssetPreviewTooltip';
+import { JadeIcon } from '../icons/JadeIcon';
+import { QuartzIcon } from '../icons/QuartzIcon';
 
 // Configure Monaco workers — wrap in try-catch so a broken worker doesn't
 // cascade and break the entire editor (Monarch tokenizer runs on main thread anyway)
@@ -260,18 +262,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
         }
     }, [filePath, quartzPath, showToast]);
 
-    const handleOpenDefault = useCallback(async () => {
-        try {
-            // Normalize path: ensure consistent backslashes for Windows
-            const normalizedPath = filePath.replace(/\//g, '\\');
-            await api.openWithDefaultApp(normalizedPath);
-        } catch (err) {
-            const message = (err as Error).message || String(err);
-            console.error('[BinEditor] Failed to open file:', message);
-            showToast('error', `Failed to open file: ${message}`);
-        }
-    }, [filePath, showToast]);
-
     useEffect(() => {
         return () => {
             if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
@@ -357,32 +347,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
                     </span>
                 </span>
                 <div className="bin-editor__toolbar-actions">
-                    {quartzPath && (
-                        <button
-                            className="btn btn--secondary btn--sm"
-                            onClick={handleOpenWithQuartz}
-                            title="Open with Quartz VFX Editor"
-                        >
-                            Open in Quartz
-                        </button>
-                    )}
-                    {jadePath ? (
-                        <button
-                            className="btn btn--secondary btn--sm"
-                            onClick={handleOpenWithJade}
-                            title="Open with Jade League Bin Editor"
-                        >
-                            Open with Jade
-                        </button>
-                    ) : (
-                        <button
-                            className="btn btn--secondary btn--sm"
-                            onClick={handleOpenDefault}
-                            title="Open with default application"
-                        >
-                            Open
-                        </button>
-                    )}
                     <button
                         className="btn btn--primary btn--sm"
                         onClick={handleSave}
@@ -390,6 +354,26 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
                     >
                         Save
                     </button>
+                    {jadePath && (
+                        <button
+                            className="btn btn--secondary btn--sm"
+                            onClick={handleOpenWithJade}
+                            title="Open with Jade League Bin Editor"
+                        >
+                            <JadeIcon size={14} />
+                            <span>Jade</span>
+                        </button>
+                    )}
+                    {quartzPath && (
+                        <button
+                            className="btn btn--secondary btn--sm"
+                            onClick={handleOpenWithQuartz}
+                            title="Open with Quartz VFX Editor"
+                        >
+                            <QuartzIcon size={14} />
+                            <span>Quartz</span>
+                        </button>
+                    )}
                 </div>
             </div>
 
