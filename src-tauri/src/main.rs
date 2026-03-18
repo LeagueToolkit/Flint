@@ -63,6 +63,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(WadCacheState::new())
         .manage(LmdbCacheState::new())
         .manage(WatcherState::new())
@@ -168,7 +169,6 @@ fn main() {
             commands::file::rename_file,
             commands::file::delete_file,
             commands::file::open_in_explorer,
-            commands::file::open_with_default_app,
             commands::file::create_directory,
             commands::file::duplicate_file,
             // Export commands

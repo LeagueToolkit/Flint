@@ -6,6 +6,7 @@ import React, { useState, useMemo, useCallback, useRef, useEffect, CSSProperties
 import { useAppState } from '../lib/stores';
 import { getFileIcon, getExpanderIcon, getIcon } from '../lib/fileIcons';
 import * as api from '../lib/api';
+import { openPath } from '@tauri-apps/plugin-opener';
 import type { FileTreeNode, ProjectTab, ContextMenuOption } from '../lib/types';
 
 // Helper to get active tab
@@ -394,7 +395,7 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
             });
             options.push({
                 label: 'Open with Default App',
-                onClick: () => api.openWithDefaultApp(fullPath.replace(/\//g, '\\')).catch(() => {}),
+                onClick: () => openPath(fullPath.replace(/\//g, '\\')).catch(() => {}),
             });
 
             options.push({

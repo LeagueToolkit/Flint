@@ -23,6 +23,7 @@
         "updater:default",
         "updater:allow-check",
         "process:default",
-        "process:allow-restart"
+        "process:allow-restart",
+        "opener:default"
     ]
 }

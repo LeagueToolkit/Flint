@@ -1016,10 +1016,6 @@ export async function openInExplorer(path: string): Promise<void> {
     return invokeCommand('open_in_explorer', { path });
 }
 
-export async function openWithDefaultApp(path: string): Promise<void> {
-    return invokeCommand('open_with_default_app', { path });
-}
-
 export async function createDirectory(
     projectPath: string,
     dirPath: string
