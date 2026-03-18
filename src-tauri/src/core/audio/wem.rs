@@ -612,16 +612,12 @@ impl PacketHeader {
 // WwiseRiffVorbis — main converter
 // ---------------------------------------------------------------------------
 
-#[allow(dead_code)]
 struct WwiseRiffVorbis<'a> {
     data: &'a [u8],
     is_wav: bool,
 
     // Chunk offsets & sizes
-    fmt_offset: usize,
-    vorb_offset: usize,
     data_offset: usize,
-    vorb_size: i32,
     data_size: usize,
 
     // Audio properties
@@ -632,7 +628,6 @@ struct WwiseRiffVorbis<'a> {
     bits_per_sample: u16,
 
     // Vorbis properties
-    sample_count: u32,
     setup_packet_offset: u32,
     first_audio_packet_offset: u32,
     blocksize_0_pow: u8,
@@ -749,17 +744,13 @@ impl<'a> WwiseRiffVorbis<'a> {
             return Ok(Self {
                 data,
                 is_wav: true,
-                fmt_offset,
-                vorb_offset,
                 data_offset,
-                vorb_size,
                 data_size,
                 channels,
                 sample_rate,
                 avg_bytes_per_second,
                 block_align,
                 bits_per_sample,
-                sample_count: 0,
                 setup_packet_offset: 0,
                 first_audio_packet_offset: 0,
                 blocksize_0_pow: 0,
@@ -843,17 +834,13 @@ impl<'a> WwiseRiffVorbis<'a> {
         Ok(Self {
             data,
             is_wav: false,
-            fmt_offset,
-            vorb_offset,
             data_offset,
-            vorb_size,
             data_size,
             channels,
             sample_rate,
             avg_bytes_per_second,
             block_align,
             bits_per_sample,
-            sample_count,
             setup_packet_offset,
             first_audio_packet_offset,
             blocksize_0_pow,
@@ -1415,26 +1402,4 @@ pub fn decode_wem(wem_data: &[u8]) -> Result<DecodedAudio, String> {
             format: "ogg".into(),
         })
     }
-}
-
-/// Check if WEM data is PCM WAV (no Vorbis decoding needed).
-#[allow(dead_code)]
-pub fn is_wem_pcm(wem_data: &[u8]) -> bool {
-    if wem_data.len() < 12 {
-        return false;
-    }
-    if &wem_data[0..4] != b"RIFF" {
-        return false;
-    }
-    // Look for fmt chunk with size 0x18 (PCM indicator)
-    let mut offset = 12usize;
-    while offset + 8 <= wem_data.len() {
-        let chunk_type = &wem_data[offset..offset + 4];
-        let chunk_len = read_u32_le(wem_data, offset + 4) as usize;
-        if chunk_type == b"fmt " && chunk_len == 0x18 {
-            return true;
-        }
-        offset += 8 + chunk_len;
-    }
-    false
 }

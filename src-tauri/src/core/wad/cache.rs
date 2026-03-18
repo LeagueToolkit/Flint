@@ -16,9 +16,6 @@ use std::time::SystemTime;
 /// Cached metadata for a single WAD file
 #[derive(Debug, Clone)]
 pub struct CachedWadMetadata {
-    /// WAD file path (absolute)
-    #[allow(dead_code)]
-    pub path: PathBuf,
     /// Last modified time of the WAD file when cached
     pub mtime: SystemTime,
     /// Chunk metadata (shared via Arc to avoid cloning on cache hits)
@@ -74,9 +71,8 @@ impl WadCache {
         let mtime = std::fs::metadata(&path)?.modified()?;
 
         self.cache.insert(
-            path.clone(),
+            path,
             CachedWadMetadata {
-                path,
                 mtime,
                 chunks,
             },
@@ -85,23 +81,6 @@ impl WadCache {
         Ok(())
     }
 
-    /// Clear all cached entries
-    #[allow(dead_code)]
-    pub fn clear(&self) {
-        self.cache.clear();
-    }
-
-    /// Get number of cached WAD files
-    #[allow(dead_code)]
-    pub fn len(&self) -> usize {
-        self.cache.len()
-    }
-
-    /// Check if cache is empty
-    #[allow(dead_code)]
-    pub fn is_empty(&self) -> bool {
-        self.cache.is_empty()
-    }
 }
 
 impl Default for WadCache {
@@ -120,10 +99,4 @@ mod tests {
         assert!(cache.get("/nonexistent/file.wad").is_none());
     }
 
-    #[test]
-    fn test_empty() {
-        let cache = WadCache::new();
-        assert!(cache.is_empty());
-        assert_eq!(cache.len(), 0);
-    }
 }

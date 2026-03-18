@@ -260,36 +260,8 @@ fn sort_parallel_u64(keys: &mut Vec<u64>, data: &mut Vec<u64>) {
     *data = sorted_data;
 }
 
-impl HashManager {
-    /// Total number of hashes loaded.
-    #[allow(dead_code)]
-    pub fn total_count(&self) -> usize {
-        self.fnv_keys.len() + self.xxh_keys.len()
-    }
-
-    /// Estimate memory usage in bytes.
-    #[allow(dead_code)]
-    pub fn memory_bytes(&self) -> usize {
-        self.fnv_keys.len() * std::mem::size_of::<u32>()
-            + self.fnv_data.len() * std::mem::size_of::<u64>()
-            + self.xxh_keys.len() * std::mem::size_of::<u64>()
-            + self.xxh_data.len() * std::mem::size_of::<u64>()
-            + self.string_storage.len()
-    }
-}
-
-/// Check if the Jade hash manager is already loaded.
-#[allow(dead_code)]
-pub fn are_jade_hashes_loaded() -> bool {
-    JADE_HASHES.get().is_some()
-}
-
-fn get_default_hash_dir() -> Option<std::path::PathBuf> {
-    get_ritoshark_hash_dir().ok()
-}
-
 fn load_from_default_hash_dir() -> HashManager {
-    if let Some(hash_dir) = get_default_hash_dir() {
+    if let Ok(hash_dir) = get_ritoshark_hash_dir() {
         return HashManager::load(&hash_dir);
     }
     eprintln!("[jade::hash_manager] APPDATA not set");
@@ -302,13 +274,4 @@ static JADE_HASHES: OnceLock<RwLock<HashManager>> = OnceLock::new();
 /// Get or initialize the cached hash manager.
 pub fn get_cached_hashes() -> &'static RwLock<HashManager> {
     JADE_HASHES.get_or_init(|| RwLock::new(load_from_default_hash_dir()))
-}
-
-/// Reload cached hashes from disk and return total loaded count.
-#[allow(dead_code)]
-pub fn reload_cached_hashes() -> usize {
-    let lock = get_cached_hashes();
-    let mut guard = lock.write();
-    *guard = load_from_default_hash_dir();
-    guard.total_count()
 }

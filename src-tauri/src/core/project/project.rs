@@ -37,21 +37,6 @@ pub struct FlintMetadata {
     pub modified_at: DateTime<Utc>,
 }
 
-impl FlintMetadata {
-    /// Creates new FlintMetadata with current timestamp
-    #[allow(dead_code)] // Kept for API completeness
-    pub fn new(champion: impl Into<String>, skin_id: u32, league_path: Option<PathBuf>) -> Self {
-        let now = Utc::now();
-        Self {
-            champion: champion.into(),
-            skin_id,
-            league_path,
-            created_at: now,
-            modified_at: now,
-        }
-    }
-}
-
 /// Represents a Flint mod project (runtime representation)
 /// 
 /// This struct combines league-mod compatible ModProject with Flint-specific
@@ -197,12 +182,6 @@ impl Project {
     /// Returns the path to the output directory
     pub fn output_path(&self) -> PathBuf {
         self.project_path.join("output")
-    }
-
-    /// Returns the layer names
-    #[allow(dead_code)] // Kept for API completeness
-    pub fn layer_names(&self) -> Vec<String> {
-        self.layers.iter().map(|l| l.name.clone()).collect()
     }
 }
 

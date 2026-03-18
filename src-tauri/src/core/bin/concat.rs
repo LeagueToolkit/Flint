@@ -41,12 +41,6 @@ pub struct ConcatResult {
     pub concat_path: String,
     /// Number of source BINs that were concatenated
     pub source_count: usize,
-    /// Total number of entries in the concat BIN
-    #[allow(dead_code)] // Kept for diagnostic purposes
-    pub entry_count: usize,
-    /// Number of hash collisions encountered (last-write-wins)
-    #[allow(dead_code)] // Kept for diagnostic purposes
-    pub collision_count: usize,
     /// Paths of source BINs that were concatenated (for deletion)
     pub source_paths: Vec<String>,
 }
@@ -258,8 +252,6 @@ pub fn create_concat_bin(
     Ok(ConcatResult {
         concat_path,
         source_count,
-        entry_count: object_count,
-        collision_count,
         source_paths: processed_paths,
     })
 }

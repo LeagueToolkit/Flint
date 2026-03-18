@@ -9,6 +9,4 @@ pub mod texture;
 pub mod skl;
 pub mod animation;
 pub mod scb;
-#[allow(dead_code)]
-pub mod bin_texture_discovery;
 

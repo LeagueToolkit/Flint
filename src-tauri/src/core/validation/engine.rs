@@ -30,18 +30,6 @@ impl ValidationReport {
         }
     }
 
-    /// Returns the number of missing references
-    #[allow(dead_code)]
-    pub fn missing_count(&self) -> usize {
-        self.missing_assets.len()
-    }
-
-    /// Returns true if all references are valid
-    #[allow(dead_code)]
-    pub fn is_valid(&self) -> bool {
-        self.missing_assets.is_empty()
-    }
-
     /// Returns the validation success rate as a percentage
     pub fn success_rate(&self) -> f32 {
         if self.total_references == 0 {
@@ -49,6 +37,19 @@ impl ValidationReport {
         } else {
             (self.valid_references as f32 / self.total_references as f32) * 100.0
         }
+    }
+}
+
+#[cfg(test)]
+impl ValidationReport {
+    /// Returns the number of missing references (used in tests)
+    pub fn missing_count(&self) -> usize {
+        self.missing_assets.len()
+    }
+
+    /// Returns true if all references are valid (used in tests)
+    pub fn is_valid(&self) -> bool {
+        self.missing_assets.is_empty()
     }
 }
 
@@ -82,9 +83,11 @@ pub struct MissingAsset {
     pub asset_type: String,
 }
 
+impl MissingAsset {}
+
+#[cfg(test)]
 impl MissingAsset {
-    /// Creates a new MissingAsset
-    #[allow(dead_code)]
+    /// Creates a new MissingAsset (used in tests)
     pub fn new(path: impl Into<String>, source_file: impl Into<String>) -> Self {
         let path_str = path.into();
         let asset_type = infer_asset_type(&path_str);

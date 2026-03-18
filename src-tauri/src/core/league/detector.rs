@@ -40,17 +40,6 @@ impl LeagueInstallation {
         }
     }
 
-    /// Returns the path to the DATA directory
-    #[allow(dead_code)] // Kept for API completeness
-    pub fn data_path(&self) -> PathBuf {
-        self.game_path.join("DATA")
-    }
-
-    /// Returns the path to the Champions directory
-    #[allow(dead_code)] // Kept for API completeness
-    pub fn champions_path(&self) -> PathBuf {
-        self.data_path().join("FINAL").join("Champions")
-    }
 }
 
 /// Attempts to detect a League of Legends installation automatically

@@ -27,16 +27,6 @@ pub struct BnkFile {
     data_section_offset: usize,
     /// Raw HIRC section bytes (if present)
     pub hirc_bytes: Option<Vec<u8>>,
-    /// Sections we need to preserve for round-trip (everything except DIDX/DATA)
-    #[allow(dead_code)]
-    preserved_sections: Vec<RawSection>,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
-struct RawSection {
-    magic: [u8; 4],
-    data: Vec<u8>,
 }
 
 /// Parsed BNK metadata returned to the frontend
@@ -81,13 +71,6 @@ impl BnkFile {
         let mut entries: Vec<(u32, u32, u32)> = Vec::new();
         let mut data_section_offset: usize = 0;
         let mut hirc_bytes: Option<Vec<u8>> = None;
-        let mut preserved_sections: Vec<RawSection> = Vec::new();
-
-        // Store BKHD as a preserved section
-        preserved_sections.push(RawSection {
-            magic: *b"BKHD",
-            data: data[8..8 + bkhd_len as usize].to_vec(),
-        });
 
         // Loop through remaining sections
         while cursor.position() + 8 <= len {
@@ -122,32 +105,12 @@ impl BnkFile {
                     data_section_offset = section_start;
                 }
                 b"HIRC" => {
-                    let hirc_start = cursor.position() as usize - 8; // include magic+len
                     let hirc_end = section_start + section_len as usize;
                     if hirc_end <= data.len() {
-                        // Store just the section content (not the header) for HIRC parsing
                         hirc_bytes = Some(data[section_start..hirc_end].to_vec());
                     }
-                    // Also preserve the full section for round-trip
-                    let end = section_start + section_len as usize;
-                    if end <= data.len() {
-                        preserved_sections.push(RawSection {
-                            magic: section_magic,
-                            data: data[section_start..end].to_vec(),
-                        });
-                    }
-                    let _ = hirc_start; // suppress unused warning
                 }
-                _ => {
-                    // Preserve unknown sections for round-trip
-                    let end = section_start + section_len as usize;
-                    if end <= data.len() {
-                        preserved_sections.push(RawSection {
-                            magic: section_magic,
-                            data: data[section_start..end].to_vec(),
-                        });
-                    }
-                }
+                _ => {}
             }
 
             cursor.set_position((section_start + section_len as usize) as u64);
@@ -159,7 +122,6 @@ impl BnkFile {
             entries,
             data_section_offset,
             hirc_bytes,
-            preserved_sections,
         })
     }
 

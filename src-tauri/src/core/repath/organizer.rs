@@ -31,65 +31,6 @@ pub struct OrganizerConfig {
     pub cleanup_unused: bool,
 }
 
-impl OrganizerConfig {
-    /// Create a new config with both concat and repath enabled
-    #[allow(dead_code)]
-    pub fn new(
-        creator_name: String,
-        project_name: String,
-        champion: String,
-        target_skin_id: u32,
-    ) -> Self {
-        Self {
-            enable_concat: true,
-            enable_repath: true,
-            creator_name,
-            project_name,
-            champion,
-            target_skin_id,
-            cleanup_unused: true,
-        }
-    }
-
-    /// Create a config with concat only (no repathing)
-    #[allow(dead_code)]
-    pub fn concat_only(
-        creator_name: String,
-        project_name: String,
-        champion: String,
-        target_skin_id: u32,
-    ) -> Self {
-        Self {
-            enable_concat: true,
-            enable_repath: false,
-            creator_name,
-            project_name,
-            champion,
-            target_skin_id,
-            cleanup_unused: false,
-        }
-    }
-
-    /// Create a config with repath only (no concatenation)
-    #[allow(dead_code)]
-    pub fn repath_only(
-        creator_name: String,
-        project_name: String,
-        champion: String,
-        target_skin_id: u32,
-    ) -> Self {
-        Self {
-            enable_concat: false,
-            enable_repath: true,
-            creator_name,
-            project_name,
-            champion,
-            target_skin_id,
-            cleanup_unused: true,
-        }
-    }
-}
-
 /// Result of a complete project organization operation
 #[derive(Debug, Clone)]
 pub struct OrganizerResult {
@@ -97,16 +38,6 @@ pub struct OrganizerResult {
     pub concat_result: Option<ConcatResult>,
     /// Result of repathing operation (if enabled)
     pub repath_result: Option<RepathResult>,
-}
-
-impl OrganizerResult {
-    /// Get total number of BINs processed across all operations
-    #[allow(dead_code)]
-    pub fn total_bins_processed(&self) -> usize {
-        let concat_count = self.concat_result.as_ref().map(|r| r.source_count).unwrap_or(0);
-        let repath_count = self.repath_result.as_ref().map(|r| r.bins_processed).unwrap_or(0);
-        concat_count + repath_count
-    }
 }
 
 /// Main entry point for project organization

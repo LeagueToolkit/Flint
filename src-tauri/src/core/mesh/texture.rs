@@ -5,10 +5,8 @@
 
 // Imports from original file
 use std::collections::HashMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::core::bin::ltk_bridge;
 use serde::Serialize;
 use regex::Regex;
 
@@ -39,7 +37,6 @@ pub struct MaterialProperties {
 ///
 /// DEPRECATED: Use bin_texture_discovery::discover_material_textures instead
 #[deprecated(note = "Use bin_texture_discovery::discover_material_textures instead")]
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct TextureMapping {
     /// Default texture path for meshes without specific override
@@ -51,10 +48,6 @@ pub struct TextureMapping {
     
     /// Static material references that couldn't be resolved (for debugging)
     pub static_materials: Vec<String>,
-    
-    /// Raw ritobin content for late lookups
-    #[serde(skip)]
-    pub ritobin_content: String,
 }
 
 /// Find skin BIN (or skinN.bin) relative to an SKN file
@@ -267,21 +260,6 @@ fn search_skins_dir(skins_dir: &Path, skin_folder: Option<&str>) -> Option<PathB
 /// Parses the BIN file by converting it to Ritobin text format and using regex
 /// to find skinMeshProperties and material overrides.
 ///
-/// DEPRECATED: Use bin_texture_discovery::discover_material_textures instead
-#[deprecated(note = "Use bin_texture_discovery::discover_material_textures instead")]
-#[allow(dead_code, deprecated)]
-pub fn extract_texture_mapping(bin_path: &Path) -> anyhow::Result<TextureMapping> {
-    let data = fs::read(bin_path)?;
-    let tree = ltk_bridge::read_bin(&data)
-        .map_err(|e| anyhow::anyhow!("Failed to parse BIN: {}", e))?;
-    
-    // Convert to text using cached hashes for better readability/matching
-    let textual_content = ltk_bridge::tree_to_text_cached(&tree)
-        .map_err(|e| anyhow::anyhow!("Failed to convert BIN to text: {}", e))?;
-        
-    extract_texture_mapping_from_text(&textual_content)
-}
-
 /// Parse Ritobin text to extract texture mappings
 /// 
 /// Uses regex to find:
@@ -290,10 +268,7 @@ pub fn extract_texture_mapping(bin_path: &Path) -> anyhow::Result<TextureMapping
 /// 3. StaticMaterialDef blocks (to resolve material links)
 #[allow(clippy::regex_creation_in_loops, deprecated)]
 pub fn extract_texture_mapping_from_text(content: &str) -> anyhow::Result<TextureMapping> {
-    let mut mapping = TextureMapping {
-        ritobin_content: content.to_string(),
-        ..Default::default()
-    };
+    let mut mapping = TextureMapping::default();
     
     // 1. Find skinMeshProperties block header
     // We look for: skinMeshProperties: embed = SkinMeshDataProperties { ... }
@@ -397,9 +372,8 @@ pub fn extract_texture_mapping_from_text(content: &str) -> anyhow::Result<Textur
 
 /// Look up MaterialProperties for a material by searching for StaticMaterialDef with matching name
 /// 
-/// This is used for materials that aren't in the materialOverride list but have their 
+/// This is used for materials that aren't in the materialOverride list but have their
 /// own StaticMaterialDef block in the BIN file.
-#[allow(dead_code)]
 pub fn lookup_material_texture_by_name(ritobin_content: &str, material_name: &str) -> Option<MaterialProperties> {
     tracing::debug!("🔎 Looking up StaticMaterialDef for material: '{}'", material_name);
 

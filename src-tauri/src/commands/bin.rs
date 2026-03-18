@@ -61,7 +61,7 @@ pub async fn convert_bin_to_text(
     tracing::debug!("Parsed bin file with {} objects", bin.objects.len());
 
     // Convert to text format
-    let text = bin_to_text(&bin, None)
+    let text = bin_to_text(&bin)
         .map_err(|e| {
             tracing::error!("Failed to convert to text: {}", e);
             format!("Failed to convert to text: {}", e)
@@ -115,7 +115,7 @@ pub async fn convert_bin_to_json(
         .map_err(|e| format!("Failed to parse bin file: {}", e))?;
 
     // Convert to JSON format
-    let json = bin_to_json(&bin, None)
+    let json = bin_to_json(&bin)
         .map_err(|e| format!("Failed to convert to JSON: {}", e))?;
 
     // Write to output file
@@ -167,7 +167,7 @@ pub async fn convert_text_to_bin(
     tracing::debug!("Read {} characters from {}", text.len(), input_path);
 
     // Parse text to bin
-    let bin = text_to_bin(&text, None)
+    let bin = text_to_bin(&text)
         .map_err(|e| {
             tracing::error!("Failed to parse text from '{}': {}", input_path, e);
             format!("Failed to parse text from '{}': {}", input_path, e)
@@ -226,7 +226,7 @@ pub async fn convert_json_to_bin(
         .map_err(|e| format!("Failed to read input file: {}", e))?;
 
     // Parse JSON to bin
-    let bin = json_to_bin(&json, None)
+    let bin = json_to_bin(&json)
         .map_err(|e| format!("Failed to parse JSON: {}", e))?;
 
     // Convert to binary
@@ -298,7 +298,7 @@ pub async fn convert_bin_bytes_to_text(
     tracing::debug!("Parsed bin data with {} objects", bin.objects.len());
 
     // Convert to text format
-    let text = bin_to_text(&bin, None)
+    let text = bin_to_text(&bin)
         .map_err(|e| {
             tracing::error!("Failed to convert to text: {}", e);
             format!("Failed to convert to text: {}", e)
@@ -333,7 +333,7 @@ pub async fn convert_bin_bytes_to_json(
     tracing::debug!("Parsed bin data with {} objects", bin.objects.len());
 
     // Convert to JSON format
-    let json = bin_to_json(&bin, None)
+    let json = bin_to_json(&bin)
         .map_err(|e| {
             tracing::error!("Failed to convert to JSON: {}", e);
             format!("Failed to convert to JSON: {}", e)

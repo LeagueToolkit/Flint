@@ -122,21 +122,6 @@ impl WadReader {
         self.wad.chunks().len()
     }
 
-    /// Consumes the reader and returns the underlying Wad for decoding operations
-    /// 
-    /// This is useful when you need to extract chunks, as the decoder requires
-    /// mutable access to the Wad.
-    #[allow(dead_code)] // Kept for API completeness
-    pub fn into_wad(self) -> Wad<File> {
-        self.wad
-    }
-
-    /// Gets a reference to the underlying Wad
-    #[allow(dead_code)] // Kept for API completeness
-    pub fn wad(&self) -> &Wad<File> {
-        &self.wad
-    }
-
     /// Gets a mutable reference to the underlying Wad
     pub fn wad_mut(&mut self) -> &mut Wad<File> {
         &mut self.wad

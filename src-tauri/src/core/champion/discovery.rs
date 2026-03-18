@@ -33,12 +33,6 @@ impl ChampionInfo {
             wad_path: None,
         }
     }
-
-    /// Adds a skin to this champion
-    #[allow(dead_code)] // Kept for API completeness
-    pub fn add_skin(&mut self, skin: SkinInfo) {
-        self.skins.push(skin);
-    }
 }
 
 /// Represents a discovered skin

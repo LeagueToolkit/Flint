@@ -16,11 +16,9 @@ pub struct DownloadStats {
 
 /// GitHub API response for file content
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)] // sha field is part of GitHub API response but not currently used
 struct GitHubFile {
     name: String,
     download_url: Option<String>,
-    sha: String,
 }
 
 const GITHUB_API_BASE: &str = "https://api.github.com/repos/CommunityDragon/Data/contents/hashes/lol";
@@ -249,26 +247,6 @@ async fn needs_update(path: &Path) -> Result<bool> {
     Ok(age > FILE_AGE_THRESHOLD)
 }
 
-/// Verifies SHA checksum of downloaded content
-#[allow(dead_code)] // Kept for future use when GitHub API returns correct SHA
-fn verify_checksum(content: &[u8], expected_sha: &str) -> Result<()> {
-    use sha1::{Digest, Sha1};
-    
-    let mut hasher = Sha1::new();
-    hasher.update(content);
-    let result = hasher.finalize();
-    let computed_sha = format!("{:x}", result);
-    
-    if computed_sha != expected_sha {
-        return Err(Error::Hash(format!(
-            "Checksum mismatch: expected {}, got {}",
-            expected_sha, computed_sha
-        )));
-    }
-    
-    Ok(())
-}
-
 /// Merges split hash files (hashes.game.txt.0 and hashes.game.txt.1) into a single file
 async fn merge_split_files(output_dir: &Path) -> Result<()> {
     let file0_path = output_dir.join("hashes.game.txt.0");
@@ -302,7 +280,22 @@ async fn merge_split_files(output_dir: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use tempfile::TempDir;
-    
+
+    /// Verifies SHA checksum of downloaded content (test utility)
+    fn verify_checksum(content: &[u8], expected_sha: &str) -> Result<()> {
+        use sha1::{Digest, Sha1};
+        let mut hasher = Sha1::new();
+        hasher.update(content);
+        let result = hasher.finalize();
+        let computed_sha = format!("{:x}", result);
+        if computed_sha != expected_sha {
+            return Err(Error::Hash(format!(
+                "Checksum mismatch: expected {}, got {}",
+                expected_sha, computed_sha
+            )));
+        }
+        Ok(())
+    }
     #[test]
     fn test_download_stats_creation() {
         let stats = DownloadStats {
