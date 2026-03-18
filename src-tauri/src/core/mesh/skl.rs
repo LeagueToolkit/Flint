@@ -4,6 +4,7 @@
 
 use std::fs::File;
 use std::io::BufReader;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
 
 use ltk_anim::RigResource;
@@ -43,9 +44,22 @@ pub struct SklData {
 pub fn parse_skl_file<P: AsRef<Path>>(path: P) -> anyhow::Result<SklData> {
     let file = File::open(path.as_ref())?;
     let mut reader = BufReader::new(file);
-    
-    let rig = RigResource::from_reader(&mut reader)
-        .map_err(|e| anyhow::anyhow!("Failed to parse SKL file: {:?}", e))?;
+
+    // Wrap in catch_unwind because ltk_anim panics with todo!() on legacy skeleton format
+    let rig = catch_unwind(AssertUnwindSafe(|| {
+        RigResource::from_reader(&mut reader)
+    }))
+    .map_err(|panic| {
+        let msg = if let Some(s) = panic.downcast_ref::<&str>() {
+            s.to_string()
+        } else if let Some(s) = panic.downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "Unknown panic in skeleton parser".to_string()
+        };
+        anyhow::anyhow!("Skeleton parser panicked: {}", msg)
+    })?
+    .map_err(|e| anyhow::anyhow!("Failed to parse SKL file: {:?}", e))?;
     
     // Extract bone data from joints
     let bones: Vec<BoneData> = rig.joints()

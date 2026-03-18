@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::BufReader;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 
 use crate::core::bin::ltk_bridge;
@@ -362,9 +363,18 @@ fn extract_animation_paths_from_value(value: &PropertyValueEnum, clips: &mut Vec
 pub fn parse_animation_file<P: AsRef<Path>>(path: P) -> anyhow::Result<AnimationData> {
     let file = File::open(path.as_ref())?;
     let mut reader = BufReader::new(file);
-    
-    let asset = AnimationAsset::from_reader(&mut reader)
-        .map_err(|e| anyhow::anyhow!("Failed to parse ANM file: {:?}", e))?;
+
+    // Wrap in catch_unwind because ltk_anim may panic on unsupported formats
+    let asset = catch_unwind(AssertUnwindSafe(|| {
+        AnimationAsset::from_reader(&mut reader)
+    }))
+    .map_err(|panic| {
+        let msg = panic.downcast_ref::<&str>().map(|s| s.to_string())
+            .or_else(|| panic.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "Unknown panic in animation parser".to_string());
+        anyhow::anyhow!("Animation parser panicked: {}", msg)
+    })?
+    .map_err(|e| anyhow::anyhow!("Failed to parse ANM file: {:?}", e))?;
     
     // Use Animation trait methods to get actual values
     Ok(AnimationData {
@@ -381,9 +391,18 @@ pub fn parse_animation_file<P: AsRef<Path>>(path: P) -> anyhow::Result<Animation
 pub fn evaluate_animation_at<P: AsRef<Path>>(path: P, time: f32) -> anyhow::Result<AnimationPose> {
     let file = File::open(path.as_ref())?;
     let mut reader = BufReader::new(file);
-    
-    let asset = AnimationAsset::from_reader(&mut reader)
-        .map_err(|e| anyhow::anyhow!("Failed to parse ANM file: {:?}", e))?;
+
+    // Wrap in catch_unwind because ltk_anim may panic on unsupported formats
+    let asset = catch_unwind(AssertUnwindSafe(|| {
+        AnimationAsset::from_reader(&mut reader)
+    }))
+    .map_err(|panic| {
+        let msg = panic.downcast_ref::<&str>().map(|s| s.to_string())
+            .or_else(|| panic.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "Unknown panic in animation parser".to_string());
+        anyhow::anyhow!("Animation parser panicked: {}", msg)
+    })?
+    .map_err(|e| anyhow::anyhow!("Failed to parse ANM file: {:?}", e))?;
     
     // Evaluate at the given time - uses Animation trait's evaluate method
     let pose = asset.evaluate(time);
