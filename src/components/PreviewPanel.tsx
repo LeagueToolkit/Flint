@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAppState } from '../lib/stores';
 import * as api from '../lib/api';
+import { openPath } from '@tauri-apps/plugin-opener';
 import { getIcon } from '../lib/fileIcons';
 import { ImagePreview } from './preview/ImagePreview';
 import { HexViewer } from './preview/HexViewer';
@@ -75,6 +76,30 @@ const formatFileSize = (bytes: number): string => {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
+class PreviewErrorBoundary extends React.Component<
+    { children: React.ReactNode; fileKey: string },
+    { hasError: boolean }
+> {
+    state = { hasError: false };
+
+    static getDerivedStateFromError() {
+        return { hasError: true };
+    }
+
+    componentDidUpdate(prevProps: { fileKey: string }) {
+        if (prevProps.fileKey !== this.props.fileKey && this.state.hasError) {
+            this.setState({ hasError: false });
+        }
+    }
+
+    render() {
+        if (this.state.hasError) {
+            return <ErrorState message="Preview crashed. Select another file to continue." />;
+        }
+        return this.props.children;
+    }
+}
+
 export const PreviewPanel: React.FC = () => {
     const { state, openModal } = useAppState();
     const [fileInfo, setFileInfo] = useState<FileInfo | null>(null);
@@ -92,15 +117,19 @@ export const PreviewPanel: React.FC = () => {
     useEffect(() => {
         if (!selectedFile || !projectPath) {
             setFileInfo(null);
+            setLoading(false);
             return;
         }
 
+        // Clear stale info IMMEDIATELY to prevent wrong preview routing
+        // (e.g. old SKN file info causing JSON file to be sent to ModelPreview)
+        setFileInfo(null);
+        setLoading(true);
+        setError(null);
+
+        const filePath = `${projectPath}/${selectedFile}`;
+
         const loadFileInfo = async () => {
-            setLoading(true);
-            setError(null);
-
-            const filePath = `${projectPath}/${selectedFile}`;
-
             try {
                 const info = await api.readFileInfo(filePath);
                 setFileInfo(info as unknown as FileInfo);
@@ -232,25 +261,39 @@ export const PreviewPanel: React.FC = () => {
             </div>
 
             {/* Content */}
-            <div className="preview-panel__content">{renderPreview()}</div>
+            <div className="preview-panel__content">
+                <PreviewErrorBoundary fileKey={filePath}>
+                    {renderPreview()}
+                </PreviewErrorBoundary>
+            </div>
 
             {/* Info bar */}
             {fileInfo && (
                 <div className="preview-panel__info-bar">
-                    <span className="preview-panel__info-item">
-                        <span className="preview-panel__info-label">Type: </span>
-                        {getTypeLabel(fileInfo.file_type, selectedFile)}
-                    </span>
-                    {fileInfo.dimensions && (
+                    <div className="preview-panel__info-left">
                         <span className="preview-panel__info-item">
-                            <span className="preview-panel__info-label">Dimensions: </span>
-                            {fileInfo.dimensions[0]}×{fileInfo.dimensions[1]}
+                            <span className="preview-panel__info-label">Type: </span>
+                            {getTypeLabel(fileInfo.file_type, selectedFile)}
                         </span>
-                    )}
-                    <span className="preview-panel__info-item">
-                        <span className="preview-panel__info-label">Size: </span>
-                        {formatFileSize(fileInfo.size)}
-                    </span>
+                        {fileInfo.dimensions && (
+                            <span className="preview-panel__info-item">
+                                <span className="preview-panel__info-label">Dimensions: </span>
+                                {fileInfo.dimensions[0]}×{fileInfo.dimensions[1]}
+                            </span>
+                        )}
+                        <span className="preview-panel__info-item">
+                            <span className="preview-panel__info-label">Size: </span>
+                            {formatFileSize(fileInfo.size)}
+                        </span>
+                    </div>
+                    <button
+                        className="preview-panel__open-btn"
+                        onClick={() => openPath(filePath.replace(/\//g, '\\')).catch(() => {})}
+                        title="Open with default application"
+                    >
+                        <span dangerouslySetInnerHTML={{ __html: getIcon('folderOpen2') }} />
+                        <span>Open</span>
+                    </button>
                 </div>
             )}
         </div>
