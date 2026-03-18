@@ -61,7 +61,9 @@
         "worker-src": "'self' blob:"
       },
       "dangerousDisableAssetCspModification": [
-        "style-src"
+        "style-src",
+        "script-src",
+        "worker-src"
       ]
     }
   }
