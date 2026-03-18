@@ -288,7 +288,17 @@ export const PreviewPanel: React.FC = () => {
                     </div>
                     <button
                         className="preview-panel__open-btn"
-                        onClick={() => openPath(filePath.replace(/\//g, '\\')).catch(() => {})}
+                        onClick={async () => {
+                            try {
+                                // Normalize path: ensure consistent backslashes for Windows
+                                const normalizedPath = filePath.replace(/\//g, '\\');
+                                await openPath(normalizedPath);
+                            } catch (err) {
+                                const message = (err as Error).message || String(err);
+                                console.error('[PreviewPanel] Failed to open file:', message);
+                                alert(`Failed to open file:\n${message}`);
+                            }
+                        }}
                         title="Open with default application"
                     >
                         <span dangerouslySetInnerHTML={{ __html: getIcon('folderOpen2') }} />

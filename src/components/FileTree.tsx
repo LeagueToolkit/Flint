@@ -395,7 +395,17 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
             });
             options.push({
                 label: 'Open with Default App',
-                onClick: () => openPath(fullPath.replace(/\//g, '\\')).catch(() => {}),
+                onClick: async () => {
+                    try {
+                        // Normalize path: ensure consistent backslashes for Windows
+                        const normalizedPath = fullPath.replace(/\//g, '\\');
+                        await openPath(normalizedPath);
+                    } catch (err) {
+                        const message = (err as Error).message || String(err);
+                        console.error('[FileTree] Failed to open file:', message);
+                        showToast('error', `Failed to open file: ${message}`);
+                    }
+                },
             });
 
             options.push({
