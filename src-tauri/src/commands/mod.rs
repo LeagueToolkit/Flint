@@ -4,6 +4,7 @@ pub mod hash;
 pub mod wad;
 pub mod bin;
 pub mod league;
+pub mod external_apps;
 pub mod project;
 pub mod champion;
 pub mod validation;

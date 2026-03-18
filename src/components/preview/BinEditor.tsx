@@ -15,7 +15,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import * as monaco from 'monaco-editor';
 import type { editor } from 'monaco-editor';
-import { useAppState, useAppMetadataStore } from '../../lib/stores';
+import { useAppState, useAppMetadataStore, useConfigStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { getIcon } from '../../lib/fileIcons';
 import {
@@ -141,6 +141,10 @@ interface BinEditorProps {
 
 export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
     const { showToast, setWorking, setReady } = useAppState();
+    const binConverterEngine = useConfigStore((state) => state.binConverterEngine);
+    const jadePath = useConfigStore((state) => state.jadePath);
+    const quartzPath = useConfigStore((state) => state.quartzPath);
+
     const [content, setContent] = useState<string>('');
     const [originalContent, setOriginalContent] = useState<string>('');
     const [loading, setLoading] = useState(true);
@@ -149,6 +153,8 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
 
     // Subscribe to file version changes for hot reload
     const fileVersion = useAppMetadataStore((state) => state.fileVersions[filePath] || 0);
+
+    const useJade = binConverterEngine === 'jade';
 
     const editorContainerRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
@@ -170,7 +176,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
             setLoading(true);
             setError(null);
             try {
-                const text = await api.readOrConvertBin(filePath);
+                const text = await api.readOrConvertBin(filePath, useJade);
                 setContent(text);
                 setOriginalContent(text);
                 setLineCount(text.split('\n').length);
@@ -182,7 +188,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
             }
         };
         loadBin();
-    }, [filePath, fileVersion]); // Re-run when file version changes (hot reload)
+    }, [filePath, fileVersion, useJade]); // Re-run when file version changes (hot reload) or engine changes
 
     // Create Monaco editor directly once content is loaded.
     // Disposes and recreates when file changes (loading cycles false→true→false).
@@ -217,7 +223,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
     const handleSave = useCallback(async () => {
         try {
             setWorking('Saving BIN file...');
-            await api.saveRitobinToBin(filePath, content);
+            await api.saveRitobinToBin(filePath, content, useJade);
             setOriginalContent(content);
             setReady('Saved');
             showToast('success', 'BIN file saved successfully');
@@ -226,7 +232,45 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
             const flintError = err as api.FlintError;
             showToast('error', flintError.getUserMessage?.() || 'Failed to save');
         }
-    }, [filePath, content, setWorking, setReady, showToast]);
+    }, [filePath, content, useJade, setWorking, setReady, showToast]);
+
+    const handleOpenWithJade = useCallback(async () => {
+        if (!jadePath) return;
+        try {
+            // Normalize path: ensure consistent backslashes for Windows
+            const normalizedPath = filePath.replace(/\//g, '\\');
+            await api.launchJade(normalizedPath, jadePath);
+        } catch (err) {
+            const message = (err as Error).message || String(err);
+            console.error('[BinEditor] Failed to launch Jade:', message);
+            showToast('error', `Failed to launch Jade: ${message}`);
+        }
+    }, [filePath, jadePath, showToast]);
+
+    const handleOpenWithQuartz = useCallback(async () => {
+        if (!quartzPath) return;
+        try {
+            // Normalize path: ensure consistent backslashes for Windows
+            const normalizedPath = filePath.replace(/\//g, '\\');
+            await api.launchQuartz(normalizedPath, quartzPath);
+        } catch (err) {
+            const message = (err as Error).message || String(err);
+            console.error('[BinEditor] Failed to launch Quartz:', message);
+            showToast('error', `Failed to launch Quartz: ${message}`);
+        }
+    }, [filePath, quartzPath, showToast]);
+
+    const handleOpenDefault = useCallback(async () => {
+        try {
+            // Normalize path: ensure consistent backslashes for Windows
+            const normalizedPath = filePath.replace(/\//g, '\\');
+            await api.openWithDefaultApp(normalizedPath);
+        } catch (err) {
+            const message = (err as Error).message || String(err);
+            console.error('[BinEditor] Failed to open file:', message);
+            showToast('error', `Failed to open file: ${message}`);
+        }
+    }, [filePath, showToast]);
 
     useEffect(() => {
         return () => {
@@ -313,6 +357,32 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
                     </span>
                 </span>
                 <div className="bin-editor__toolbar-actions">
+                    {quartzPath && (
+                        <button
+                            className="btn btn--secondary btn--sm"
+                            onClick={handleOpenWithQuartz}
+                            title="Open with Quartz VFX Editor"
+                        >
+                            Open in Quartz
+                        </button>
+                    )}
+                    {jadePath ? (
+                        <button
+                            className="btn btn--secondary btn--sm"
+                            onClick={handleOpenWithJade}
+                            title="Open with Jade League Bin Editor"
+                        >
+                            Open with Jade
+                        </button>
+                    ) : (
+                        <button
+                            className="btn btn--secondary btn--sm"
+                            onClick={handleOpenDefault}
+                            title="Open with default application"
+                        >
+                            Open
+                        </button>
+                    )}
                     <button
                         className="btn btn--primary btn--sm"
                         onClick={handleSave}

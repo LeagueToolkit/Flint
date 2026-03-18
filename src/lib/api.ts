@@ -497,12 +497,12 @@ export async function parseBinFileToText(path: string): Promise<string> {
     return invokeCommand('parse_bin_file_to_text', { path });
 }
 
-export async function readOrConvertBin(binPath: string): Promise<string> {
-    return invokeCommand('read_or_convert_bin', { binPath });
+export async function readOrConvertBin(binPath: string, useJade?: boolean): Promise<string> {
+    return invokeCommand('read_or_convert_bin', { binPath, useJade });
 }
 
-export async function saveRitobinToBin(binPath: string, content: string): Promise<void> {
-    return invokeCommand('save_ritobin_to_bin', { binPath, content });
+export async function saveRitobinToBin(binPath: string, content: string, useJade?: boolean): Promise<void> {
+    return invokeCommand('save_ritobin_to_bin', { binPath, content, useJade });
 }
 
 export async function parseBinToTree(binPath: string): Promise<unknown[]> {
@@ -1018,6 +1018,23 @@ export async function openInExplorer(path: string): Promise<void> {
 
 export async function openWithDefaultApp(path: string): Promise<void> {
     return invokeCommand('open_with_default_app', { path });
+}
+
+// External apps (Jade/Quartz)
+export async function detectJadeInstallation(): Promise<string | null> {
+    return invokeCommand('detect_jade_installation', {});
+}
+
+export async function detectQuartzInstallation(): Promise<string | null> {
+    return invokeCommand('detect_quartz_installation', {});
+}
+
+export async function launchJade(filePath: string, jadePath: string): Promise<void> {
+    return invokeCommand('launch_jade', { filePath, jadePath });
+}
+
+export async function launchQuartz(filePath: string, quartzPath: string): Promise<void> {
+    return invokeCommand('launch_quartz', { filePath, quartzPath });
 }
 
 export async function createDirectory(

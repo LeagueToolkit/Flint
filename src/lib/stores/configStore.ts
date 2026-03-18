@@ -19,6 +19,9 @@ interface ConfigState {
   ltkManagerModPath: string | null;
   autoSyncToLauncher: boolean;
   savedProjects: SavedProject[];
+  binConverterEngine: 'ltk' | 'jade';
+  jadePath: string | null;
+  quartzPath: string | null;
 
   // Actions
   setLeaguePath: (path: string | null) => void;
@@ -33,6 +36,9 @@ interface ConfigState {
   setSavedProjects: (projects: SavedProject[]) => void;
   addSavedProject: (project: SavedProject) => void;
   removeSavedProject: (projectId: string) => void;
+  setBinConverterEngine: (engine: 'ltk' | 'jade') => void;
+  setJadePath: (path: string | null) => void;
+  setQuartzPath: (path: string | null) => void;
 }
 
 export const useConfigStore = create<ConfigState>()(
@@ -48,6 +54,9 @@ export const useConfigStore = create<ConfigState>()(
       ltkManagerModPath: null,
       autoSyncToLauncher: false,
       savedProjects: [],
+      binConverterEngine: 'ltk',
+      jadePath: null,
+      quartzPath: null,
 
       setLeaguePath: (path) => set({ leaguePath: path }),
       setLeaguePathPbe: (path) => set({ leaguePathPbe: path }),
@@ -58,6 +67,9 @@ export const useConfigStore = create<ConfigState>()(
       setRecentProjects: (projects) => set({ recentProjects: projects }),
       setLtkManagerModPath: (path) => set({ ltkManagerModPath: path }),
       setAutoSyncToLauncher: (enabled) => set({ autoSyncToLauncher: enabled }),
+      setBinConverterEngine: (engine) => set({ binConverterEngine: engine }),
+      setJadePath: (path) => set({ jadePath: path }),
+      setQuartzPath: (path) => set({ quartzPath: path }),
       setSavedProjects: (projects) => set({ savedProjects: projects }),
       addSavedProject: (project) => set((state) => {
         // Deduplicate by path
@@ -81,6 +93,9 @@ export const useConfigStore = create<ConfigState>()(
         ltkManagerModPath: state.ltkManagerModPath,
         autoSyncToLauncher: state.autoSyncToLauncher,
         savedProjects: state.savedProjects,
+        binConverterEngine: state.binConverterEngine,
+        jadePath: state.jadePath,
+        quartzPath: state.quartzPath,
       }),
     }
   )

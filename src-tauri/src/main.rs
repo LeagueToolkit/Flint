@@ -172,6 +172,11 @@ fn main() {
             commands::file::open_with_default_app,
             commands::file::create_directory,
             commands::file::duplicate_file,
+            // External apps commands (Jade/Quartz integration)
+            commands::external_apps::detect_jade_installation,
+            commands::external_apps::detect_quartz_installation,
+            commands::external_apps::launch_jade,
+            commands::external_apps::launch_quartz,
             // Export commands
             commands::export::repath_project_cmd,
             commands::export::export_fantome,

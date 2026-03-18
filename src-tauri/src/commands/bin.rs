@@ -403,8 +403,12 @@ pub async fn parse_bin_file_to_text(
 #[tauri::command]
 pub async fn read_or_convert_bin(
     bin_path: String,
+    use_jade: Option<bool>,
 ) -> Result<String, String> {
-    tracing::info!("[BIN_READ] === Starting read_or_convert_bin ===");
+    let use_jade = use_jade.unwrap_or(false); // Default to LTK for backward compatibility
+    let engine_name = if use_jade { "Jade" } else { "LTK" };
+
+    tracing::info!("[BIN_READ] === Starting read_or_convert_bin ({}) ===", engine_name);
     tracing::info!("[BIN_READ] Path: {}", bin_path);
     
     if bin_path.is_empty() {
@@ -453,21 +457,28 @@ pub async fn read_or_convert_bin(
     }
 
     // Cache miss or stale - need to convert
-    tracing::warn!("[BIN_READ] *** CACHE MISS *** Converting BIN file...");
-    
-    // Read and parse the binary file
+    tracing::warn!("[BIN_READ] *** CACHE MISS *** Converting BIN file with {} engine...", engine_name);
+
+    // Read binary file
     let data = fs::read(bin_file)
         .map_err(|e| format!("Failed to read file: {}", e))?;
     tracing::info!("[BIN_READ] Read {} bytes from .bin file", data.len());
 
-    tracing::info!("[BIN_READ] Parsing BIN structure...");
-    let bin = crate::core::bin::read_bin_ltk(&data)
-        .map_err(|e| format!("Failed to parse bin file: {}", e))?;
-    tracing::info!("[BIN_READ] Parsed: {} objects, {} dependencies", bin.objects.len(), bin.dependencies.len());
+    // Convert binary to text using selected engine
+    let text = if use_jade {
+        tracing::info!("[BIN_READ] Using Jade Custom converter");
+        crate::core::bin::jade::convert_bin_to_text(&data)?
+    } else {
+        tracing::info!("[BIN_READ] Using LTK converter");
+        tracing::info!("[BIN_READ] Parsing BIN structure...");
+        let bin = crate::core::bin::read_bin_ltk(&data)
+            .map_err(|e| format!("Failed to parse bin file: {}", e))?;
+        tracing::info!("[BIN_READ] Parsed: {} objects, {} dependencies", bin.objects.len(), bin.dependencies.len());
 
-    tracing::info!("[BIN_READ] Converting to text (using cached hashes)...");
-    let text = crate::core::bin::tree_to_text_cached(&bin)
-        .map_err(|e| format!("Failed to convert to text: {}", e))?;
+        tracing::info!("[BIN_READ] Converting to text (using cached hashes)...");
+        crate::core::bin::tree_to_text_cached(&bin)
+            .map_err(|e| format!("Failed to convert to text: {}", e))?
+    };
     tracing::info!("[BIN_READ] Converted to {} chars of text", text.len());
 
     // Cache the result
@@ -493,20 +504,31 @@ pub async fn read_or_convert_bin(
 pub async fn save_ritobin_to_bin(
     bin_path: String,
     content: String,
+    use_jade: Option<bool>,
 ) -> Result<(), String> {
-    tracing::info!("Saving ritobin content to: {}", bin_path);
-    
+    let use_jade = use_jade.unwrap_or(false); // Default to LTK for backward compatibility
+    let engine_name = if use_jade { "Jade" } else { "LTK" };
+
+    tracing::info!("Saving ritobin content to: {} (using {} engine)", bin_path, engine_name);
+
     if bin_path.is_empty() {
         return Err("Path cannot be empty".to_string());
     }
 
-    // Parse the text content back to BIN structure
-    let bin = crate::core::bin::text_to_tree(&content)
-        .map_err(|e| format!("Failed to parse text content: {}", e))?;
+    // Convert text to binary using selected engine
+    let binary_data = if use_jade {
+        tracing::info!("Using Jade Custom converter");
+        crate::core::bin::jade::convert_text_to_bin(&content)?
+    } else {
+        tracing::info!("Using LTK converter");
+        // Parse the text content back to BIN structure
+        let bin = crate::core::bin::text_to_tree(&content)
+            .map_err(|e| format!("Failed to parse text content: {}", e))?;
 
-    // Convert to binary format
-    let binary_data = crate::core::bin::write_bin_ltk(&bin)
-        .map_err(|e| format!("Failed to convert to binary: {}", e))?;
+        // Convert to binary format
+        crate::core::bin::write_bin_ltk(&bin)
+            .map_err(|e| format!("Failed to convert to binary: {}", e))?
+    };
 
     // Write the .bin file
     fs::write(&bin_path, &binary_data)

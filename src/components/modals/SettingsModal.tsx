@@ -27,6 +27,9 @@ export const SettingsModal: React.FC = () => {
     const [verboseLogging, setVerboseLogging] = useState(state.verboseLogging);
     const [ltkManagerModPath, setLtkManagerModPath] = useState(state.ltkManagerModPath || '');
     const [autoSyncToLauncher, setAutoSyncToLauncher] = useState(state.autoSyncToLauncher);
+    const [binConverterEngine, setBinConverterEngine] = useState<'ltk' | 'jade'>(state.binConverterEngine);
+    const [jadePath, setJadePath] = useState(state.jadePath || '');
+    const [quartzPath, setQuartzPath] = useState(state.quartzPath || '');
     const [isValidating, setIsValidating] = useState(false);
 
     // Update checker state
@@ -50,9 +53,12 @@ export const SettingsModal: React.FC = () => {
             setVerboseLogging(state.verboseLogging);
             setLtkManagerModPath(state.ltkManagerModPath || '');
             setAutoSyncToLauncher(state.autoSyncToLauncher);
+            setBinConverterEngine(state.binConverterEngine);
+            setJadePath(state.jadePath || '');
+            setQuartzPath(state.quartzPath || '');
             getVersion().then(setCurrentVersion).catch(() => setCurrentVersion('0.0.0'));
         }
-    }, [isVisible, state.leaguePath, state.leaguePathPbe, state.defaultProjectPath, state.creatorName, state.autoUpdateEnabled, state.verboseLogging, state.ltkManagerModPath, state.autoSyncToLauncher]);
+    }, [isVisible, state.leaguePath, state.leaguePathPbe, state.defaultProjectPath, state.creatorName, state.autoUpdateEnabled, state.verboseLogging, state.ltkManagerModPath, state.autoSyncToLauncher, state.binConverterEngine, state.jadePath, state.quartzPath]);
 
     const handleBrowse = async (setter: (v: string) => void, title: string) => {
         const selected = await open({ title, directory: true });
@@ -115,6 +121,40 @@ export const SettingsModal: React.FC = () => {
             }
         } catch {
             showToast('error', 'Failed to detect LTK Manager installation');
+        } finally {
+            setIsValidating(false);
+        }
+    };
+
+    const handleDetectJade = async () => {
+        setIsValidating(true);
+        try {
+            const path = await api.detectJadeInstallation();
+            if (path) {
+                setJadePath(path);
+                showToast('success', 'Jade installation detected!');
+            } else {
+                showToast('error', 'Jade not found. Please install Jade League Bin Editor first.');
+            }
+        } catch {
+            showToast('error', 'Failed to detect Jade installation');
+        } finally {
+            setIsValidating(false);
+        }
+    };
+
+    const handleDetectQuartz = async () => {
+        setIsValidating(true);
+        try {
+            const path = await api.detectQuartzInstallation();
+            if (path) {
+                setQuartzPath(path);
+                showToast('success', 'Quartz installation detected!');
+            } else {
+                showToast('error', 'Quartz not found. Please install Quartz first.');
+            }
+        } catch {
+            showToast('error', 'Failed to detect Quartz installation');
         } finally {
             setIsValidating(false);
         }
@@ -215,6 +255,9 @@ export const SettingsModal: React.FC = () => {
                 verboseLogging,
                 ltkManagerModPath: ltkManagerModPath || null,
                 autoSyncToLauncher,
+                binConverterEngine,
+                jadePath: jadePath || null,
+                quartzPath: quartzPath || null,
             },
         });
 
@@ -357,6 +400,68 @@ export const SettingsModal: React.FC = () => {
                                         Configure where LTK Manager stores mods for auto-sync functionality
                                     </div>
                                 </div>
+
+                                <div className="settings-item">
+                                    <label className="settings-item__label">
+                                        Jade Path
+                                        <span className="settings-item__badge">External App</span>
+                                    </label>
+                                    <div className="form-input--with-button">
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            placeholder="Path to Jade.exe"
+                                            value={jadePath}
+                                            onChange={(e) => setJadePath(e.target.value)}
+                                        />
+                                        <button className="btn btn--secondary" onClick={() => handleBrowse(setJadePath, 'Select Jade Executable')}>
+                                            Browse
+                                        </button>
+                                    </div>
+                                    <button
+                                        className="btn btn--ghost btn--sm"
+                                        style={{ marginTop: '6px' }}
+                                        onClick={handleDetectJade}
+                                        disabled={isValidating}
+                                    >
+                                        <span dangerouslySetInnerHTML={{ __html: getIcon('search') }} />
+                                        <span>Auto-detect Jade</span>
+                                    </button>
+                                    <div className="settings-item__hint">
+                                        Jade League Bin Editor - Alternative BIN viewer with custom converter
+                                    </div>
+                                </div>
+
+                                <div className="settings-item">
+                                    <label className="settings-item__label">
+                                        Quartz Path
+                                        <span className="settings-item__badge">External App</span>
+                                    </label>
+                                    <div className="form-input--with-button">
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            placeholder="Path to Quartz.exe"
+                                            value={quartzPath}
+                                            onChange={(e) => setQuartzPath(e.target.value)}
+                                        />
+                                        <button className="btn btn--secondary" onClick={() => handleBrowse(setQuartzPath, 'Select Quartz Executable')}>
+                                            Browse
+                                        </button>
+                                    </div>
+                                    <button
+                                        className="btn btn--ghost btn--sm"
+                                        style={{ marginTop: '6px' }}
+                                        onClick={handleDetectQuartz}
+                                        disabled={isValidating}
+                                    >
+                                        <span dangerouslySetInnerHTML={{ __html: getIcon('search') }} />
+                                        <span>Auto-detect Quartz</span>
+                                    </button>
+                                    <div className="settings-item__hint">
+                                        Quartz VFX Editor - Tool for recoloring and porting VFX
+                                    </div>
+                                </div>
                             </div>
                         )}
 
@@ -372,6 +477,24 @@ export const SettingsModal: React.FC = () => {
                                         value={creatorName}
                                         onChange={(e) => setCreatorName(e.target.value)}
                                     />
+                                </div>
+
+                                <div className="settings-item">
+                                    <label className="settings-item__label">
+                                        BIN Conversion Engine
+                                        <span className="settings-item__badge">Advanced</span>
+                                    </label>
+                                    <select
+                                        className="form-input"
+                                        value={binConverterEngine}
+                                        onChange={(e) => setBinConverterEngine(e.target.value as 'ltk' | 'jade')}
+                                    >
+                                        <option value="ltk">LTK (Default)</option>
+                                        <option value="jade">Jade Custom</option>
+                                    </select>
+                                    <div className="settings-item__hint">
+                                        Jade Custom converter may handle certain BIN files better than LTK
+                                    </div>
                                 </div>
 
                                 <div className="settings-item">
