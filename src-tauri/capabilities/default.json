@@ -25,6 +25,13 @@
         "process:default",
         "process:allow-restart",
         "opener:default",
-        "opener:allow-open-path"
+        {
+            "identifier": "opener:allow-open-path",
+            "allow": [
+                {
+                    "path": "$APPDATA/RitoShark/Flint/Projects/**"
+                }
+            ]
+        }
     ]
 }
