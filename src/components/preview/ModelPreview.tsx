@@ -1233,10 +1233,12 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                         canvas.addEventListener('webglcontextrestored', handleContextRestored);
 
                         // Store cleanup functions on the canvas for later removal
+                        // NOTE: Do NOT call gl.dispose() here — R3F's Canvas handles
+                        // renderer disposal on unmount. Calling it early causes crashes
+                        // when switching from 3D preview to other preview types.
                         (canvas as any)._flintCleanup = () => {
                             canvas.removeEventListener('webglcontextlost', handleContextLost);
                             canvas.removeEventListener('webglcontextrestored', handleContextRestored);
-                            gl.dispose();
                         };
                     }}
                 >

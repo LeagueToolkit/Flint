@@ -16,7 +16,7 @@ type SettingsTab = 'paths' | 'general';
 export const SettingsModal: React.FC = () => {
     const { state, dispatch, closeModal, showToast } = useAppState();
 
-    const [activeTab, setActiveTab] = useState<SettingsTab>('paths');
+    const [activeTab, setActiveTab] = useState<SettingsTab>('general');
 
     // Form state
     const [leaguePath, setLeaguePath] = useState(state.leaguePath || '');
@@ -226,8 +226,8 @@ export const SettingsModal: React.FC = () => {
     if (!isVisible) return null;
 
     const tabs: { id: SettingsTab; label: string; icon: Parameters<typeof getIcon>[0] }[] = [
-        { id: 'paths', label: 'Paths', icon: 'folder' },
         { id: 'general', label: 'General', icon: 'settings' },
+        { id: 'paths', label: 'Paths', icon: 'folder' },
     ];
 
     return (
@@ -452,26 +452,27 @@ export const SettingsModal: React.FC = () => {
 
                                 {/* Hash Database Management */}
                                 <div className="settings-item">
-                                    <div className="settings-item__info">
-                                        <span dangerouslySetInnerHTML={{ __html: state.hashesLoaded ? getIcon('success') : getIcon('warning') }} />
-                                        <div>
-                                            <div className="settings-item__label" style={{ marginBottom: 0 }}>Hash Database</div>
-                                            <div className="settings-item__value">
-                                                {state.hashesLoaded
-                                                    ? `${state.hashCount.toLocaleString()} hashes loaded`
-                                                    : 'Hashes not loaded'}
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                        <div className="settings-item__info">
+                                            <span dangerouslySetInnerHTML={{ __html: state.hashesLoaded ? getIcon('success') : getIcon('warning') }} />
+                                            <div>
+                                                <div className="settings-item__label" style={{ marginBottom: 0 }}>Hash Database</div>
+                                                <div className="settings-item__value">
+                                                    {state.hashesLoaded
+                                                        ? `${state.hashCount.toLocaleString()} hashes loaded`
+                                                        : 'Hashes not loaded'}
+                                                </div>
                                             </div>
                                         </div>
+                                        <button
+                                            className="btn btn--secondary btn--sm"
+                                            onClick={handleForceRebuildHashes}
+                                            disabled={isRebuildingHashes}
+                                        >
+                                            <span dangerouslySetInnerHTML={{ __html: getIcon('refresh') }} />
+                                            <span>{isRebuildingHashes ? 'Rebuilding...' : 'Force Rebuild Hashes'}</span>
+                                        </button>
                                     </div>
-                                    <button
-                                        className="btn btn--secondary btn--sm"
-                                        onClick={handleForceRebuildHashes}
-                                        disabled={isRebuildingHashes}
-                                        style={{ marginTop: '8px' }}
-                                    >
-                                        <span dangerouslySetInnerHTML={{ __html: getIcon('refresh') }} />
-                                        <span>{isRebuildingHashes ? 'Rebuilding...' : 'Force Rebuild Hashes'}</span>
-                                    </button>
                                     <div className="settings-item__hint">
                                         Rebuild hash database to apply latest fixes (BIN file resolution, etc.)
                                     </div>

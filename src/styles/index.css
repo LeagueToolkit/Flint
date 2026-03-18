@@ -3103,12 +3103,43 @@ input.search-box__input {
 .preview-panel__info-bar {
   display: flex;
   align-items: center;
-  gap: var(--space-lg);
+  justify-content: space-between;
   padding: var(--space-sm) var(--space-md);
   background-color: var(--bg-secondary);
   border-top: 1px solid var(--border);
   font-size: var(--text-xs);
   color: var(--text-secondary);
+}
+
+.preview-panel__info-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+}
+
+.preview-panel__open-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.preview-panel__open-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.preview-panel__open-btn svg {
+  width: 12px;
+  height: 12px;
 }
 
 .preview-panel__info-item {
