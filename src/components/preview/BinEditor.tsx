@@ -25,8 +25,6 @@ import {
     registerRitobinTheme
 } from '../../lib/ritobinLanguage';
 import { AssetPreviewTooltip } from './AssetPreviewTooltip';
-import { JadeIcon } from '../icons/JadeIcon';
-import { QuartzIcon } from '../icons/QuartzIcon';
 
 // Configure Monaco workers — wrap in try-catch so a broken worker doesn't
 // cascade and break the entire editor (Monarch tokenizer runs on main thread anyway)
@@ -144,8 +142,6 @@ interface BinEditorProps {
 export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
     const { showToast, setWorking, setReady } = useAppState();
     const binConverterEngine = useConfigStore((state) => state.binConverterEngine);
-    const jadePath = useConfigStore((state) => state.jadePath);
-    const quartzPath = useConfigStore((state) => state.quartzPath);
 
     const [content, setContent] = useState<string>('');
     const [originalContent, setOriginalContent] = useState<string>('');
@@ -235,32 +231,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
             showToast('error', flintError.getUserMessage?.() || 'Failed to save');
         }
     }, [filePath, content, useJade, setWorking, setReady, showToast]);
-
-    const handleOpenWithJade = useCallback(async () => {
-        if (!jadePath) return;
-        try {
-            // Normalize path: ensure consistent backslashes for Windows
-            const normalizedPath = filePath.replace(/\//g, '\\');
-            await api.launchJade(normalizedPath, jadePath);
-        } catch (err) {
-            const message = (err as Error).message || String(err);
-            console.error('[BinEditor] Failed to launch Jade:', message);
-            showToast('error', `Failed to launch Jade: ${message}`);
-        }
-    }, [filePath, jadePath, showToast]);
-
-    const handleOpenWithQuartz = useCallback(async () => {
-        if (!quartzPath) return;
-        try {
-            // Normalize path: ensure consistent backslashes for Windows
-            const normalizedPath = filePath.replace(/\//g, '\\');
-            await api.launchQuartz(normalizedPath, quartzPath);
-        } catch (err) {
-            const message = (err as Error).message || String(err);
-            console.error('[BinEditor] Failed to launch Quartz:', message);
-            showToast('error', `Failed to launch Quartz: ${message}`);
-        }
-    }, [filePath, quartzPath, showToast]);
 
     useEffect(() => {
         return () => {
@@ -354,26 +324,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
                     >
                         Save
                     </button>
-                    {jadePath && (
-                        <button
-                            className="btn btn--secondary btn--sm"
-                            onClick={handleOpenWithJade}
-                            title="Open with Jade League Bin Editor"
-                        >
-                            <JadeIcon size={14} />
-                            <span>Jade</span>
-                        </button>
-                    )}
-                    {quartzPath && (
-                        <button
-                            className="btn btn--secondary btn--sm"
-                            onClick={handleOpenWithQuartz}
-                            title="Open with Quartz VFX Editor"
-                        >
-                            <QuartzIcon size={14} />
-                            <span>Quartz</span>
-                        </button>
-                    )}
                 </div>
             </div>
 

@@ -3673,6 +3673,16 @@ input.search-box__input {
   background-color: var(--bg-primary);
 }
 
+.bin-editor__bottom-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-sm) var(--space-md);
+  background-color: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  gap: var(--space-sm);
+}
+
 /* Virtualized list container */
 .bin-editor__virtualized-list {
   font-family: var(--font-mono);

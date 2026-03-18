@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { useAppState } from '../lib/stores';
+import { useAppState, useConfigStore } from '../lib/stores';
 import * as api from '../lib/api';
 import { getIcon } from '../lib/fileIcons';
 import { ImagePreview } from './preview/ImagePreview';
@@ -13,6 +13,8 @@ import { TextPreview } from './preview/TextPreview';
 import { BinEditor } from './preview/BinEditor';
 import { ModelPreview } from './preview/ModelPreview';
 import { HUDEditor } from './preview/HUDEditor';
+import { JadeIcon } from './icons/JadeIcon';
+import { QuartzIcon } from './icons/QuartzIcon';
 
 interface FileInfo {
     path: string;
@@ -100,7 +102,9 @@ class PreviewErrorBoundary extends React.Component<
 }
 
 export const PreviewPanel: React.FC = () => {
-    const { state, openModal } = useAppState();
+    const { state, openModal, showToast } = useAppState();
+    const jadePath = useConfigStore((state) => state.jadePath);
+    const quartzPath = useConfigStore((state) => state.quartzPath);
     const [fileInfo, setFileInfo] = useState<FileInfo | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
@@ -285,24 +289,66 @@ export const PreviewPanel: React.FC = () => {
                             {formatFileSize(fileInfo.size)}
                         </span>
                     </div>
-                    <button
-                        className="preview-panel__open-btn"
-                        onClick={async () => {
-                            try {
-                                // Normalize path: ensure consistent backslashes for Windows
-                                const normalizedPath = filePath.replace(/\//g, '\\');
-                                await api.openWithDefaultApp(normalizedPath);
-                            } catch (err) {
-                                const message = (err as Error).message || String(err);
-                                console.error('[PreviewPanel] Failed to open file:', message);
-                                alert(`Failed to open file:\n${message}`);
-                            }
-                        }}
-                        title="Open with default application"
-                    >
-                        <span dangerouslySetInnerHTML={{ __html: getIcon('folderOpen2') }} />
-                        <span>Open</span>
-                    </button>
+                    {/* Conditional buttons for BIN files */}
+                    {(fileInfo.extension === 'bin' || fileInfo.file_type === 'application/x-bin') && jadePath && jadePath.trim() !== '' ? (
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                            <button
+                                className="preview-panel__open-btn"
+                                onClick={async () => {
+                                    try {
+                                        const normalizedPath = filePath.replace(/\//g, '\\');
+                                        await api.launchJade(normalizedPath, jadePath);
+                                    } catch (err) {
+                                        const message = (err as Error).message || String(err);
+                                        console.error('[PreviewPanel] Failed to launch Jade:', message);
+                                        showToast('error', `Failed to launch Jade: ${message}`);
+                                    }
+                                }}
+                                title="Open with Jade League Bin Editor"
+                            >
+                                <JadeIcon size={14} />
+                                <span>Jade</span>
+                            </button>
+                            {quartzPath && quartzPath.trim() !== '' && (
+                                <button
+                                    className="preview-panel__open-btn"
+                                    onClick={async () => {
+                                        try {
+                                            const normalizedPath = filePath.replace(/\//g, '\\');
+                                            await api.launchQuartz(normalizedPath, quartzPath);
+                                        } catch (err) {
+                                            const message = (err as Error).message || String(err);
+                                            console.error('[PreviewPanel] Failed to launch Quartz:', message);
+                                            showToast('error', `Failed to launch Quartz: ${message}`);
+                                        }
+                                    }}
+                                    title="Open with Quartz VFX Editor"
+                                >
+                                    <QuartzIcon size={14} />
+                                    <span>Quartz</span>
+                                </button>
+                            )}
+                        </div>
+                    ) : (
+                        <button
+                            className="preview-panel__open-btn"
+                            onClick={async () => {
+                                try {
+                                    // Normalize path: ensure consistent backslashes for Windows
+                                    const normalizedPath = filePath.replace(/\//g, '\\');
+                                    await api.openWithDefaultApp(normalizedPath);
+                                } catch (err) {
+                                    const message = (err as Error).message || String(err);
+                                    console.error('[PreviewPanel] Failed to open file:', message);
+                                    alert(`Failed to open file:\n${message}`);
+                                }
+                            }}
+                            title="Open with default application"
+                        >
+                            <span dangerouslySetInnerHTML={{ __html: getIcon('folderOpen2') }} />
+                            <span>Open</span>
+                        </button>
+                    )}
                 </div>
             )}
         </div>
