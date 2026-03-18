@@ -29,7 +29,7 @@
             "identifier": "opener:allow-open-path",
             "allow": [
                 {
-                    "path": "$APPDATA/RitoShark/Flint/Projects/**"
+                    "path": "$APPDATA/RitoShark/Flint/Projects/**/*"
                 }
             ]
         }
