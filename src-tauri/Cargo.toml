@@ -81,6 +81,9 @@ ltk_file = "0.2"
 # Standard directories
 directories = "5.0"
 
+# Open files with default application (no cmd window)
+opener = "0.7"
+
 # Recursive directory walking
 walkdir = "2.4"
 

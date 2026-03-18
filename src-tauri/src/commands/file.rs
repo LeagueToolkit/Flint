@@ -907,10 +907,16 @@ pub async fn open_in_explorer(path: String) -> Result<(), String> {
 }
 
 /// Open a file with the system's preferred/default application
-/// DEPRECATED: Use tauri-plugin-opener's openPath() from frontend instead
-#[allow(dead_code)]
-pub async fn open_with_default_app(_path: String) -> Result<(), String> {
-    Err("Deprecated: use tauri-plugin-opener instead".to_string())
+/// Uses the opener crate for clean, no-cmd-window opening
+#[tauri::command]
+pub async fn open_with_default_app(path: String) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    if !p.exists() {
+        return Err(format!("Path does not exist: {}", path));
+    }
+
+    opener::open(&path).map_err(|e| format!("Failed to open file: {}", e))?;
+    Ok(())
 }
 
 /// Create a new directory inside the project

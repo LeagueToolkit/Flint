@@ -23,15 +23,6 @@
         "updater:default",
         "updater:allow-check",
         "process:default",
-        "process:allow-restart",
-        "opener:default",
-        {
-            "identifier": "opener:allow-open-path",
-            "allow": [
-                {
-                    "path": "$APPDATA/RitoShark/Flint/Projects/**/*"
-                }
-            ]
-        }
+        "process:allow-restart"
     ]
 }

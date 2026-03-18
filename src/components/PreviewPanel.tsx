@@ -6,7 +6,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAppState } from '../lib/stores';
 import * as api from '../lib/api';
-import { openPath } from '@tauri-apps/plugin-opener';
 import { getIcon } from '../lib/fileIcons';
 import { ImagePreview } from './preview/ImagePreview';
 import { HexViewer } from './preview/HexViewer';
@@ -292,7 +291,7 @@ export const PreviewPanel: React.FC = () => {
                             try {
                                 // Normalize path: ensure consistent backslashes for Windows
                                 const normalizedPath = filePath.replace(/\//g, '\\');
-                                await openPath(normalizedPath);
+                                await api.openWithDefaultApp(normalizedPath);
                             } catch (err) {
                                 const message = (err as Error).message || String(err);
                                 console.error('[PreviewPanel] Failed to open file:', message);

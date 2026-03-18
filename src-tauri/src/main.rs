@@ -169,6 +169,7 @@ fn main() {
             commands::file::rename_file,
             commands::file::delete_file,
             commands::file::open_in_explorer,
+            commands::file::open_with_default_app,
             commands::file::create_directory,
             commands::file::duplicate_file,
             // Export commands

@@ -6,7 +6,6 @@ import React, { useState, useMemo, useCallback, useRef, useEffect, CSSProperties
 import { useAppState } from '../lib/stores';
 import { getFileIcon, getExpanderIcon, getIcon } from '../lib/fileIcons';
 import * as api from '../lib/api';
-import { openPath } from '@tauri-apps/plugin-opener';
 import type { FileTreeNode, ProjectTab, ContextMenuOption } from '../lib/types';
 
 // Helper to get active tab
@@ -399,7 +398,7 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
                     try {
                         // Normalize path: ensure consistent backslashes for Windows
                         const normalizedPath = fullPath.replace(/\//g, '\\');
-                        await openPath(normalizedPath);
+                        await api.openWithDefaultApp(normalizedPath);
                     } catch (err) {
                         const message = (err as Error).message || String(err);
                         console.error('[FileTree] Failed to open file:', message);
