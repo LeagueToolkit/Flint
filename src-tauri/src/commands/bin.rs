@@ -420,6 +420,28 @@ pub async fn read_or_convert_bin(
         return Err(format!("File does not exist: {}", bin_path));
     }
 
+    // Early magic byte check: verify this is actually a BIN file (PROP or PTCH)
+    // before attempting any conversion. Prevents wasted work if wrong file type
+    // is routed here (e.g. .skn, .tex files due to stale UI state).
+    {
+        let mut f = fs::File::open(bin_file)
+            .map_err(|e| format!("Failed to open file: {}", e))?;
+        let mut magic = [0u8; 4];
+        use std::io::Read;
+        if f.read_exact(&mut magic).is_ok() {
+            let is_prop = &magic == b"PROP";
+            let is_ptch = &magic == b"PTCH";
+            if !is_prop && !is_ptch {
+                let ext = bin_file.extension().and_then(|e| e.to_str()).unwrap_or("?");
+                return Err(format!(
+                    "Not a BIN file (magic: {:02X} {:02X} {:02X} {:02X}, ext: .{}). \
+                     Expected PROP or PTCH header.",
+                    magic[0], magic[1], magic[2], magic[3], ext
+                ));
+            }
+        }
+    }
+
     // Log .bin file size
     if let Ok(meta) = fs::metadata(bin_file) {
         tracing::info!("[BIN_READ] .bin file size: {} bytes", meta.len());

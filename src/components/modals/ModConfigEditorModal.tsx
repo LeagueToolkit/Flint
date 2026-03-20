@@ -20,28 +20,46 @@ interface ModConfig {
     [key: string]: unknown;
 }
 
-interface ModConfigAuthor {
-    Name?: string;
-    NameAndRole?: { name: string; role: string };
-}
+// ModProjectAuthor is serde(untagged):
+//   Name(String)    → serialized as plain "Author"
+//   Role {name,role} → serialized as {"name":"...","role":"..."}
+// So authors array can contain both strings and objects.
+type ModConfigAuthor = string | { name: string; role: string };
 
 function getAuthorName(author: ModConfigAuthor): string {
     if (typeof author === 'string') return author;
-    if (author.Name) return author.Name;
-    if (author.NameAndRole) return author.NameAndRole.name;
+    if (author && typeof author === 'object') {
+        // Untagged Role variant: { name, role }
+        if ('name' in author) return author.name;
+        // Legacy tagged format: { Name: "..." }
+        if ('Name' in author) return (author as Record<string, unknown>).Name as string;
+        // Legacy tagged format: { NameAndRole: { name, role } }
+        if ('NameAndRole' in author) {
+            const inner = (author as Record<string, unknown>).NameAndRole as { name: string };
+            return inner.name;
+        }
+    }
     return '';
 }
 
 function getAuthorRole(author: ModConfigAuthor): string {
-    if (author.NameAndRole) return author.NameAndRole.role;
+    if (typeof author === 'string') return '';
+    if (author && typeof author === 'object') {
+        if ('role' in author) return author.role;
+        // Legacy tagged format
+        if ('NameAndRole' in author) {
+            const inner = (author as Record<string, unknown>).NameAndRole as { role: string };
+            return inner.role;
+        }
+    }
     return '';
 }
 
 function buildAuthor(name: string, role: string): ModConfigAuthor {
     if (role.trim()) {
-        return { NameAndRole: { name, role } };
+        return { name, role };
     }
-    return { Name: name };
+    return name;
 }
 
 export const ModConfigEditorModal: React.FC = () => {

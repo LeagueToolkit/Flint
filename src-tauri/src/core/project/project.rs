@@ -6,7 +6,7 @@
 use crate::error::{Error, Result};
 use chrono::{DateTime, Utc};
 use ltk_mod_project::{ModProject, ModProjectAuthor, ModProjectLayer, default_layers};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::fs::{self, File};
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
@@ -62,7 +62,8 @@ pub struct Project {
     pub layers: Vec<ModProjectLayer>,
     
     /// Authors of the mod (stored as strings for Clone compatibility)
-    #[serde(default)]
+    /// Custom deserializer handles both plain strings and ModProjectAuthor objects
+    #[serde(default, deserialize_with = "deserialize_authors")]
     pub authors: Vec<String>,
     
     // ===== Flint-specific fields (from flint.json, populated at runtime) =====
@@ -90,6 +91,42 @@ pub struct Project {
     /// When the project was last modified
     #[serde(skip)]
     pub modified_at: DateTime<Utc>,
+}
+
+/// Deserialize authors from any format:
+/// - Plain string: "Author" → "Author"
+/// - Untagged Name: "Author" → "Author" (same as above, serde untagged)
+/// - Untagged Role: {"name":"Author","role":"Creator"} → "Author"
+/// - Legacy tagged Name: {"Name":"Author"} → "Author"
+/// - Legacy tagged NameAndRole: {"NameAndRole":{"name":"Author","role":"Creator"}} → "Author"
+fn deserialize_authors<'de, D>(deserializer: D) -> std::result::Result<Vec<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let values: Vec<serde_json::Value> = Vec::deserialize(deserializer)?;
+    Ok(values.into_iter().filter_map(|v| {
+        match &v {
+            serde_json::Value::String(s) => Some(s.clone()),
+            serde_json::Value::Object(map) => {
+                // Untagged Role variant: {"name": "...", "role": "..."}
+                if let Some(serde_json::Value::String(name)) = map.get("name") {
+                    return Some(name.clone());
+                }
+                // Legacy tagged Name: {"Name": "..."}
+                if let Some(serde_json::Value::String(name)) = map.get("Name") {
+                    return Some(name.clone());
+                }
+                // Legacy tagged NameAndRole: {"NameAndRole": {"name": "...", "role": "..."}}
+                if let Some(serde_json::Value::Object(inner)) = map.get("NameAndRole") {
+                    if let Some(serde_json::Value::String(name)) = inner.get("name") {
+                        return Some(name.clone());
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
+    }).collect())
 }
 
 impl Project {

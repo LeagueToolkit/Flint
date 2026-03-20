@@ -213,6 +213,18 @@ export const PreviewPanel: React.FC = () => {
             return <EmptyState />;
         }
 
+        // Guard: if fileInfo is stale (from a previous file), show loading.
+        // Prevents wrong routing during the render between selectedFile
+        // changing and useEffect clearing fileInfo.
+        if (fileInfo.path !== filePath) {
+            return (
+                <div className="preview-panel__loading">
+                    <div className="spinner" />
+                    <span>Loading...</span>
+                </div>
+            );
+        }
+
         // Choose preview component based on file type
         // IMPORTANT: Use filePath as key to force full unmount/remount when switching files
         // This ensures proper cleanup of WebGL contexts and other resources

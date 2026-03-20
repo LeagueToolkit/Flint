@@ -1218,7 +1218,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             <div className="model-preview__canvas">
                 <Canvas
                     key={filePath} // Force unmount/remount on file change
-                    onCreated={({ gl, invalidate }) => {
+                    onCreated={({ gl, scene, invalidate }) => {
                         const canvas = gl.domElement;
                         canvasRef.current = canvas;
 
@@ -1232,12 +1232,32 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                         canvas.addEventListener('webglcontextlost', handleContextLost);
                         canvas.addEventListener('webglcontextrestored', handleContextRestored);
 
-                        // Store cleanup functions on the canvas for later removal.
-                        // R3F's Canvas handles renderer disposal on unmount — we only
-                        // need to clean up our event listeners and clear resource refs.
+                        // Store cleanup on the canvas. On unmount we explicitly
+                        // dispose the renderer and all scene resources so the GPU
+                        // context is released synchronously — prevents "Context Lost"
+                        // when the next preview component mounts.
                         (canvas as any)._flintCleanup = () => {
                             canvas.removeEventListener('webglcontextlost', handleContextLost);
                             canvas.removeEventListener('webglcontextrestored', handleContextRestored);
+
+                            // Traverse scene and dispose all GPU resources
+                            scene.traverse((obj) => {
+                                if (obj instanceof THREE.Mesh) {
+                                    obj.geometry?.dispose();
+                                    const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+                                    mats.forEach((mat) => {
+                                        if (mat) {
+                                            Object.values(mat).forEach((val) => {
+                                                if (val instanceof THREE.Texture) val.dispose();
+                                            });
+                                            mat.dispose();
+                                        }
+                                    });
+                                }
+                            });
+
+                            gl.renderLists.dispose();
+                            gl.dispose();
                         };
                     }}
                 >
