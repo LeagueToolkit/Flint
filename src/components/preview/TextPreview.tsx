@@ -70,7 +70,7 @@ export const TextPreview: React.FC<TextPreviewProps> = ({ filePath }) => {
     const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
 
     // Subscribe to file version changes for hot reload
-    const fileVersion = useAppMetadataStore((state) => state.fileVersions[filePath] || 0);
+    const fileVersion = useAppMetadataStore((state) => state.fileVersions[filePath.replaceAll('\\', '/')] || 0);
 
     const ext = filePath.split('.').pop()?.toLowerCase() || 'txt';
     const language = LANGUAGE_MAP[ext] || 'plaintext';

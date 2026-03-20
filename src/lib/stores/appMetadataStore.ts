@@ -61,12 +61,15 @@ export const useAppMetadataStore = create<AppMetadataState>((set, get) => ({
   })),
   clearLogs: () => set({ logs: [] }),
   toggleLogPanel: () => set((state) => ({ logPanelExpanded: !state.logPanelExpanded })),
-  incrementFileVersion: (filePath) => set((state) => ({
-    fileVersions: {
-      ...state.fileVersions,
-      [filePath]: (state.fileVersions[filePath] || 0) + 1,
-    },
-  })),
-  getFileVersion: (filePath) => get().fileVersions[filePath] || 0,
+  incrementFileVersion: (filePath) => {
+    const key = filePath.replaceAll('\\', '/');
+    set((state) => ({
+      fileVersions: {
+        ...state.fileVersions,
+        [key]: (state.fileVersions[key] || 0) + 1,
+      },
+    }));
+  },
+  getFileVersion: (filePath) => get().fileVersions[filePath.replaceAll('\\', '/')] || 0,
   incrementFileTreeVersion: () => set((state) => ({ fileTreeVersion: state.fileTreeVersion + 1 })),
 }));

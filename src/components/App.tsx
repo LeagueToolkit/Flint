@@ -195,7 +195,8 @@ export const App: React.FC = () => {
             if (isTextureFile(changedPath)) {
                 const activeTab = getActiveTab(stateRef.current);
                 if (activeTab?.selectedFile) {
-                    const selectedFilePath = `${activeTab.projectPath}/${activeTab.selectedFile}`;
+                    // Normalize to forward slashes — watcher uses '/', but Windows projectPath may use '\'
+                    const selectedFilePath = `${activeTab.projectPath}/${activeTab.selectedFile}`.replaceAll('\\', '/');
                     const lower = selectedFilePath.toLowerCase();
                     if (MODEL_EXTS.some(ext => lower.endsWith(ext))) {
                         console.log('[Hot Reload] Texture changed → cascading reload to model:', selectedFilePath);

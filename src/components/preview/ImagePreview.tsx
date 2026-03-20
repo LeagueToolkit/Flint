@@ -24,7 +24,7 @@ export const ImagePreview: React.FC<ImagePreviewProps> = ({ filePath, zoom, onZo
     const imageRef = useRef<HTMLImageElement>(null);
 
     // Subscribe to file version changes for hot reload
-    const fileVersion = useAppMetadataStore((state) => state.fileVersions[filePath] || 0);
+    const fileVersion = useAppMetadataStore((state) => state.fileVersions[filePath.replaceAll('\\', '/')] || 0);
 
     useEffect(() => {
         const loadImage = async () => {

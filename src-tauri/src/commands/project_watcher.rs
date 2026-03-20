@@ -228,8 +228,11 @@ pub async fn start_preview_watcher(
         move |result: DebounceEventResult| match result {
             Ok(events) => {
                 for event in events {
-                    let kind = match event.kind {
-                        EventKind::Modify(ModifyKind::Data(_)) => "modify",
+                    let kind = match &event.kind {
+                        // Skip metadata-only changes (timestamps, permissions)
+                        EventKind::Modify(ModifyKind::Metadata(_)) => continue,
+                        // Catch Data, Name, Any, and other Modify variants
+                        EventKind::Modify(_) => "modify",
                         EventKind::Create(_) => "create",
                         EventKind::Remove(_) => "remove",
                         _ => continue,

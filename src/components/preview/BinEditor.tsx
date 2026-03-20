@@ -308,7 +308,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
     const decorationsRef = useRef<string[]>([]);
 
     // Subscribe to file version changes for hot reload
-    const fileVersion = useAppMetadataStore((state) => state.fileVersions[filePath] || 0);
+    const fileVersion = useAppMetadataStore((state) => state.fileVersions[filePath.replaceAll('\\', '/')] || 0);
 
     const useJade = binConverterEngine === 'jade';
 

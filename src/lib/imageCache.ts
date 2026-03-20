@@ -12,11 +12,12 @@ const imageCache = new Map<string, unknown>();
  * @returns The cached image data or null if not found
  */
 export function getCachedImage(path: string): unknown | null {
-  const cached = imageCache.get(path);
+  const key = path.replaceAll('\\', '/');
+  const cached = imageCache.get(key);
   if (cached) {
     // Move to end (most recently used)
-    imageCache.delete(path);
-    imageCache.set(path, cached);
+    imageCache.delete(key);
+    imageCache.set(key, cached);
     return cached;
   }
   return null;
@@ -28,6 +29,7 @@ export function getCachedImage(path: string): unknown | null {
  * @param imageData - The image data to cache
  */
 export function cacheImage(path: string, imageData: unknown): void {
+  const key = path.replaceAll('\\', '/');
   // Evict oldest if at capacity
   if (imageCache.size >= IMAGE_CACHE_MAX_SIZE) {
     const oldestKey = imageCache.keys().next().value;
@@ -35,7 +37,7 @@ export function cacheImage(path: string, imageData: unknown): void {
       imageCache.delete(oldestKey);
     }
   }
-  imageCache.set(path, imageData);
+  imageCache.set(key, imageData);
 }
 
 /**
@@ -51,5 +53,5 @@ export function clearImageCache(): void {
  * @returns true if an entry was removed, false if not found
  */
 export function invalidateCachedImage(path: string): boolean {
-  return imageCache.delete(path);
+  return imageCache.delete(path.replaceAll('\\', '/'));
 }
