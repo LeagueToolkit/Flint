@@ -228,24 +228,28 @@ pub async fn start_preview_watcher(
         move |result: DebounceEventResult| match result {
             Ok(events) => {
                 for event in events {
-                    // Only emit events for modify operations (file content changed)
-                    if matches!(event.kind, EventKind::Modify(ModifyKind::Data(_))) {
-                        for path in &event.paths {
-                            if let Ok(relative_path) = path.strip_prefix(&content_path_for_closure) {
-                                let file_path = format!(
-                                    "{}/content/{}",
-                                    project_path_normalized,
-                                    relative_path.to_string_lossy().replace('\\', "/")
-                                );
+                    let kind = match event.kind {
+                        EventKind::Modify(ModifyKind::Data(_)) => "modify",
+                        EventKind::Create(_) => "create",
+                        EventKind::Remove(_) => "remove",
+                        _ => continue,
+                    };
 
-                                let event_data = FileChangeEvent {
-                                    path: file_path.clone(),
-                                    kind: "modify".to_string(),
-                                };
+                    for path in &event.paths {
+                        if let Ok(relative_path) = path.strip_prefix(&content_path_for_closure) {
+                            let file_path = format!(
+                                "{}/content/{}",
+                                project_path_normalized,
+                                relative_path.to_string_lossy().replace('\\', "/")
+                            );
 
-                                tracing::debug!("File changed: {}", file_path);
-                                let _ = app_clone.emit("file-changed", event_data);
-                            }
+                            let event_data = FileChangeEvent {
+                                path: file_path.clone(),
+                                kind: kind.to_string(),
+                            };
+
+                            tracing::debug!("File {}: {}", kind, file_path);
+                            let _ = app_clone.emit("file-changed", event_data);
                         }
                     }
                 }

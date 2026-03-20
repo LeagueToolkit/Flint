@@ -168,25 +168,39 @@ export const App: React.FC = () => {
 
     // Listen for file-changed events from Rust (hot reload)
     useEffect(() => {
+        const TEXTURE_EXTS = ['.dds', '.tex', '.png', '.jpg', '.jpeg', '.tga', '.bmp'];
+        const MODEL_EXTS = ['.skn', '.scb', '.sco'];
+
+        const isTextureFile = (path: string) => {
+            const lower = path.toLowerCase();
+            return TEXTURE_EXTS.some(ext => lower.endsWith(ext));
+        };
+
         const unlistenFileChanged = listen<{ path: string; kind: string }>('file-changed', (event) => {
-            const changedPath = event.payload.path;
-            console.log('[Preview Hot Reload] File changed:', changedPath);
+            const { path: changedPath, kind } = event.payload;
+            console.log(`[Hot Reload] ${kind}: ${changedPath}`);
+
+            // For create/remove events, refresh the file tree
+            if (kind === 'create' || kind === 'remove') {
+                useAppMetadataStore.getState().incrementFileTreeVersion();
+            }
 
             // Invalidate cache for the changed file
-            const wasInvalidated = invalidateCachedImage(changedPath);
-            if (wasInvalidated) {
-                console.log('[Preview Hot Reload] Cache invalidated for:', changedPath);
-            }
+            invalidateCachedImage(changedPath);
 
             // Increment file version to trigger re-render in preview components
             useAppMetadataStore.getState().incrementFileVersion(changedPath);
 
-            // Force re-render of preview if the changed file is currently selected
-            const activeTab = getActiveTab(stateRef.current);
-            if (activeTab && activeTab.selectedFile) {
-                const selectedFilePath = `${activeTab.projectPath}/${activeTab.selectedFile}`;
-                if (selectedFilePath === changedPath) {
-                    console.log('[Preview Hot Reload] Currently previewed file changed, triggering reload');
+            // Cascading reload: if a texture changed, also reload any model currently being previewed
+            if (isTextureFile(changedPath)) {
+                const activeTab = getActiveTab(stateRef.current);
+                if (activeTab?.selectedFile) {
+                    const selectedFilePath = `${activeTab.projectPath}/${activeTab.selectedFile}`;
+                    const lower = selectedFilePath.toLowerCase();
+                    if (MODEL_EXTS.some(ext => lower.endsWith(ext))) {
+                        console.log('[Hot Reload] Texture changed → cascading reload to model:', selectedFilePath);
+                        useAppMetadataStore.getState().incrementFileVersion(selectedFilePath);
+                    }
                 }
             }
         });

@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useMemo, useCallback, useRef, useEffect, CSSProperties } from 'react';
-import { useAppState } from '../lib/stores';
+import { useAppState, useAppMetadataStore } from '../lib/stores';
 import { getFileIcon, getExpanderIcon, getIcon } from '../lib/fileIcons';
 import * as api from '../lib/api';
 import type { FileTreeNode, ProjectTab, ContextMenuOption } from '../lib/types';
@@ -57,6 +57,15 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
     const fileTree = activeTab?.fileTree || null;
     const selectedFile = activeTab?.selectedFile || null;
     const expandedFolders = activeTab?.expandedFolders || new Set<string>();
+
+    // Subscribe to file tree version changes — auto-refresh when files are created/removed
+    const fileTreeVersion = useAppMetadataStore((s) => s.fileTreeVersion);
+    useEffect(() => {
+        if (!activeTab || fileTreeVersion === 0) return;
+        api.listProjectFiles(activeTab.projectPath).then((files) => {
+            dispatch({ type: 'SET_FILE_TREE', payload: files });
+        }).catch(() => {});
+    }, [fileTreeVersion]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Rename state — shared across all tree nodes
     const [renamingPath, setRenamingPath] = useState<string | null>(null);

@@ -15,6 +15,7 @@ interface AppMetadataState {
   logs: LogEntry[];
   logPanelExpanded: boolean;
   fileVersions: Record<string, number>; // Track file modification versions for hot reload
+  fileTreeVersion: number; // Incremented when file tree structure changes (create/remove)
 
   // Actions
   setStatus: (status: AppMetadataState['status'], message: string) => void;
@@ -28,6 +29,7 @@ interface AppMetadataState {
   toggleLogPanel: () => void;
   incrementFileVersion: (filePath: string) => void;
   getFileVersion: (filePath: string) => number;
+  incrementFileTreeVersion: () => void;
 }
 
 let logIdCounter = 0;
@@ -41,6 +43,7 @@ export const useAppMetadataStore = create<AppMetadataState>((set, get) => ({
   logs: [],
   logPanelExpanded: false,
   fileVersions: {},
+  fileTreeVersion: 0,
 
   setStatus: (status, message) => set({ status, statusMessage: message }),
   setWorking: (message = 'Working...') => set({ status: 'working', statusMessage: message }),
@@ -65,4 +68,5 @@ export const useAppMetadataStore = create<AppMetadataState>((set, get) => ({
     },
   })),
   getFileVersion: (filePath) => get().fileVersions[filePath] || 0,
+  incrementFileTreeVersion: () => set((state) => ({ fileTreeVersion: state.fileTreeVersion + 1 })),
 }));

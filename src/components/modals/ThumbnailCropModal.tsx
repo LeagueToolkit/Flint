@@ -34,8 +34,8 @@ export const ThumbnailCropModal: React.FC = () => {
     const [zoom, setZoom] = useState(1);
 
     // Canvas display dimensions
-    const CANVAS_W = 460;
-    const CANVAS_H = 340;
+    const CANVAS_W = 320;
+    const CANVAS_H = 240;
 
     // Reset state when modal closes
     useEffect(() => {
@@ -278,7 +278,7 @@ export const ThumbnailCropModal: React.FC = () => {
 
     return (
         <div className={`modal-overlay ${isVisible ? 'modal-overlay--visible' : ''}`}>
-            <div className="modal" style={{ width: '620px' }}>
+            <div className="modal" style={{ width: '820px' }}>
                 <div className="modal__header">
                     <h2 className="modal__title">Set Project Thumbnail</h2>
                     <button className="modal__close" onClick={closeModal}>&times;</button>
