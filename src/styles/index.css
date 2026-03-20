@@ -3666,6 +3666,42 @@ input.search-box__input {
   font-weight: normal;
 }
 
+.bin-editor__bracket-error {
+  font-size: var(--text-xs);
+  color: #ff6b6b;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(255, 68, 68, 0.12);
+}
+
+.bin-editor__bracket-error:hover {
+  background: rgba(255, 68, 68, 0.22);
+}
+
+.bin-editor__bracket-ok {
+  font-size: var(--text-xs);
+  color: #69db7c;
+  font-weight: normal;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(105, 219, 124, 0.08);
+}
+
+/* Monaco decoration for bracket error lines */
+.bracket-error-line {
+  background: rgba(255, 68, 68, 0.08) !important;
+}
+
+.bracket-error-glyph {
+  background: #ff4444;
+  border-radius: 50%;
+  margin-left: 3px;
+  width: 8px !important;
+  height: 8px !important;
+}
+
 .bin-editor__content {
   flex: 1;
   position: relative;

@@ -85,6 +85,9 @@ export class FlintError extends Error {
             'sync_project_to_launcher': 'Failed to sync project to LTK Manager.',
             'analyze_fantome': 'Failed to analyze Fantome WAD file.',
             'import_fantome_wad': 'Failed to import Fantome mod.',
+            'analyze_modpkg': 'Failed to analyze ModPkg file.',
+            'import_modpkg': 'Failed to import ModPkg mod.',
+            'save_file_bytes': 'Failed to save file.',
             'create_hud_project': 'Failed to create HUD editor project.',
             'parse_hud_ritobin_file': 'Failed to parse HUD ritobin file.',
             'save_hud_ritobin_file': 'Failed to save HUD ritobin file.',
@@ -467,6 +470,30 @@ export async function scanGameWads(gamePath: string): Promise<GameWadInfo[]> {
     return invokeCommand('scan_game_wads', { gamePath });
 }
 
+/**
+ * Invalidate a WAD entry from the metadata cache so the next read re-parses it.
+ */
+export async function invalidateWadCache(wadPath: string): Promise<void> {
+    return invokeCommand('invalidate_wad_cache', { path: wadPath });
+}
+
+/**
+ * Extract an SKN chunk + companion files from a WAD to a temp directory for 3D preview.
+ */
+export async function extractWadModelPreview(
+    wadPath: string,
+    sknHash: string
+): Promise<{ skn_path: string; temp_dir: string }> {
+    return invokeCommand('extract_wad_model_preview', { wadPath, sknHash });
+}
+
+/**
+ * Clean up a temporary WAD model preview directory.
+ */
+export async function cleanupWadModelPreview(tempDir: string): Promise<void> {
+    return invokeCommand('cleanup_wad_model_preview', { tempDir });
+}
+
 // =============================================================================
 // BIN Commands
 // =============================================================================
@@ -571,6 +598,10 @@ export async function readTextFile(path: string): Promise<string> {
 
 export async function writeTextFile(path: string, content: string): Promise<void> {
     return invokeCommand('write_text_file', { path, content });
+}
+
+export async function saveFileBytes(path: string, data: number[]): Promise<void> {
+    return invokeCommand('save_file_bytes', { path, data });
 }
 
 export async function recolorImage(
@@ -1091,6 +1122,36 @@ export async function importFantomeWad(
     options: ImportOptions
 ): Promise<Project> {
     return invokeCommand('import_fantome_wad', { wadPath, projectDir, options });
+}
+
+// =============================================================================
+// ModPkg Import Commands
+// =============================================================================
+
+export interface ModpkgAnalysis {
+    champion: string | null;
+    skin_ids: number[];
+    is_champion_mod: boolean;
+    file_count: number;
+    file_paths: string[];
+    name: string | null;
+    display_name: string | null;
+    description: string | null;
+    version: string | null;
+    authors: string[];
+    has_thumbnail: boolean;
+}
+
+export async function analyzeModpkg(modpkgPath: string): Promise<ModpkgAnalysis> {
+    return invokeCommand('analyze_modpkg', { modpkgPath });
+}
+
+export async function importModpkg(
+    modpkgPath: string,
+    projectDir: string,
+    options: ImportOptions
+): Promise<Project> {
+    return invokeCommand('import_modpkg', { modpkgPath, projectDir, options });
 }
 
 // =============================================================================

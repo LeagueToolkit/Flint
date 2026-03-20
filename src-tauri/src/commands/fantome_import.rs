@@ -221,7 +221,7 @@ fn resolve_wad_path(input_path: &str) -> Result<(PathBuf, bool), String> {
 
 /// Extract champion name from a file path
 /// E.g., "characters/aurora/..." -> "aurora"
-fn extract_champion_from_path(path: &str) -> Option<String> {
+pub(crate) fn extract_champion_from_path(path: &str) -> Option<String> {
     let lower = path.to_lowercase();
 
     // Try "characters/{champion}/" pattern
@@ -251,7 +251,7 @@ fn extract_champion_from_path(path: &str) -> Option<String> {
 
 /// Extract skin ID from a path
 /// E.g., "skins/skin5/..." -> Some(5)
-fn extract_skin_id_from_path(path: &str) -> Option<u32> {
+pub(crate) fn extract_skin_id_from_path(path: &str) -> Option<u32> {
     let lower = path.to_lowercase();
 
     // Look for "skin{N}" pattern
@@ -279,7 +279,7 @@ fn _detect_from_bin_file(_bin_data: &[u8]) -> (Option<String>, Option<u32>) {
 }
 
 /// Extract the most common champion name from a list of paths
-fn extract_champion_from_paths(paths: &[String]) -> Option<String> {
+pub(crate) fn extract_champion_from_paths(paths: &[String]) -> Option<String> {
     let mut champion_counts: HashMap<String, usize> = HashMap::new();
 
     for path in paths {

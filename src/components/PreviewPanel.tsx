@@ -3,7 +3,7 @@
  * Main preview container with toolbar and content routing
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAppState, useConfigStore } from '../lib/stores';
 import * as api from '../lib/api';
 import { getIcon } from '../lib/fileIcons';
@@ -101,6 +101,14 @@ class PreviewErrorBoundary extends React.Component<
     }
 }
 
+/** Check if a file type is a 3D model that uses WebGL */
+const is3DType = (info: FileInfo | null): boolean => {
+    if (!info) return false;
+    return info.extension === 'skn' || info.extension === 'scb' || info.extension === 'sco' ||
+        info.file_type === 'model/x-lol-skn' || info.file_type === 'model/x-lol-scb' ||
+        info.file_type === 'model/x-lol-sco';
+};
+
 export const PreviewPanel: React.FC = () => {
     const { state, openModal, showToast } = useAppState();
     const jadePath = useConfigStore((state) => state.jadePath);
@@ -109,6 +117,12 @@ export const PreviewPanel: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [imageZoom, setImageZoom] = useState<'fit' | number>('fit');
+
+    // Track previous file type to detect 3D→non-3D transitions
+    // When leaving a 3D preview, we add a brief cooldown to let R3F
+    // fully dispose the WebGL context before mounting the next component
+    const [webglCooldown, setWebglCooldown] = useState(false);
+    const prevFileInfoRef = useRef<FileInfo | null>(null);
 
     // Get selected file and project path from active tab
     const activeTab = state.activeTabId
@@ -124,18 +138,40 @@ export const PreviewPanel: React.FC = () => {
             return;
         }
 
+        // Detect if we're leaving a 3D preview — need cooldown for WebGL cleanup
+        const was3D = is3DType(prevFileInfoRef.current);
+
         // Clear stale info IMMEDIATELY to prevent wrong preview routing
         // (e.g. old SKN file info causing JSON file to be sent to ModelPreview)
         setFileInfo(null);
         setLoading(true);
         setError(null);
 
+        // If leaving a 3D preview, add a brief cooldown to let R3F dispose the
+        // WebGL context fully before we mount the next component
+        if (was3D) {
+            setWebglCooldown(true);
+        }
+
         const filePath = `${projectPath}/${selectedFile}`;
 
         const loadFileInfo = async () => {
+            // If transitioning from 3D, wait a frame for WebGL cleanup
+            if (was3D) {
+                await new Promise<void>(resolve => {
+                    requestAnimationFrame(() => {
+                        requestAnimationFrame(() => {
+                            setWebglCooldown(false);
+                            resolve();
+                        });
+                    });
+                });
+            }
+
             try {
                 const info = await api.readFileInfo(filePath);
                 setFileInfo(info as unknown as FileInfo);
+                prevFileInfoRef.current = info as unknown as FileInfo;
             } catch (err) {
                 console.error('[PreviewPanel] Error:', err);
                 setError((err as Error).message || 'Failed to load file');
@@ -160,7 +196,7 @@ export const PreviewPanel: React.FC = () => {
     const isImage = fileInfo?.file_type?.startsWith('image/');
 
     const renderPreview = () => {
-        if (loading) {
+        if (loading || webglCooldown) {
             return (
                 <div className="preview-panel__loading">
                     <div className="spinner" />

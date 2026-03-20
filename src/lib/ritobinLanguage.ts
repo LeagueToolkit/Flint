@@ -19,7 +19,10 @@
  * - bracket: {}, [], () with bracket colorization
  */
 
-import type { Monaco } from '@monaco-editor/react';
+import type * as monacoNs from 'monaco-editor';
+
+/** Monaco namespace type (equivalent to `typeof import('monaco-editor')`) */
+type Monaco = typeof monacoNs;
 
 /** Language ID used to register with Monaco */
 export const RITOBIN_LANGUAGE_ID = 'ritobin';

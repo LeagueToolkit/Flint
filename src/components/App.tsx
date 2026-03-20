@@ -27,6 +27,8 @@ import { UpdateModal } from './modals/UpdateModal';
 import { RecolorModal } from './modals/RecolorModal';
 import { FixerModal } from './modals/FixerModal';
 import { ProjectListModal } from './modals/ProjectListModal';
+import { ModConfigEditorModal } from './modals/ModConfigEditorModal';
+import { ThumbnailCropModal } from './modals/ThumbnailCropModal';
 import { ToastContainer } from './Toast';
 
 // Helper to get active tab from state
@@ -405,6 +407,8 @@ export const App: React.FC = () => {
             <RecolorModal />
             <FixerModal />
             <ProjectListModal />
+            <ModConfigEditorModal />
+            <ThumbnailCropModal />
 
             {/* Toast notifications */}
             <ToastContainer />

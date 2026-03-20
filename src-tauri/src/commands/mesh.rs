@@ -297,7 +297,7 @@ fn find_concat_ritobin_text(mesh_path: &Path) -> Option<String> {
 /// Create a .ritobin cache file from a BIN file
 ///
 /// Reads the BIN file, converts it to text using cached hashes, and writes to .ritobin
-fn create_ritobin_cache(bin_path: &Path, ritobin_path: &Path) -> anyhow::Result<String> {
+pub fn create_ritobin_cache(bin_path: &Path, ritobin_path: &Path) -> anyhow::Result<String> {
     use crate::core::bin::ltk_bridge;
 
     tracing::debug!("Reading BIN file: {}", bin_path.display());

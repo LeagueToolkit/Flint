@@ -10,9 +10,10 @@
  * - Matching dark theme
  * - Dirty state tracking and save functionality
  * - Asset preview on hover (textures, meshes)
+ * - Real-time bracket validation with visual indicator
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import * as monaco from 'monaco-editor';
 import type { editor } from 'monaco-editor';
 import { useAppState, useAppMetadataStore, useConfigStore } from '../../lib/stores';
@@ -52,6 +53,9 @@ registerRitobinTheme(monaco as any);
 /** Delay in milliseconds before showing the asset preview tooltip */
 const HOVER_DELAY_MS = 3000;
 
+/** Debounce delay for bracket validation (ms) */
+const BRACKET_CHECK_DEBOUNCE_MS = 300;
+
 /** Asset file extensions that can be previewed */
 const PREVIEWABLE_EXTENSIONS = ['tex', 'dds', 'scb', 'sco', 'skn'];
 
@@ -76,6 +80,151 @@ function extractStringAtPosition(line: string, column: number): string | null {
     return null;
 }
 
+// =============================================================================
+// Bracket Validation
+// =============================================================================
+
+interface BracketError {
+    line: number;
+    column: number;
+    char: string;
+    message: string;
+}
+
+interface BracketValidation {
+    valid: boolean;
+    errors: BracketError[];
+}
+
+const BRACKET_PAIRS: Record<string, string> = { '{': '}', '[': ']', '(': ')' };
+const CLOSING_BRACKETS = new Set(['}', ']', ')']);
+const OPEN_FOR_CLOSE: Record<string, string> = { '}': '{', ']': '[', ')': '(' };
+
+/**
+ * Parse bracket stack up to a given line (1-based).
+ * Returns array of unclosed opening brackets with their line number and indentation.
+ */
+function getBracketStackAtLine(text: string, upToLine: number): { char: string; line: number; indent: string }[] {
+    const stack: { char: string; line: number; indent: string }[] = [];
+    const lines = text.split('\n');
+    const limit = Math.min(upToLine, lines.length);
+
+    for (let lineIdx = 0; lineIdx < limit; lineIdx++) {
+        const line = lines[lineIdx];
+        let inString = false;
+
+        for (let col = 0; col < line.length; col++) {
+            const ch = line[col];
+
+            if (!inString) {
+                if (ch === '#') break;
+                if (ch === '/' && col + 1 < line.length && line[col + 1] === '/') break;
+            }
+
+            if (ch === '"' && (col === 0 || line[col - 1] !== '\\')) {
+                inString = !inString;
+                continue;
+            }
+
+            if (inString) continue;
+
+            if (BRACKET_PAIRS[ch]) {
+                const indent = line.match(/^(\s*)/)?.[1] || '';
+                stack.push({ char: ch, line: lineIdx + 1, indent });
+            } else if (CLOSING_BRACKETS.has(ch)) {
+                const expected = OPEN_FOR_CLOSE[ch];
+                if (stack.length > 0 && stack[stack.length - 1].char === expected) {
+                    stack.pop();
+                }
+            }
+        }
+    }
+
+    return stack;
+}
+
+/**
+ * Validate bracket matching in ritobin text.
+ * Skips brackets inside quoted strings and comments.
+ */
+function validateBrackets(text: string): BracketValidation {
+    const errors: BracketError[] = [];
+    const stack: { char: string; line: number; column: number }[] = [];
+    const lines = text.split('\n');
+
+    for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+        const line = lines[lineIdx];
+        let inString = false;
+        let isComment = false;
+
+        for (let col = 0; col < line.length; col++) {
+            const ch = line[col];
+
+            // Check for comment start (# or //)
+            if (!inString) {
+                if (ch === '#') { isComment = true; break; }
+                if (ch === '/' && col + 1 < line.length && line[col + 1] === '/') {
+                    isComment = true;
+                    break;
+                }
+            }
+
+            // Track string boundaries (handle escaped quotes)
+            if (ch === '"' && (col === 0 || line[col - 1] !== '\\')) {
+                inString = !inString;
+                continue;
+            }
+
+            if (inString || isComment) continue;
+
+            // Opening bracket
+            if (BRACKET_PAIRS[ch]) {
+                stack.push({ char: ch, line: lineIdx + 1, column: col + 1 });
+            }
+            // Closing bracket
+            else if (CLOSING_BRACKETS.has(ch)) {
+                const expected = OPEN_FOR_CLOSE[ch];
+                if (stack.length === 0) {
+                    errors.push({
+                        line: lineIdx + 1,
+                        column: col + 1,
+                        char: ch,
+                        message: `Unexpected '${ch}' — no matching '${expected}'`,
+                    });
+                } else {
+                    const top = stack[stack.length - 1];
+                    if (top.char !== expected) {
+                        errors.push({
+                            line: lineIdx + 1,
+                            column: col + 1,
+                            char: ch,
+                            message: `Expected '${BRACKET_PAIRS[top.char]}' (opened at line ${top.line}) but found '${ch}'`,
+                        });
+                    } else {
+                        stack.pop();
+                    }
+                }
+            }
+        }
+    }
+
+    // Report unclosed brackets
+    for (const unclosed of stack) {
+        errors.push({
+            line: unclosed.line,
+            column: unclosed.column,
+            char: unclosed.char,
+            message: `Unclosed '${unclosed.char}' — missing '${BRACKET_PAIRS[unclosed.char]}'`,
+        });
+    }
+
+    return { valid: errors.length === 0, errors };
+}
+
+// =============================================================================
+// Editor Options
+// =============================================================================
+
 /** Monaco editor options shared across create calls */
 const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     automaticLayout: true,
@@ -86,8 +235,8 @@ const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     lineNumbersMinChars: 5,
     minimap: { enabled: false },
     folding: false,
-    bracketPairColorization: { enabled: false },
-    matchBrackets: 'never',
+    bracketPairColorization: { enabled: true },
+    matchBrackets: 'always',
     maxTokenizationLineLength: 5000,
     stopRenderingLineAfter: 10000,
     scrollBeyondLastLine: false,
@@ -99,13 +248,13 @@ const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     renderWhitespace: 'none',
     renderControlCharacters: false,
     renderLineHighlight: 'none',
-    renderValidationDecorations: 'off',
+    renderValidationDecorations: 'on',
     occurrencesHighlight: 'off',
     selectionHighlight: false,
     guides: {
         indentation: false,
-        bracketPairs: false,
-        highlightActiveBracketPair: false,
+        bracketPairs: true,
+        highlightActiveBracketPair: true,
         highlightActiveIndentation: false,
     },
     scrollbar: {
@@ -130,10 +279,14 @@ const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     links: false,
     colorDecorators: false,
     codeLens: false,
-    inlineSuggest: { enabled: false },
+    inlineSuggest: { enabled: true, mode: 'prefix' },
     contextmenu: false,
     accessibilitySupport: 'off',
 };
+
+// =============================================================================
+// Component
+// =============================================================================
 
 interface BinEditorProps {
     filePath: string;
@@ -148,6 +301,11 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [lineCount, setLineCount] = useState(0);
+
+    // Bracket validation state
+    const [bracketStatus, setBracketStatus] = useState<BracketValidation>({ valid: true, errors: [] });
+    const bracketCheckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const decorationsRef = useRef<string[]>([]);
 
     // Subscribe to file version changes for hot reload
     const fileVersion = useAppMetadataStore((state) => state.fileVersions[filePath] || 0);
@@ -168,6 +326,38 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
     const isDirty = content !== originalContent;
     const basePath = filePath.split(/[/\\]/).slice(0, -1).join('\\');
 
+    // Run bracket validation (debounced)
+    const runBracketCheck = useCallback((text: string) => {
+        if (bracketCheckTimerRef.current) clearTimeout(bracketCheckTimerRef.current);
+        bracketCheckTimerRef.current = setTimeout(() => {
+            const result = validateBrackets(text);
+            setBracketStatus(result);
+
+            // Update Monaco decorations to highlight errors
+            const ed = editorRef.current;
+            const model = ed?.getModel();
+            if (ed && model) {
+                const newDecorations: editor.IModelDeltaDecoration[] = result.errors.map(err => ({
+                    range: new monaco.Range(err.line, 1, err.line, model.getLineMaxColumn(err.line)),
+                    options: {
+                        isWholeLine: true,
+                        className: 'bracket-error-line',
+                        glyphMarginClassName: 'bracket-error-glyph',
+                        overviewRuler: {
+                            color: '#ff4444',
+                            position: monaco.editor.OverviewRulerLane.Right,
+                        },
+                        minimap: {
+                            color: '#ff4444',
+                            position: monaco.editor.MinimapPosition.Inline,
+                        },
+                    },
+                }));
+                decorationsRef.current = ed.deltaDecorations(decorationsRef.current, newDecorations);
+            }
+        }, BRACKET_CHECK_DEBOUNCE_MS);
+    }, []);
+
     // Load BIN file
     useEffect(() => {
         const loadBin = async () => {
@@ -178,6 +368,9 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
                 setContent(text);
                 setOriginalContent(text);
                 setLineCount(text.split('\n').length);
+                // Initial bracket check
+                const result = validateBrackets(text);
+                setBracketStatus(result);
             } catch (err) {
                 console.error('[BinEditor] Error:', err);
                 setError((err as Error).message || 'Failed to load BIN file');
@@ -202,23 +395,105 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
 
         editorRef.current = ed;
 
+        // Register inline completions provider for bracket auto-close ghost text.
+        // When the cursor is on an empty/whitespace-only line and there are unclosed
+        // brackets above, shows a ghost closing bracket at the correct indentation.
+        // Tab accepts it (Monaco default behaviour for inline completions).
+        const inlineProvider = monaco.languages.registerInlineCompletionsProvider(RITOBIN_LANGUAGE_ID, {
+            provideInlineCompletions(model, position) {
+                const lineContent = model.getLineContent(position.lineNumber);
+                const trimmed = lineContent.trim();
+
+                // Only suggest on empty / whitespace-only lines, or when cursor is at end
+                if (trimmed.length > 0 && position.column <= lineContent.length) {
+                    return { items: [] };
+                }
+
+                const fullText = model.getValue();
+                const stack = getBracketStackAtLine(fullText, position.lineNumber);
+
+                if (stack.length === 0) return { items: [] };
+
+                // Suggest closing bracket(s) for the most-recent unclosed opener
+                const last = stack[stack.length - 1];
+                const closingChar = BRACKET_PAIRS[last.char];
+                const suggestion = last.indent + closingChar;
+
+                // Don't suggest if the line already has the right content
+                if (trimmed === closingChar) return { items: [] };
+
+                return {
+                    items: [{
+                        insertText: suggestion,
+                        range: new monaco.Range(
+                            position.lineNumber, 1,
+                            position.lineNumber, lineContent.length + 1
+                        ),
+                    }],
+                };
+            },
+            disposeInlineCompletions() {},
+        });
+
         const model = ed.getModel();
         if (model) {
             setLineCount(model.getLineCount());
             model.onDidChangeContent(() => {
-                setContent(ed.getValue());
+                const value = ed.getValue();
+                setContent(value);
                 setLineCount(model.getLineCount());
+                runBracketCheck(value);
             });
+
+            // Apply initial bracket decorations
+            const initialResult = validateBrackets(content);
+            if (!initialResult.valid) {
+                const newDecorations: editor.IModelDeltaDecoration[] = initialResult.errors.map(err => ({
+                    range: new monaco.Range(err.line, 1, err.line, model.getLineMaxColumn(err.line)),
+                    options: {
+                        isWholeLine: true,
+                        className: 'bracket-error-line',
+                        glyphMarginClassName: 'bracket-error-glyph',
+                        overviewRuler: {
+                            color: '#ff4444',
+                            position: monaco.editor.OverviewRulerLane.Right,
+                        },
+                    },
+                }));
+                decorationsRef.current = ed.deltaDecorations([], newDecorations);
+            }
         }
 
         return () => {
+            inlineProvider.dispose();
             ed.dispose();
             editorRef.current = null;
+            decorationsRef.current = [];
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [loading, error]);
 
+    // Clean up bracket timer on unmount
+    useEffect(() => {
+        return () => {
+            if (bracketCheckTimerRef.current) clearTimeout(bracketCheckTimerRef.current);
+        };
+    }, []);
+
     const handleSave = useCallback(async () => {
+        // Block save if brackets are mismatched
+        if (!bracketStatus.valid) {
+            const firstError = bracketStatus.errors[0];
+            showToast('error', `Cannot save: ${firstError.message} (line ${firstError.line})`);
+            // Jump to the error line
+            if (editorRef.current) {
+                editorRef.current.revealLineInCenter(firstError.line);
+                editorRef.current.setPosition({ lineNumber: firstError.line, column: firstError.column });
+                editorRef.current.focus();
+            }
+            return;
+        }
+
         try {
             setWorking('Saving BIN file...');
             await api.saveRitobinToBin(filePath, content, useJade);
@@ -230,7 +505,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
             const flintError = err as api.FlintError;
             showToast('error', flintError.getUserMessage?.() || 'Failed to save');
         }
-    }, [filePath, content, useJade, setWorking, setReady, showToast]);
+    }, [filePath, content, useJade, setWorking, setReady, showToast, bracketStatus]);
 
     useEffect(() => {
         return () => {
@@ -289,6 +564,15 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
 
     const fileName = filePath.split('\\').pop() || filePath.split('/').pop() || 'file.bin';
 
+    // Bracket status label for toolbar
+    const bracketLabel = useMemo(() => {
+        if (bracketStatus.valid) return null;
+        const count = bracketStatus.errors.length;
+        const first = bracketStatus.errors[0];
+        if (count === 1) return `Bracket error at line ${first.line}`;
+        return `${count} bracket errors (line ${first.line})`;
+    }, [bracketStatus]);
+
     if (loading) {
         return (
             <div className="bin-editor__loading">
@@ -311,16 +595,36 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
         <div className="bin-editor">
             <div className="bin-editor__toolbar">
                 <span className="bin-editor__filename">
-                    {fileName}{isDirty ? ' •' : ''}
+                    {fileName}{isDirty ? ' \u2022' : ''}
                     <span className="bin-editor__stats">
                         {lineCount.toLocaleString()} lines
                     </span>
+                    {bracketLabel && (
+                        <span
+                            className="bin-editor__bracket-error"
+                            title={bracketStatus.errors.map(e => `Line ${e.line}: ${e.message}`).join('\n')}
+                            onClick={() => {
+                                const first = bracketStatus.errors[0];
+                                if (first && editorRef.current) {
+                                    editorRef.current.revealLineInCenter(first.line);
+                                    editorRef.current.setPosition({ lineNumber: first.line, column: first.column });
+                                    editorRef.current.focus();
+                                }
+                            }}
+                        >
+                            {bracketLabel}
+                        </span>
+                    )}
+                    {!bracketLabel && isDirty && (
+                        <span className="bin-editor__bracket-ok">Brackets OK</span>
+                    )}
                 </span>
                 <div className="bin-editor__toolbar-actions">
                     <button
                         className="btn btn--primary btn--sm"
                         onClick={handleSave}
                         disabled={!isDirty}
+                        title={!bracketStatus.valid ? 'Fix bracket errors before saving' : undefined}
                     >
                         Save
                     </button>

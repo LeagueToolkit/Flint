@@ -1,12 +1,57 @@
 /**
  * Flint - Text Preview Component with Monaco Editor
+ *
+ * Uses Monaco Editor directly (no @monaco-editor/react wrapper — that
+ * library's internal loader breaks in Tauri production builds with CORS errors).
  */
 
-import React, { useState, useEffect, useRef } from 'react';
-import Editor from '@monaco-editor/react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import * as monaco from 'monaco-editor';
+import type { editor } from 'monaco-editor';
 import * as api from '../../lib/api';
 import { getIcon } from '../../lib/fileIcons';
 import { useAppMetadataStore } from '../../lib/stores';
+
+// Configure Monaco workers — wrap in try-catch so a broken worker doesn't
+// cascade and break the entire editor (Monarch tokenizer runs on main thread anyway)
+import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
+import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
+
+// Only set MonacoEnvironment if not already configured (BinEditor may have set it)
+if (!self.MonacoEnvironment) {
+    self.MonacoEnvironment = {
+        getWorker(_: unknown, label: string) {
+            try {
+                if (label === 'json') return new jsonWorker();
+                return new editorWorker();
+            } catch (e) {
+                console.warn('[Monaco] Worker creation failed, falling back to main thread:', e);
+                const blob = new Blob(['self.onmessage=function(){}'], { type: 'text/javascript' });
+                return new Worker(URL.createObjectURL(blob));
+            }
+        },
+    };
+}
+
+/** Map file extensions to Monaco language IDs */
+const LANGUAGE_MAP: Record<string, string> = {
+    'json': 'json',
+    'js': 'javascript',
+    'jsx': 'javascript',
+    'ts': 'typescript',
+    'tsx': 'typescript',
+    'py': 'python',
+    'css': 'css',
+    'scss': 'scss',
+    'html': 'html',
+    'xml': 'xml',
+    'md': 'markdown',
+    'yaml': 'yaml',
+    'yml': 'yaml',
+    'sh': 'shell',
+    'bat': 'bat',
+    'txt': 'plaintext',
+};
 
 interface TextPreviewProps {
     filePath: string;
@@ -18,36 +63,19 @@ export const TextPreview: React.FC<TextPreviewProps> = ({ filePath }) => {
     const [error, setError] = useState<string | null>(null);
     const [hasChanges, setHasChanges] = useState(false);
     const [saving, setSaving] = useState(false);
+    const [lineCount, setLineCount] = useState(0);
     const originalContentRef = useRef<string>('');
+
+    const editorContainerRef = useRef<HTMLDivElement>(null);
+    const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
 
     // Subscribe to file version changes for hot reload
     const fileVersion = useAppMetadataStore((state) => state.fileVersions[filePath] || 0);
 
     const ext = filePath.split('.').pop()?.toLowerCase() || 'txt';
+    const language = LANGUAGE_MAP[ext] || 'plaintext';
 
-    // Map file extensions to Monaco language IDs
-    const getLanguage = (extension: string): string => {
-        const languageMap: Record<string, string> = {
-            'json': 'json',
-            'js': 'javascript',
-            'jsx': 'javascript',
-            'ts': 'typescript',
-            'tsx': 'typescript',
-            'py': 'python',
-            'css': 'css',
-            'scss': 'scss',
-            'html': 'html',
-            'xml': 'xml',
-            'md': 'markdown',
-            'yaml': 'yaml',
-            'yml': 'yaml',
-            'sh': 'shell',
-            'bat': 'bat',
-            'txt': 'plaintext',
-        };
-        return languageMap[extension] || 'plaintext';
-    };
-
+    // Load text file
     useEffect(() => {
         const loadText = async () => {
             setLoading(true);
@@ -58,6 +86,7 @@ export const TextPreview: React.FC<TextPreviewProps> = ({ filePath }) => {
                 const text = await api.readTextFile(filePath);
                 setContent(text);
                 originalContentRef.current = text;
+                setLineCount(text.split('\n').length);
             } catch (err) {
                 console.error('[TextPreview] Error:', err);
                 setError((err as Error).message || 'Failed to load text');
@@ -67,9 +96,59 @@ export const TextPreview: React.FC<TextPreviewProps> = ({ filePath }) => {
         };
 
         loadText();
-    }, [filePath, fileVersion]); // Re-run when file version changes (hot reload)
+    }, [filePath, fileVersion]);
 
-    const handleSave = async () => {
+    // Create Monaco editor directly once content is loaded
+    useEffect(() => {
+        if (loading || error || !editorContainerRef.current) return;
+
+        const ed = monaco.editor.create(editorContainerRef.current, {
+            value: content,
+            language,
+            theme: 'vs-dark',
+            automaticLayout: true,
+            fontFamily: 'var(--font-mono), "Cascadia Code", "Fira Code", Consolas, "Courier New", monospace',
+            fontSize: 13,
+            lineHeight: 20,
+            minimap: { enabled: false },
+            scrollBeyondLastLine: false,
+            wordWrap: 'off',
+            tabSize: 2,
+            insertSpaces: true,
+            formatOnPaste: true,
+            formatOnType: true,
+            renderWhitespace: 'selection',
+            bracketPairColorization: { enabled: true },
+            scrollbar: {
+                vertical: 'auto',
+                horizontal: 'auto',
+                verticalScrollbarSize: 12,
+                horizontalScrollbarSize: 12,
+                useShadows: false,
+            },
+        });
+
+        editorRef.current = ed;
+
+        const model = ed.getModel();
+        if (model) {
+            setLineCount(model.getLineCount());
+            model.onDidChangeContent(() => {
+                const value = ed.getValue();
+                setContent(value);
+                setHasChanges(value !== originalContentRef.current);
+                setLineCount(model.getLineCount());
+            });
+        }
+
+        return () => {
+            ed.dispose();
+            editorRef.current = null;
+        };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [loading, error]);
+
+    const handleSave = useCallback(async () => {
         setSaving(true);
         try {
             await api.writeTextFile(filePath, content);
@@ -81,19 +160,16 @@ export const TextPreview: React.FC<TextPreviewProps> = ({ filePath }) => {
         } finally {
             setSaving(false);
         }
-    };
+    }, [filePath, content]);
 
-    const handleEditorChange = (value: string | undefined) => {
-        if (value !== undefined) {
-            setContent(value);
-            setHasChanges(value !== originalContentRef.current);
-        }
-    };
-
-    const handleRevert = () => {
-        setContent(originalContentRef.current);
+    const handleRevert = useCallback(() => {
+        const original = originalContentRef.current;
+        setContent(original);
         setHasChanges(false);
-    };
+        if (editorRef.current) {
+            editorRef.current.setValue(original);
+        }
+    }, []);
 
     if (loading) {
         return (
@@ -113,15 +189,12 @@ export const TextPreview: React.FC<TextPreviewProps> = ({ filePath }) => {
         );
     }
 
-    const language = getLanguage(ext);
-    const lineCount = content.split('\n').length;
-
     return (
         <div className="text-preview text-preview--monaco">
             <div className="text-preview__toolbar">
                 <div className="text-preview__toolbar-left">
                     <span className="text-preview__lang">{ext.toUpperCase()}</span>
-                    <span>{lineCount} lines</span>
+                    <span>{lineCount.toLocaleString()} lines</span>
                     {hasChanges && <span className="text-preview__modified">● Modified</span>}
                 </div>
                 <div className="text-preview__toolbar-right">
@@ -146,30 +219,7 @@ export const TextPreview: React.FC<TextPreviewProps> = ({ filePath }) => {
                 </div>
             </div>
             <div className="text-preview__monaco-container">
-                <Editor
-                    height="100%"
-                    language={language}
-                    value={content}
-                    onChange={handleEditorChange}
-                    theme="vs-dark"
-                    options={{
-                        minimap: { enabled: false },
-                        fontSize: 13,
-                        lineHeight: 20,
-                        fontFamily: "'Cascadia Code', 'Fira Code', 'Consolas', monospace",
-                        scrollBeyondLastLine: false,
-                        wordWrap: 'off',
-                        automaticLayout: true,
-                        tabSize: 2,
-                        insertSpaces: true,
-                        formatOnPaste: true,
-                        formatOnType: true,
-                        renderWhitespace: 'selection',
-                        bracketPairColorization: {
-                            enabled: true,
-                        },
-                    }}
-                />
+                <div ref={editorContainerRef} style={{ width: '100%', height: '100%' }} />
             </div>
         </div>
     );

@@ -362,6 +362,36 @@ fn export_with_ltk_fantome(
     )
     .map_err(|e| format!("Failed to write info.json: {}", e))?;
 
+    // Embed thumbnail as META/image.png if thumbnail.webp exists in project root
+    let thumbnail_path = project_path.join("thumbnail.webp");
+    if thumbnail_path.exists() {
+        if let Ok(thumb_bytes) = std::fs::read(&thumbnail_path) {
+            // Decode webp and re-encode as PNG for fantome compatibility
+            match image::load_from_memory(&thumb_bytes) {
+                Ok(img) => {
+                    let mut png_buf = Vec::new();
+                    let mut cursor = std::io::Cursor::new(&mut png_buf);
+                    if img.write_to(&mut cursor, image::ImageFormat::Png).is_ok() {
+                        let img_options = SimpleFileOptions::default()
+                            .compression_method(zip::CompressionMethod::Deflated);
+                        if zip.start_file("META/image.png", img_options).is_ok() {
+                            let _ = zip.write_all(&png_buf);
+                            tracing::info!("Embedded thumbnail as META/image.png ({} bytes)", png_buf.len());
+                        }
+                    }
+                }
+                Err(_) => {
+                    // If not decodable as webp, try writing raw (might already be png)
+                    let img_options = SimpleFileOptions::default()
+                        .compression_method(zip::CompressionMethod::Deflated);
+                    if zip.start_file("META/image.png", img_options).is_ok() {
+                        let _ = zip.write_all(&thumb_bytes);
+                    }
+                }
+            }
+        }
+    }
+
     zip.finish()
         .map_err(|e| format!("Failed to finalize ZIP: {}", e))?;
 
@@ -501,6 +531,11 @@ pub async fn export_modpkg(
 }
 
 /// Helper function to export using ltk_modpkg
+///
+/// Optimized: files are read on-demand during build (not pre-loaded into memory).
+/// Filters out `.ritobin` cache files and `testcuberenderer` debug assets.
+/// Embeds thumbnail if `thumbnail.webp` exists in project root.
+/// Reads champion info from `flint.json` for metadata.
 fn export_with_ltk_modpkg(
     project_path: &Path,
     output_path: &Path,
@@ -510,17 +545,19 @@ fn export_with_ltk_modpkg(
     use ltk_modpkg::{ModpkgMetadata, ModpkgAuthor};
     use std::io::Write;
 
-    // Collect all files and their data
     let content_base = project_path.join("content").join("base");
-    let mut file_map: HashMap<String, Vec<u8>> = HashMap::new();
+
+    // Collect file paths only (on-demand loading saves memory for large projects)
+    let mut file_paths: HashMap<String, PathBuf> = HashMap::new();
 
     for entry in walkdir::WalkDir::new(&content_base)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| {
-            // Exclude testcuberenderer folders
-            let path_str = e.path().to_string_lossy().to_lowercase();
-            !path_str.contains("testcuberenderer") && e.path().is_file()
+            let p = e.path().to_string_lossy().to_lowercase();
+            !p.contains("testcuberenderer")
+                && !p.ends_with(".ritobin")
+                && e.path().is_file()
         })
     {
         let file_path = entry.path();
@@ -528,15 +565,11 @@ fn export_with_ltk_modpkg(
             .strip_prefix(&content_base)
             .map_err(|e| format!("Failed to get relative path: {}", e))?;
 
-        let file_data = std::fs::read(file_path)
-            .map_err(|e| format!("Failed to read file {}: {}", file_path.display(), e))?;
-
-        // Normalize path separators and lowercase (modpkg builder lowercases paths internally)
-        let normalized_path = relative_path.to_string_lossy().replace("\\", "/").to_lowercase();
-        file_map.insert(normalized_path, file_data);
+        let normalized_path = relative_path.to_string_lossy().replace('\\', "/").to_lowercase();
+        file_paths.insert(normalized_path, file_path.to_path_buf());
     }
 
-    let file_count = file_map.len();
+    let file_count = file_paths.len();
 
     // Parse version from string to semver::Version
     let version = semver::Version::parse(&mod_project.version)
@@ -567,8 +600,19 @@ fn export_with_ltk_modpkg(
         .map_err(|e| format!("Failed to set metadata: {}", e))?
         .with_layer(ModpkgLayerBuilder::base());
 
+    // Embed thumbnail if it exists in project root
+    let thumbnail_path = project_path.join("thumbnail.webp");
+    if thumbnail_path.exists() {
+        if let Ok(thumb_bytes) = std::fs::read(&thumbnail_path) {
+            builder = builder
+                .with_thumbnail(thumb_bytes)
+                .map_err(|e| format!("Failed to set thumbnail: {}", e))?;
+            tracing::info!("Embedded thumbnail ({} bytes)", thumbnail_path.metadata().map(|m| m.len()).unwrap_or(0));
+        }
+    }
+
     // Add all files as chunks
-    for path in file_map.keys() {
+    for path in file_paths.keys() {
         let chunk = ModpkgChunkBuilder::new()
             .with_path(path)
             .map_err(|e| format!("Failed to set chunk path: {}", e))?
@@ -580,20 +624,23 @@ fn export_with_ltk_modpkg(
     let mut output_file = File::create(output_path)
         .map_err(|e| format!("Failed to create output file: {}", e))?;
 
-    // Build to writer with data provider closure
+    // Build to writer — files are read on-demand to minimize memory usage
     builder.build_to_writer(&mut output_file, |chunk_builder, cursor| {
-        if let Some(data) = file_map.get(&chunk_builder.path) {
-            cursor.write_all(data)?;
+        if let Some(file_path) = file_paths.get(&chunk_builder.path) {
+            let data = std::fs::read(file_path).map_err(|e| {
+                std::io::Error::other(format!("Failed to read {}: {}", file_path.display(), e))
+            })?;
+            cursor.write_all(&data)?;
         }
         Ok(())
     })
     .map_err(|e| format!("Failed to build modpkg: {}", e))?;
 
-    // Get output file size
     let total_size = std::fs::metadata(output_path)
         .map(|m| m.len())
         .unwrap_or(0);
 
+    tracing::info!("Modpkg export complete: {} files, {} bytes", file_count, total_size);
     Ok((file_count, total_size))
 }
 

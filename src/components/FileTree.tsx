@@ -255,6 +255,24 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
         if (effectiveNode.isDirectory) {
             // --- Directory context menu ---
 
+            // Root project folder: Set Thumbnail option
+            if (depth === 0 && projectPath) {
+                options.push({
+                    label: 'Set Thumbnail',
+                    icon: getIcon('document'),
+                    onClick: () => openModal('thumbnail', { projectPath }),
+                });
+                options.push({
+                    label: 'Edit Project Info',
+                    icon: getIcon('code'),
+                    onClick: () => {
+                        const configPath = `${projectPath.replace(/\\/g, '/')}/mod.config.json`;
+                        openModal('modConfig', { filePath: configPath });
+                    },
+                    separator: true,
+                });
+            }
+
             // Content folder gets "Create New Layer" placeholder
             if (isContentFolder(effectiveNode.path)) {
                 options.push({
@@ -343,6 +361,37 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
             });
         } else {
             // --- File context menu ---
+
+            // Special options for mod.config.json
+            if (fileName === 'mod.config.json') {
+                options.push({
+                    label: 'Edit Project Info',
+                    icon: getIcon('code'),
+                    onClick: () => openModal('modConfig', { filePath: fullPath }),
+                });
+                options.push({
+                    label: 'Add Contributor',
+                    icon: getIcon('plus'),
+                    onClick: async () => {
+                        try {
+                            const text = await api.readTextFile(fullPath);
+                            const config = JSON.parse(text);
+                            const name = prompt('Contributor name:');
+                            if (!name?.trim()) return;
+                            const role = prompt('Role (optional):');
+                            const author = role?.trim()
+                                ? { NameAndRole: { name: name.trim(), role: role.trim() } }
+                                : { Name: name.trim() };
+                            config.authors = [...(config.authors || []), author];
+                            await api.writeTextFile(fullPath, JSON.stringify(config, null, 2));
+                            showToast('success', `Added contributor: ${name.trim()}`);
+                        } catch (err) {
+                            showToast('error', 'Failed to add contributor');
+                        }
+                    },
+                    separator: true,
+                });
+            }
 
             options.push({
                 label: 'Rename',

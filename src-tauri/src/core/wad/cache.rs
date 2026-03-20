@@ -57,6 +57,11 @@ impl WadCache {
         Some(Arc::clone(&entry.chunks))
     }
 
+    /// Remove a WAD entry from the cache (used by Reload WAD)
+    pub fn remove(&self, path: impl AsRef<Path>) {
+        self.cache.remove(path.as_ref());
+    }
+
     /// Insert WAD metadata into cache
     ///
     /// # Arguments

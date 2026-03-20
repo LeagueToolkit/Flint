@@ -404,6 +404,19 @@ pub async fn write_text_file(path: String, content: String) -> Result<(), String
     fs::write(path, content).map_err(|e| format!("Failed to write file: {}", e))
 }
 
+/// Save raw bytes to a file (used for binary data like thumbnails)
+#[tauri::command]
+pub async fn save_file_bytes(path: String, data: Vec<u8>) -> Result<(), String> {
+    let path = Path::new(&path);
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create parent directories: {}", e))?;
+    }
+
+    fs::write(path, data).map_err(|e| format!("Failed to write file: {}", e))
+}
+
 /// Recolor a single texture file (DDS or TEX)
 #[tauri::command]
 pub async fn recolor_image(

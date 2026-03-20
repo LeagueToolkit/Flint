@@ -325,6 +325,174 @@ pub async fn extract_wad(
     Ok(ExtractionResult { extracted_count, failed_count })
 }
 
+/// Invalidate a WAD entry from the metadata cache so the next read re-parses it.
+#[tauri::command]
+pub async fn invalidate_wad_cache(
+    path: String,
+    wad_cache_state: State<'_, WadCacheState>,
+) -> Result<(), String> {
+    wad_cache_state.get().remove(&path);
+    tracing::info!("Invalidated WAD cache for: {}", path);
+    Ok(())
+}
+
+/// Result of extracting a WAD model preview
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WadModelPreviewResult {
+    pub skn_path: String,
+    pub temp_dir: String,
+}
+
+/// Extract an SKN chunk and its companion files from a WAD to a temp directory
+/// for inline 3D preview. Companion files: .skl, .bin, .dds, .tex in the same
+/// skin folder. Also auto-generates .ritobin cache for .bin files.
+#[tauri::command]
+pub async fn extract_wad_model_preview(
+    wad_path: String,
+    skn_hash: String,
+    lmdb: State<'_, LmdbCacheState>,
+    wad_cache_state: State<'_, WadCacheState>,
+) -> Result<WadModelPreviewResult, String> {
+    let target_hash = u64::from_str_radix(&skn_hash, 16)
+        .map_err(|e| format!("Invalid hash '{}': {}", skn_hash, e))?;
+
+    let cache = wad_cache_state.get();
+
+    // Get chunks (from cache or fresh parse)
+    let chunks = if let Some(cached) = cache.get(&wad_path) {
+        cached
+    } else {
+        let reader = WadReader::open(&wad_path)?;
+        let chunks: Vec<_> = reader.chunks().iter().cloned().collect();
+        let chunks = Arc::new(chunks);
+        let _ = cache.insert(&wad_path, Arc::clone(&chunks));
+        chunks
+    };
+
+    // Resolve all hashes via LMDB
+    let hash_u64s: Vec<u64> = chunks.iter().map(|c| c.path_hash()).collect();
+    let hash_dir = crate::core::hash::downloader::get_ritoshark_hash_dir()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let resolved_map: HashMap<u64, String> = if let Some(ref env) = lmdb.get_env(&hash_dir) {
+        resolve_hashes_lmdb_bulk(&hash_u64s, env)
+    } else {
+        hash_u64s.iter().map(|h| (*h, format!("{:016x}", h))).collect()
+    };
+
+    // Find the SKN chunk's resolved path
+    let skn_resolved = resolved_map.get(&target_hash)
+        .ok_or_else(|| format!("SKN chunk {:016x} not found in WAD", target_hash))?;
+
+    // Determine the skin folder prefix (e.g., "data/characters/ahri/skins/skin01/")
+    let skn_normalized = skn_resolved.replace('\\', "/");
+    let skn_folder = skn_normalized.rsplit_once('/')
+        .map(|(folder, _)| format!("{}/", folder))
+        .unwrap_or_default();
+
+    // Companion extensions to extract alongside the SKN
+    let companion_exts = [".skn", ".skl", ".bin", ".dds", ".tex"];
+
+    // Find all companion chunks in the same folder
+    let mut to_extract: Vec<(u64, String)> = Vec::new();
+    for chunk in chunks.iter() {
+        let h = chunk.path_hash();
+        if let Some(resolved) = resolved_map.get(&h) {
+            let norm = resolved.replace('\\', "/");
+            if !skn_folder.is_empty() && norm.starts_with(&skn_folder) {
+                let lower = norm.to_lowercase();
+                if companion_exts.iter().any(|ext| lower.ends_with(ext)) {
+                    to_extract.push((h, norm));
+                }
+            } else if h == target_hash {
+                // Always include the target SKN even if folder matching fails
+                to_extract.push((h, norm));
+            }
+        }
+    }
+
+    if to_extract.is_empty() {
+        return Err("No extractable files found for SKN preview".to_string());
+    }
+
+    // Create temp directory
+    let uuid = uuid::Uuid::new_v4();
+    let temp_dir = std::env::temp_dir().join("flint-wad-preview").join(uuid.to_string());
+    std::fs::create_dir_all(&temp_dir)
+        .map_err(|e| format!("Failed to create temp dir: {}", e))?;
+
+    // Extract companion files
+    let mut reader = WadReader::open(&wad_path)?;
+    let mut skn_path = String::new();
+
+    for (hash, rel_path) in &to_extract {
+        if let Some(chunk) = reader.get_chunk(*hash) {
+            let output_path = temp_dir.join(rel_path);
+            if let Some(parent) = output_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let chunk_copy = *chunk;
+            if let Err(e) = crate::core::wad::extractor::extract_chunk(
+                reader.wad_mut(), &chunk_copy, &output_path, None,
+            ) {
+                tracing::warn!("Failed to extract {}: {}", rel_path, e);
+                continue;
+            }
+            if *hash == target_hash {
+                skn_path = output_path.to_string_lossy().to_string();
+            }
+        }
+    }
+
+    if skn_path.is_empty() {
+        // Cleanup on failure
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        return Err("Failed to extract SKN chunk".to_string());
+    }
+
+    // Auto-generate .ritobin cache for all extracted .bin files
+    for (_, rel_path) in &to_extract {
+        if rel_path.to_lowercase().ends_with(".bin") {
+            let bin_path = temp_dir.join(rel_path);
+            let ritobin_path = std::path::PathBuf::from(format!("{}.ritobin", bin_path.display()));
+            if let Err(e) = crate::commands::mesh::create_ritobin_cache(&bin_path, &ritobin_path) {
+                tracing::warn!("Failed to create ritobin cache for {}: {}", rel_path, e);
+            }
+        }
+    }
+
+    tracing::info!(
+        "Extracted {} files for SKN preview to {}",
+        to_extract.len(),
+        temp_dir.display()
+    );
+
+    Ok(WadModelPreviewResult {
+        skn_path,
+        temp_dir: temp_dir.to_string_lossy().to_string(),
+    })
+}
+
+/// Clean up a temporary WAD model preview directory.
+/// Validates the path starts with the expected temp prefix.
+#[tauri::command]
+pub async fn cleanup_wad_model_preview(temp_dir: String) -> Result<(), String> {
+    let path = std::path::Path::new(&temp_dir);
+    let expected_prefix = std::env::temp_dir().join("flint-wad-preview");
+
+    if !path.starts_with(&expected_prefix) {
+        return Err("Invalid temp dir path — must be inside flint-wad-preview".to_string());
+    }
+
+    if path.exists() {
+        std::fs::remove_dir_all(path)
+            .map_err(|e| format!("Failed to cleanup temp dir: {}", e))?;
+        tracing::debug!("Cleaned up WAD preview temp: {}", temp_dir);
+    }
+
+    Ok(())
+}
+
 /// Info about a WAD file found on disk (for game WAD scanning)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GameWadInfo {

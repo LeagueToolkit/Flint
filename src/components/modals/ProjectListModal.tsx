@@ -19,9 +19,17 @@ export const ProjectListModal: React.FC = () => {
     const isVisible = state.activeModal === 'projectList';
     const savedProjects = state.savedProjects || [];
 
-    // Listen for Fantome import progress events
+    // Listen for import progress events (Fantome + ModPkg)
     useEffect(() => {
-        const unlisten = listen<{status: string, message: string}>('fantome-import-progress', (event) => {
+        const unlistenFantome = listen<{status: string, message: string}>('fantome-import-progress', (event) => {
+            const { status, message } = event.payload;
+            if (status === 'error') {
+                setError(message);
+            } else {
+                setWorking(message);
+            }
+        });
+        const unlistenModpkg = listen<{status: string, message: string}>('modpkg-import-progress', (event) => {
             const { status, message } = event.payload;
             if (status === 'error') {
                 setError(message);
@@ -31,7 +39,8 @@ export const ProjectListModal: React.FC = () => {
         });
 
         return () => {
-            unlisten.then(fn => fn());
+            unlistenFantome.then(fn => fn());
+            unlistenModpkg.then(fn => fn());
         };
     }, [setWorking, setError]);
 
@@ -146,12 +155,14 @@ export const ProjectListModal: React.FC = () => {
         });
     }, [savedProjects, dispatch, setWorking, setReady, setError, openConfirmDialog]);
 
-    const handleImportFantome = useCallback(async () => {
+    const handleImportMod = useCallback(async () => {
         try {
             const selected = await open({
-                title: 'Import Fantome Mod or WAD File',
+                title: 'Import Mod File',
                 filters: [
+                    { name: 'Mod Packages', extensions: ['fantome', 'modpkg'] },
                     { name: 'Fantome Package', extensions: ['fantome'] },
+                    { name: 'ModPkg Package', extensions: ['modpkg'] },
                     { name: 'WAD Archive', extensions: ['wad', 'client'] },
                     { name: 'ZIP Archive', extensions: ['zip'] },
                     { name: 'All Files', extensions: ['*'] },
@@ -162,22 +173,43 @@ export const ProjectListModal: React.FC = () => {
 
             if (!selected) return;
 
-            // Keep modal open and show progress
-            setWorking('Analyzing Fantome mod...');
+            const filePath = selected as string;
+            const isModpkg = filePath.toLowerCase().endsWith('.modpkg');
 
-            const analysis = await api.analyzeFantome(selected as string);
+            let champion: string;
+            let skinId: number;
+            let creatorName: string;
+            let modName: string;
 
-            if (!analysis.is_champion_mod) {
-                setError('This does not appear to be a champion mod. Only champion mods are supported.');
-                return;
+            if (isModpkg) {
+                // ModPkg import flow
+                setWorking('Analyzing ModPkg...');
+                const analysis = await api.analyzeModpkg(filePath);
+
+                if (!analysis.is_champion_mod) {
+                    setError('This does not appear to be a champion mod. Only champion mods are supported.');
+                    return;
+                }
+
+                champion = analysis.champion || 'Unknown';
+                skinId = analysis.skin_ids[0] || 0;
+                creatorName = analysis.authors[0] || state.creatorName || 'Unknown';
+                modName = analysis.display_name || analysis.name || `${champion}_Skin${skinId}_Imported`;
+            } else {
+                // Fantome / WAD import flow
+                setWorking('Analyzing Fantome mod...');
+                const analysis = await api.analyzeFantome(filePath);
+
+                if (!analysis.is_champion_mod) {
+                    setError('This does not appear to be a champion mod. Only champion mods are supported.');
+                    return;
+                }
+
+                champion = analysis.champion || 'Unknown';
+                skinId = analysis.skin_ids[0] || 0;
+                creatorName = analysis.metadata?.author || state.creatorName || 'Unknown';
+                modName = analysis.metadata?.name || `${champion}_Skin${skinId}_Imported`;
             }
-
-            const champion = analysis.champion || 'Unknown';
-            const skinId = analysis.skin_ids[0] || 0;
-
-            // Extract metadata from Fantome package (if available)
-            const creatorName = analysis.metadata?.author || state.creatorName || 'Unknown';
-            const modName = analysis.metadata?.name || `${champion}_Skin${skinId}_Imported`;
 
             // Get default project directory: {AppData}/RitoShark/Flint/Projects
             const appData = await appDataDir();
@@ -186,25 +218,25 @@ export const ProjectListModal: React.FC = () => {
             const defaultProjectsDir = `${parts.join('/')}/RitoShark/Flint/Projects`;
 
             // Sanitize for filesystem (remove special characters)
-            // Use champion_SkinID_ModName format for uniqueness without ugly timestamps
             const sanitizedModName = modName.replace(/[^a-zA-Z0-9_-]/g, '_');
             const dirName = `${champion}_Skin${skinId}_${sanitizedModName}`;
 
-            // Extract and refather WAD files - importFantomeWad now creates the full project structure
             setWorking('Importing and refathering mod files...');
             const projectDir = `${defaultProjectsDir}/${dirName}`;
 
             const options: api.ImportOptions = {
-                refather: true, // Enable refathering to apply proper mod structure
+                refather: true,
                 creator_name: creatorName,
-                project_name: modName, // Use original name, not timestamped version
+                project_name: modName,
                 target_skin_id: skinId,
-                cleanup_unused: false, // Don't cleanup - pre-repathed VFX won't be in BIN references
-                match_from_league: true, // Match missing files from League installation
+                cleanup_unused: false,
+                match_from_league: !isModpkg, // Only match from League for fantome/WAD (modpkg already has all files)
                 league_path: state.leaguePath || null,
             };
 
-            const project = await api.importFantomeWad(selected as string, projectDir, options);
+            const project = isModpkg
+                ? await api.importModpkg(filePath, projectDir, options)
+                : await api.importFantomeWad(filePath, projectDir, options);
 
             // Open the project
             setWorking('Opening project...');
@@ -238,10 +270,10 @@ export const ProjectListModal: React.FC = () => {
             setReady();
 
         } catch (error) {
-            console.error('Failed to import Fantome mod:', error);
+            console.error('Failed to import mod:', error);
             const flintError = error as api.FlintError;
             closeModal();
-            setError(flintError.getUserMessage?.() || 'Failed to import Fantome mod');
+            setError(flintError.getUserMessage?.() || 'Failed to import mod');
         }
     }, [state.leaguePath, state.creatorName, state.recentProjects, dispatch, closeModal, setWorking, setReady, setError]);
 
@@ -318,11 +350,11 @@ export const ProjectListModal: React.FC = () => {
                         </svg>
                         Open Existing Project
                     </button>
-                    <button className="btn btn--primary" onClick={handleImportFantome} title="Import .fantome or .wad file">
+                    <button className="btn btn--primary" onClick={handleImportMod} title="Import .fantome, .modpkg, or .wad file">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
                             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                         </svg>
-                        Import Fantome Mod
+                        Import Mod
                     </button>
                 </div>
             </div>

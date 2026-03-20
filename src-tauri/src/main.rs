@@ -124,6 +124,9 @@ fn main() {
             commands::wad::extract_wad,
             commands::wad::read_wad_chunk_data,
             commands::wad::scan_game_wads,
+            commands::wad::invalidate_wad_cache,
+            commands::wad::extract_wad_model_preview,
+            commands::wad::cleanup_wad_model_preview,
             commands::bin::convert_bin_to_text,
             commands::bin::convert_bin_to_json,
             commands::bin::convert_text_to_bin,
@@ -161,6 +164,7 @@ fn main() {
             commands::file::get_bundled_floor_png,
             commands::file::read_text_file,
             commands::file::write_text_file,
+            commands::file::save_file_bytes,
             commands::file::recolor_image,
             commands::file::recolor_folder,
             commands::file::colorize_image,
@@ -238,6 +242,9 @@ fn main() {
             // Fantome import commands
             commands::fantome_import::analyze_fantome,
             commands::fantome_import::import_fantome_wad,
+            // ModPkg import commands
+            commands::modpkg_import::analyze_modpkg,
+            commands::modpkg_import::import_modpkg,
             // HUD Editor commands
             commands::hud::parse_hud_ritobin_file,
             commands::hud::save_hud_ritobin_file,
