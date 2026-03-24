@@ -14,7 +14,7 @@ use std::fs;
 use std::io::Cursor;
 use std::path::Path;
 
-use flint_ltk::ltk_types::{BinTree, HashMapProvider, write_with_hashes};
+use flint_ltk::ltk_types::{Bin, HashMapProvider, write_with_hashes};
 fn main() {
     let args: Vec<String> = env::args().collect();
     
@@ -45,7 +45,7 @@ fn main() {
     // Step 2: Parse with ltk_meta
     println!("\n--- Step 2: Parsing with ltk_meta ---");
     let mut cursor = Cursor::new(&original_data);
-    let bin_tree = match BinTree::from_reader(&mut cursor) {
+    let bin_tree = match Bin::from_reader(&mut cursor) {
         Ok(tree) => tree,
         Err(e) => {
             eprintln!("ERROR: Failed to parse BIN: {:?}", e);
@@ -87,7 +87,7 @@ fn main() {
     // Step 4: Re-parse the output to verify
     println!("\n--- Step 4: Re-parsing output ---");
     let mut verify_cursor = Cursor::new(&output_data);
-    let verify_tree = match BinTree::from_reader(&mut verify_cursor) {
+    let verify_tree = match Bin::from_reader(&mut verify_cursor) {
         Ok(tree) => tree,
         Err(e) => {
             eprintln!("ERROR: Failed to re-parse output: {:?}", e);

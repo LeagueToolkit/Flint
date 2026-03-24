@@ -5,7 +5,7 @@
 
 use crate::bin::ltk_bridge::{tree_to_text_cached, text_to_tree};
 use crate::error::{Error, Result};
-use ltk_meta::BinTree;
+use ltk_meta::Bin;
 
 // Helper function to create BinConversion errors
 fn bin_error(message: impl Into<String>) -> Error {
@@ -15,28 +15,28 @@ fn bin_error(message: impl Into<String>) -> Error {
     }
 }
 
-/// Convert a BinTree to Python-like text format
+/// Convert a Bin to Python-like text format
 ///
 /// Uses cached hash provider for resolving hashes to readable names
-pub fn bin_to_text(tree: &BinTree) -> Result<String> {
+pub fn bin_to_text(tree: &Bin) -> Result<String> {
     tree_to_text_cached(tree)
         .map_err(|e| bin_error(format!("Failed to convert to text: {}", e)))
 }
 
-/// Convert Python-like text format to BinTree
-pub fn text_to_bin(text: &str) -> Result<BinTree> {
+/// Convert Python-like text format to Bin
+pub fn text_to_bin(text: &str) -> Result<Bin> {
     text_to_tree(text)
         .map_err(|e| bin_error(format!("Failed to parse text: {}", e)))
 }
 
-/// Convert a BinTree to JSON format
-pub fn bin_to_json(tree: &BinTree) -> Result<String> {
+/// Convert a Bin to JSON format
+pub fn bin_to_json(tree: &Bin) -> Result<String> {
     serde_json::to_string_pretty(tree)
         .map_err(|e| bin_error(format!("JSON serialization failed: {}", e)))
 }
 
-/// Convert JSON format to a BinTree
-pub fn json_to_bin(json: &str) -> Result<BinTree> {
+/// Convert JSON format to a Bin
+pub fn json_to_bin(json: &str) -> Result<Bin> {
     serde_json::from_str(json)
         .map_err(|e| bin_error(format!("JSON parse error: {}", e)))
 }
@@ -47,8 +47,8 @@ mod tests {
 
     #[test]
     fn test_json_roundtrip() {
-        // Create a simple BinTree
-        let tree = BinTree::new(std::iter::empty::<ltk_meta::BinTreeObject>(), std::iter::empty::<String>());
+        // Create a simple Bin
+        let tree = Bin::new(std::iter::empty::<ltk_meta::BinObject>(), std::iter::empty::<String>());
         
         // Convert to JSON
         let json = bin_to_json(&tree).unwrap();

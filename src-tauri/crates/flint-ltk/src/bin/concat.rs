@@ -9,7 +9,7 @@
 
 use crate::bin::ltk_bridge::{read_bin, write_bin};
 use crate::error::{Error, Result};
-use ltk_meta::{BinTree, BinTreeBuilder, BinTreeObject};
+use ltk_meta::{Bin, BinObject};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
@@ -85,19 +85,19 @@ pub fn classify_bin(path: &str) -> BinCategory {
     BinCategory::LinkedData
 }
 
-/// Get the linked paths from a BinTree (uses dependencies field)
-pub fn get_linked_paths(bin: &BinTree) -> Vec<String> {
+/// Get the linked paths from a Bin (uses dependencies field)
+pub fn get_linked_paths(bin: &Bin) -> Vec<String> {
     bin.dependencies.clone()
 }
 
-/// Set the linked paths in a BinTree
-pub fn set_linked_paths(bin: &mut BinTree, paths: Vec<String>) {
+/// Set the linked paths in a Bin
+pub fn set_linked_paths(bin: &mut Bin, paths: Vec<String>) {
     bin.dependencies = paths;
 }
 
 /// Create a concatenated BIN from all Type 3 (LinkedData) BINs
 pub fn create_concat_bin(
-    main_bin: &BinTree,
+    main_bin: &Bin,
     project_name: &str,
     creator_name: &str,
     _champion: &str,  // No longer used in path generation but kept for API compatibility
@@ -132,7 +132,7 @@ pub fn create_concat_bin(
     }
 
     // 3. Create new concat BIN - objects will be merged, dependencies empty
-    let mut all_objects: HashMap<u32, BinTreeObject> = HashMap::new();
+    let mut all_objects: HashMap<u32, BinObject> = HashMap::new();
     let mut collision_count = 0;
     let mut source_count = 0;
     let mut processed_paths: Vec<String> = Vec::new();
@@ -204,8 +204,8 @@ pub fn create_concat_bin(
         processed_paths.push(actual_path.clone());
     }
 
-    // 4. Create the concat BinTree using BinTreeBuilder for cleaner construction
-    let concat_bin = BinTreeBuilder::new()
+    // 4. Create the concat Bin using Bin::builder() for cleaner construction
+    let concat_bin = Bin::builder()
         .objects(all_objects.into_values())
         .build();
     let object_count = concat_bin.objects.len();
@@ -257,7 +257,7 @@ pub fn create_concat_bin(
 }
 
 /// Update the main BIN's linked list to use the concat BIN
-pub fn update_main_bin_links(main_bin: &mut BinTree, concat_path: String) -> Result<()> {
+pub fn update_main_bin_links(main_bin: &mut Bin, concat_path: String) -> Result<()> {
     let current_links = get_linked_paths(main_bin);
 
     // Find Type 1 (ChampionRoot)

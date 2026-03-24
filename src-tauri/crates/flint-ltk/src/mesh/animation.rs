@@ -306,7 +306,7 @@ pub fn extract_animation_list(bin_path: &Path) -> anyhow::Result<AnimationList> 
 fn extract_animation_paths_from_value(value: &PropertyValueEnum, clips: &mut Vec<AnimationClipInfo>) {
     match value {
         PropertyValueEnum::String(string_val) => {
-            let s = &string_val.0;
+            let s = &string_val.value;
             // Check if this is an animation path
             if s.to_lowercase().ends_with(".anm") {
                 // Extract name from path
@@ -314,7 +314,7 @@ fn extract_animation_paths_from_value(value: &PropertyValueEnum, clips: &mut Vec
                     .file_stem()
                     .map(|n| n.to_string_lossy().to_string())
                     .unwrap_or_else(|| "Unknown".to_string());
-                
+
                 clips.push(AnimationClipInfo {
                     name,
                     track_name: None,
@@ -322,37 +322,37 @@ fn extract_animation_paths_from_value(value: &PropertyValueEnum, clips: &mut Vec
                 });
             }
         }
-        
+
         PropertyValueEnum::Embedded(embedded) => {
             for (_hash, prop) in &embedded.0.properties {
                 extract_animation_paths_from_value(&prop.value, clips);
             }
         }
-        
+
         PropertyValueEnum::Container(container) => {
-            for item in &container.items {
-                extract_animation_paths_from_value(item, clips);
+            for item in container.clone().into_items() {
+                extract_animation_paths_from_value(&item, clips);
             }
         }
-        
+
         PropertyValueEnum::Struct(struct_val) => {
             for (_hash, prop) in &struct_val.properties {
                 extract_animation_paths_from_value(&prop.value, clips);
             }
         }
-        
+
         PropertyValueEnum::Optional(opt) => {
-            if let Some(inner) = &opt.value {
-                extract_animation_paths_from_value(inner, clips);
+            if let Some(inner) = opt.clone().into_inner() {
+                extract_animation_paths_from_value(&inner, clips);
             }
         }
-        
+
         PropertyValueEnum::Map(map) => {
-            for (_key, val) in &map.entries {
+            for (_key, val) in map.entries() {
                 extract_animation_paths_from_value(val, clips);
             }
         }
-        
+
         _ => {}
     }
 }

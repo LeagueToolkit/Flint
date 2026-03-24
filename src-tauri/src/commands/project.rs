@@ -518,52 +518,55 @@ fn inject_animation_block(
     let scene_path = "ClientStates/LoadingScreen/UX/LoadingScreenClassic/UIBase/LoadingScreen";
 
     // UIRect embed inside Position
-    let ui_rect = EmbeddedValue(StructValue {
+    let ui_rect = Embedded(Struct {
         class_hash: fnv1a_lower("UiElementRect"),
         properties: vec![
-            bin_prop("Position", PropertyValueEnum::Vector2(Vector2Value(Vec2::new(0.0, 0.0)))),
-            bin_prop("Size", PropertyValueEnum::Vector2(Vector2Value(Vec2::new(1920.0, 1080.0)))),
-            bin_prop("SourceResolutionWidth", PropertyValueEnum::U16(U16Value(1920))),
-            bin_prop("SourceResolutionHeight", PropertyValueEnum::U16(U16Value(1080))),
+            bin_prop("Position", PropertyValueEnum::Vector2(Vector2::new(Vec2::new(0.0, 0.0)))),
+            bin_prop("Size", PropertyValueEnum::Vector2(Vector2::new(Vec2::new(1920.0, 1080.0)))),
+            bin_prop("SourceResolutionWidth", PropertyValueEnum::U16(U16::new(1920))),
+            bin_prop("SourceResolutionHeight", PropertyValueEnum::U16(U16::new(1080))),
         ].into_iter().collect(),
+        meta: Default::default(),
     });
 
     // Position pointer → UiPositionRect
-    let position_ptr = StructValue {
+    let position_ptr = Struct {
         class_hash: fnv1a_lower("UiPositionRect"),
         properties: vec![
             bin_prop("UIRect", PropertyValueEnum::Embedded(ui_rect)),
-            bin_prop("IgnoreGlobalScale", PropertyValueEnum::Bool(BoolValue(true))),
+            bin_prop("IgnoreGlobalScale", PropertyValueEnum::Bool(Bool::new(true))),
         ].into_iter().collect(),
+        meta: Default::default(),
     };
 
     // TextureData pointer → AtlasData
-    let atlas_data = StructValue {
+    let atlas_data = Struct {
         class_hash: fnv1a_lower("AtlasData"),
         properties: vec![
-            bin_prop("mTextureName", PropertyValueEnum::String(StringValue("assets/animatedloadscreen/spritesheet.tex".into()))),
-            bin_prop("mTextureSourceResolutionWidth", PropertyValueEnum::U32(U32Value(sheet_width))),
-            bin_prop("mTextureSourceResolutionHeight", PropertyValueEnum::U32(U32Value(sheet_height))),
-            bin_prop("mTextureUV", PropertyValueEnum::Vector4(Vector4Value(Vec4::new(0.0, 0.0, uv_w, uv_h)))),
+            bin_prop("mTextureName", PropertyValueEnum::String(values::String::from("assets/animatedloadscreen/spritesheet.tex"))),
+            bin_prop("mTextureSourceResolutionWidth", PropertyValueEnum::U32(U32::new(sheet_width))),
+            bin_prop("mTextureSourceResolutionHeight", PropertyValueEnum::U32(U32::new(sheet_height))),
+            bin_prop("mTextureUV", PropertyValueEnum::Vector4(Vector4::new(Vec4::new(0.0, 0.0, uv_w, uv_h)))),
         ].into_iter().collect(),
+        meta: Default::default(),
     };
 
     // Top-level object
     let path_hash: u32 = 0x93e6_1733;
-    let anim_obj = flint_ltk::ltk_types::BinTreeObject {
+    let anim_obj = flint_ltk::ltk_types::BinObject {
         path_hash,
         class_hash: fnv1a_lower("UiElementEffectAnimationData"),
         properties: vec![
-            bin_prop("name", PropertyValueEnum::String(StringValue(entry_name))),
-            bin_prop("Scene", PropertyValueEnum::ObjectLink(ObjectLinkValue(fnv1a_lower(scene_path)))),
-            bin_prop("Enabled", PropertyValueEnum::Bool(BoolValue(true))),
-            bin_prop("Layer", PropertyValueEnum::U32(U32Value(0))),
+            bin_prop("name", PropertyValueEnum::String(values::String::from(entry_name))),
+            bin_prop("Scene", PropertyValueEnum::ObjectLink(ObjectLink::new(fnv1a_lower(scene_path)))),
+            bin_prop("Enabled", PropertyValueEnum::Bool(Bool::new(true))),
+            bin_prop("Layer", PropertyValueEnum::U32(U32::new(0))),
             bin_prop("Position", PropertyValueEnum::Struct(position_ptr)),
             bin_prop("TextureData", PropertyValueEnum::Struct(atlas_data)),
-            bin_prop("FramesPerSecond", PropertyValueEnum::F32(F32Value(fps))),
-            bin_prop("TotalNumberOfFrames", PropertyValueEnum::F32(F32Value(total_frames))),
-            bin_prop("NumberOfFramesPerRowInAtlas", PropertyValueEnum::F32(F32Value(cols))),
-            bin_prop("mFinishBehavior", PropertyValueEnum::U8(U8Value(1))),
+            bin_prop("FramesPerSecond", PropertyValueEnum::F32(F32::new(fps))),
+            bin_prop("TotalNumberOfFrames", PropertyValueEnum::F32(F32::new(total_frames))),
+            bin_prop("NumberOfFramesPerRowInAtlas", PropertyValueEnum::F32(F32::new(cols))),
+            bin_prop("mFinishBehavior", PropertyValueEnum::U8(U8::new(1))),
         ].into_iter().collect(),
     };
 

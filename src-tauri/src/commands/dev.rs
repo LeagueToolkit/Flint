@@ -10,7 +10,7 @@ use flint_ltk::hash::{downloader::get_ritoshark_hash_dir, resolve_hashes_lmdb_bu
 use flint_ltk::wad::reader::WadReader;
 use crate::state::LmdbCacheState;
 
-use flint_ltk::ltk_types::{BinProperty, BinPropertyKind, PropertyValueEnum};
+use flint_ltk::ltk_types::{BinProperty, PropertyKind, PropertyValueEnum, values};
 use flint_ltk::ltk_types::HashProvider;
 
 // =============================================================================
@@ -101,31 +101,31 @@ impl ValueRange {
 
 fn extract_range(value: &PropertyValueEnum) -> ValueRange {
     match value {
-        PropertyValueEnum::Bool(v) => ValueRange::Bool(v.0, !v.0),
-        PropertyValueEnum::BitBool(v) => ValueRange::Bool(v.0, !v.0),
-        PropertyValueEnum::I8(v) => ValueRange::Int(v.0 as i64, v.0 as i64),
-        PropertyValueEnum::U8(v) => ValueRange::Int(v.0 as i64, v.0 as i64),
-        PropertyValueEnum::I16(v) => ValueRange::Int(v.0 as i64, v.0 as i64),
-        PropertyValueEnum::U16(v) => ValueRange::Int(v.0 as i64, v.0 as i64),
-        PropertyValueEnum::I32(v) => ValueRange::Int(v.0 as i64, v.0 as i64),
-        PropertyValueEnum::U32(v) => ValueRange::Int(v.0 as i64, v.0 as i64),
-        PropertyValueEnum::I64(v) => ValueRange::Int(v.0, v.0),
-        PropertyValueEnum::U64(v) => ValueRange::Int(v.0 as i64, v.0 as i64),
-        PropertyValueEnum::F32(v) => ValueRange::Float(v.0 as f64, v.0 as f64),
+        PropertyValueEnum::Bool(v) => ValueRange::Bool(v.value, !v.value),
+        PropertyValueEnum::BitBool(v) => ValueRange::Bool(v.value, !v.value),
+        PropertyValueEnum::I8(v) => ValueRange::Int(v.value as i64, v.value as i64),
+        PropertyValueEnum::U8(v) => ValueRange::Int(v.value as i64, v.value as i64),
+        PropertyValueEnum::I16(v) => ValueRange::Int(v.value as i64, v.value as i64),
+        PropertyValueEnum::U16(v) => ValueRange::Int(v.value as i64, v.value as i64),
+        PropertyValueEnum::I32(v) => ValueRange::Int(v.value as i64, v.value as i64),
+        PropertyValueEnum::U32(v) => ValueRange::Int(v.value as i64, v.value as i64),
+        PropertyValueEnum::I64(v) => ValueRange::Int(v.value, v.value),
+        PropertyValueEnum::U64(v) => ValueRange::Int(v.value as i64, v.value as i64),
+        PropertyValueEnum::F32(v) => ValueRange::Float(v.value as f64, v.value as f64),
         PropertyValueEnum::Vector2(v) => {
-            let a = [v.0.x as f64, v.0.y as f64];
+            let a = [v.value.x as f64, v.value.y as f64];
             ValueRange::Vec2(a, a)
         }
         PropertyValueEnum::Vector3(v) => {
-            let a = [v.0.x as f64, v.0.y as f64, v.0.z as f64];
+            let a = [v.value.x as f64, v.value.y as f64, v.value.z as f64];
             ValueRange::Vec3(a, a)
         }
         PropertyValueEnum::Vector4(v) => {
-            let a = [v.0.x as f64, v.0.y as f64, v.0.z as f64, v.0.w as f64];
+            let a = [v.value.x as f64, v.value.y as f64, v.value.z as f64, v.value.w as f64];
             ValueRange::Vec4(a, a)
         }
         PropertyValueEnum::Color(v) => {
-            let a = [v.0.r, v.0.g, v.0.b, v.0.a];
+            let a = [v.value.r, v.value.g, v.value.b, v.value.a];
             ValueRange::Color(a, a)
         }
         _ => ValueRange::None,
@@ -136,35 +136,35 @@ fn extract_range(value: &PropertyValueEnum) -> ValueRange {
 // Type description helpers
 // =============================================================================
 
-fn kind_str(kind: BinPropertyKind) -> &'static str {
+fn kind_str(kind: PropertyKind) -> &'static str {
     match kind {
-        BinPropertyKind::None => "none",
-        BinPropertyKind::Bool => "bool",
-        BinPropertyKind::I8 => "i8",
-        BinPropertyKind::U8 => "u8",
-        BinPropertyKind::I16 => "i16",
-        BinPropertyKind::U16 => "u16",
-        BinPropertyKind::I32 => "i32",
-        BinPropertyKind::U32 => "u32",
-        BinPropertyKind::I64 => "i64",
-        BinPropertyKind::U64 => "u64",
-        BinPropertyKind::F32 => "f32",
-        BinPropertyKind::Vector2 => "vec2",
-        BinPropertyKind::Vector3 => "vec3",
-        BinPropertyKind::Vector4 => "vec4",
-        BinPropertyKind::Matrix44 => "mtx44",
-        BinPropertyKind::Color => "rgba",
-        BinPropertyKind::String => "string",
-        BinPropertyKind::Hash => "hash",
-        BinPropertyKind::WadChunkLink => "file",
-        BinPropertyKind::Container => "list",
-        BinPropertyKind::UnorderedContainer => "list2",
-        BinPropertyKind::Struct => "pointer",
-        BinPropertyKind::Embedded => "embed",
-        BinPropertyKind::ObjectLink => "link",
-        BinPropertyKind::Optional => "option",
-        BinPropertyKind::Map => "map",
-        BinPropertyKind::BitBool => "flag",
+        PropertyKind::None => "none",
+        PropertyKind::Bool => "bool",
+        PropertyKind::I8 => "i8",
+        PropertyKind::U8 => "u8",
+        PropertyKind::I16 => "i16",
+        PropertyKind::U16 => "u16",
+        PropertyKind::I32 => "i32",
+        PropertyKind::U32 => "u32",
+        PropertyKind::I64 => "i64",
+        PropertyKind::U64 => "u64",
+        PropertyKind::F32 => "f32",
+        PropertyKind::Vector2 => "vec2",
+        PropertyKind::Vector3 => "vec3",
+        PropertyKind::Vector4 => "vec4",
+        PropertyKind::Matrix44 => "mtx44",
+        PropertyKind::Color => "rgba",
+        PropertyKind::String => "string",
+        PropertyKind::Hash => "hash",
+        PropertyKind::WadChunkLink => "file",
+        PropertyKind::Container => "list",
+        PropertyKind::UnorderedContainer => "list2",
+        PropertyKind::Struct => "pointer",
+        PropertyKind::Embedded => "embed",
+        PropertyKind::ObjectLink => "link",
+        PropertyKind::Optional => "option",
+        PropertyKind::Map => "map",
+        PropertyKind::BitBool => "flag",
     }
 }
 
@@ -181,27 +181,19 @@ fn describe_value(value: &PropertyValueEnum) -> (String, Option<u32>) {
             ("embed".to_string(), Some(e.0.class_hash))
         }
         PropertyValueEnum::Container(c) => {
-            let item_type = kind_str(c.item_kind);
-            let nested = c.items.iter().find_map(|item| match item {
-                PropertyValueEnum::Struct(s) if s.class_hash != 0 => Some(s.class_hash),
-                PropertyValueEnum::Embedded(e) if e.0.class_hash != 0 => Some(e.0.class_hash),
-                _ => None,
-            });
+            let item_type = kind_str(c.item_kind());
+            let nested = find_nested_class_in_container(c);
             (format!("list[{}]", item_type), nested)
         }
         PropertyValueEnum::UnorderedContainer(uc) => {
-            let item_type = kind_str(uc.0.item_kind);
-            let nested = uc.0.items.iter().find_map(|item| match item {
-                PropertyValueEnum::Struct(s) if s.class_hash != 0 => Some(s.class_hash),
-                PropertyValueEnum::Embedded(e) if e.0.class_hash != 0 => Some(e.0.class_hash),
-                _ => None,
-            });
+            let item_type = kind_str(uc.0.item_kind());
+            let nested = find_nested_class_in_container(&uc.0);
             (format!("list2[{}]", item_type), nested)
         }
         PropertyValueEnum::Map(m) => {
-            let key_type = kind_str(m.key_kind);
-            let val_type = kind_str(m.value_kind);
-            let nested = m.entries.values().find_map(|v| match v {
+            let key_type = kind_str(m.key_kind());
+            let val_type = kind_str(m.value_kind());
+            let nested = m.entries().iter().find_map(|(_k, v)| match v {
                 PropertyValueEnum::Struct(s) if s.class_hash != 0 => Some(s.class_hash),
                 PropertyValueEnum::Embedded(e) if e.0.class_hash != 0 => Some(e.0.class_hash),
                 _ => None,
@@ -209,19 +201,32 @@ fn describe_value(value: &PropertyValueEnum) -> (String, Option<u32>) {
             (format!("map[{}, {}]", key_type, val_type), nested)
         }
         PropertyValueEnum::Optional(o) => {
-            if let Some(inner) = &o.value {
-                let inner_type = kind_str(inner.kind());
-                let nested = match inner.as_ref() {
-                    PropertyValueEnum::Struct(s) if s.class_hash != 0 => Some(s.class_hash),
-                    PropertyValueEnum::Embedded(e) if e.0.class_hash != 0 => Some(e.0.class_hash),
+            if o.is_some() {
+                let inner_type = kind_str(o.item_kind());
+                let nested = match o {
+                    values::Optional::Struct(Some(s)) if s.class_hash != 0 => Some(s.class_hash),
+                    values::Optional::Embedded(Some(e)) if e.0.class_hash != 0 => Some(e.0.class_hash),
                     _ => None,
                 };
                 (format!("option[{}]", inner_type), nested)
             } else {
-                ("option[?]".to_string(), None)
+                (format!("option[{}]", kind_str(o.item_kind())), None)
             }
         }
         other => (kind_str(other.kind()).to_string(), None),
+    }
+}
+
+/// Helper to find nested class hash in a typed container
+fn find_nested_class_in_container(c: &values::Container) -> Option<u32> {
+    match c {
+        values::Container::Struct { items, .. } => {
+            items.iter().find(|s| s.class_hash != 0).map(|s| s.class_hash)
+        }
+        values::Container::Embedded { items, .. } => {
+            items.iter().find(|e| e.0.class_hash != 0).map(|e| e.0.class_hash)
+        }
+        _ => None,
     }
 }
 
@@ -300,33 +305,13 @@ fn recurse_container_items(
 ) {
     match value {
         PropertyValueEnum::Container(c) => {
-            for item in &c.items {
-                match item {
-                    PropertyValueEnum::Struct(s) if s.class_hash != 0 => {
-                        process_properties(s.class_hash, &s.properties.clone(), schema);
-                    }
-                    PropertyValueEnum::Embedded(e) if e.0.class_hash != 0 => {
-                        process_properties(e.0.class_hash, &e.0.properties.clone(), schema);
-                    }
-                    _ => {}
-                }
-            }
+            recurse_typed_container(c, schema);
         }
         PropertyValueEnum::UnorderedContainer(uc) => {
-            for item in &uc.0.items {
-                match item {
-                    PropertyValueEnum::Struct(s) if s.class_hash != 0 => {
-                        process_properties(s.class_hash, &s.properties.clone(), schema);
-                    }
-                    PropertyValueEnum::Embedded(e) if e.0.class_hash != 0 => {
-                        process_properties(e.0.class_hash, &e.0.properties.clone(), schema);
-                    }
-                    _ => {}
-                }
-            }
+            recurse_typed_container(&uc.0, schema);
         }
         PropertyValueEnum::Map(m) => {
-            for val in m.entries.values() {
+            for (_key, val) in m.entries() {
                 match val {
                     PropertyValueEnum::Struct(s) if s.class_hash != 0 => {
                         process_properties(s.class_hash, &s.properties.clone(), schema);
@@ -339,16 +324,33 @@ fn recurse_container_items(
             }
         }
         PropertyValueEnum::Optional(o) => {
-            if let Some(inner) = &o.value {
-                recurse_container_items(inner.as_ref(), schema);
-                match inner.as_ref() {
-                    PropertyValueEnum::Struct(s) if s.class_hash != 0 => {
-                        process_properties(s.class_hash, &s.properties.clone(), schema);
-                    }
-                    PropertyValueEnum::Embedded(e) if e.0.class_hash != 0 => {
-                        process_properties(e.0.class_hash, &e.0.properties.clone(), schema);
-                    }
-                    _ => {}
+            match o {
+                values::Optional::Struct(Some(s)) if s.class_hash != 0 => {
+                    process_properties(s.class_hash, &s.properties.clone(), schema);
+                }
+                values::Optional::Embedded(Some(e)) if e.0.class_hash != 0 => {
+                    process_properties(e.0.class_hash, &e.0.properties.clone(), schema);
+                }
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+}
+
+fn recurse_typed_container(c: &values::Container, schema: &mut HashMap<u32, ClassSchema>) {
+    match c {
+        values::Container::Struct { items, .. } => {
+            for s in items {
+                if s.class_hash != 0 {
+                    process_properties(s.class_hash, &s.properties.clone(), schema);
+                }
+            }
+        }
+        values::Container::Embedded { items, .. } => {
+            for e in items {
+                if e.0.class_hash != 0 {
+                    process_properties(e.0.class_hash, &e.0.properties.clone(), schema);
                 }
             }
         }

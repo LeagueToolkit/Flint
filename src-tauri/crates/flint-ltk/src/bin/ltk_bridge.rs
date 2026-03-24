@@ -6,7 +6,7 @@
 use std::io::Cursor;
 use std::sync::OnceLock;
 use parking_lot::RwLock;
-use ltk_meta::{BinTree};
+use ltk_meta::{Bin};
 
 /// Maximum allowed BIN file size (50MB - no legitimate BIN should be larger)
 pub const MAX_BIN_SIZE: usize = 50 * 1024 * 1024;
@@ -32,12 +32,12 @@ pub type Result<T> = std::result::Result<T, BinError>;
 /// * `data` - The binary data to parse
 ///
 /// # Returns
-/// A `BinTree` structure containing the parsed data
+/// A `Bin` structure containing the parsed data
 ///
 /// # Safety
 /// This function validates file size and magic bytes to prevent memory issues
 /// from corrupt files. Files larger than 50MB are rejected.
-pub fn read_bin(data: &[u8]) -> Result<BinTree> {
+pub fn read_bin(data: &[u8]) -> Result<Bin> {
     // DEFENSIVE: Log file info before parsing
     tracing::debug!(
         "read_bin: size={} bytes, magic={:02x?}",
@@ -84,11 +84,11 @@ pub fn read_bin(data: &[u8]) -> Result<BinTree> {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         // CRITICAL: Print right before the dangerous call - flush to ensure visibility before crash
         use std::io::Write;
-        println!("[ltk_bridge] Calling BinTree::from_reader ({} bytes)...", data.len());
+        println!("[ltk_bridge] Calling Bin::from_reader ({} bytes)...", data.len());
         let _ = std::io::stdout().flush();
         
         let mut cursor = Cursor::new(data);
-        BinTree::from_reader(&mut cursor)
+        Bin::from_reader(&mut cursor)
     }));
 
     match result {
@@ -125,30 +125,30 @@ pub fn read_bin(data: &[u8]) -> Result<BinTree> {
     }
 }
 
-/// Write a BinTree to binary format.
+/// Write a Bin to binary format.
 ///
 /// # Arguments
-/// * `tree` - The BinTree to serialize
+/// * `tree` - The Bin to serialize
 ///
 /// # Returns
 /// A Vec<u8> containing the binary data
-pub fn write_bin(tree: &BinTree) -> Result<Vec<u8>> {
+pub fn write_bin(tree: &Bin) -> Result<Vec<u8>> {
     let mut buffer = Cursor::new(Vec::new());
     tree.to_writer(&mut buffer)
         .map_err(|e| BinError(format!("Failed to write bin: {}", e)))?;
     Ok(buffer.into_inner())
 }
 
-/// Convert a BinTree to ritobin text format with hash name lookup.
+/// Convert a Bin to ritobin text format with hash name lookup.
 ///
 /// # Arguments
-/// * `tree` - The BinTree to convert
+/// * `tree` - The Bin to convert
 /// * `hashes` - Hash provider for name lookup
 ///
 /// # Returns
 /// A String containing the ritobin text format with resolved names
 pub fn tree_to_text_with_hashes<H: ltk_ritobin::HashProvider>(
-    tree: &BinTree,
+    tree: &Bin,
     hashes: &H,
 ) -> Result<String> {
     ltk_ritobin::write_with_hashes(tree, hashes)
@@ -279,23 +279,23 @@ pub fn reload_bin_hash_cache() {
     }
 }
 
-/// Convert a BinTree to ritobin text format using the cached hash provider
+/// Convert a Bin to ritobin text format using the cached hash provider
 ///
 /// This is the preferred method for BIN conversion as it reuses the globally
 /// cached hash provider instead of loading from disk each time.
-pub fn tree_to_text_cached(tree: &BinTree) -> Result<String> {
+pub fn tree_to_text_cached(tree: &Bin) -> Result<String> {
     let hashes = get_cached_bin_hashes().read();
     tree_to_text_with_hashes(tree, &*hashes)
 }
 
-/// Parse ritobin text format to BinTree.
+/// Parse ritobin text format to Bin.
 ///
 /// # Arguments
 /// * `text` - The ritobin text to parse
 ///
 /// # Returns
-/// A BinTree structure
-pub fn text_to_tree(text: &str) -> Result<BinTree> {
+/// A Bin structure
+pub fn text_to_tree(text: &str) -> Result<Bin> {
     ltk_ritobin::parse_to_bin_tree(text)
         .map_err(|e| BinError(format!("Failed to parse text: {}", e)))
 }
