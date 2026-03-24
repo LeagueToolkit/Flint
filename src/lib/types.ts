@@ -370,6 +370,7 @@ export interface FixConfig {
     version: string;
     last_updated: string;
     fixes: Record<string, FixRule>;
+    wad_fixes?: Record<string, unknown>;
 }
 
 export interface FixRule {

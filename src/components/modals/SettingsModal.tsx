@@ -8,10 +8,11 @@ import { useAppState, useConfigStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import * as updater from '../../lib/updater';
 import { open } from '@tauri-apps/plugin-dialog';
+import { listen } from '@tauri-apps/api/event';
 import { getIcon } from '../../lib/fileIcons';
 import { getVersion } from '@tauri-apps/api/app';
 
-type SettingsTab = 'paths' | 'general';
+type SettingsTab = 'paths' | 'general' | 'dev';
 
 export const SettingsModal: React.FC = () => {
     const { state, dispatch, closeModal, showToast } = useAppState();
@@ -42,6 +43,18 @@ export const SettingsModal: React.FC = () => {
     // Hash database state
     const [isRebuildingHashes, setIsRebuildingHashes] = useState(false);
 
+    // Schema aggregation state (Dev tab)
+    const [isAggregating, setIsAggregating] = useState(false);
+    const [schemaProgress, setSchemaProgress] = useState<{
+        phase: string;
+        current: number;
+        total: number;
+        bins_parsed: number;
+        bins_failed: number;
+        classes_found: number;
+    } | null>(null);
+    const [schemaResult, setSchemaResult] = useState<api.SchemaStats | null>(null);
+
     const isVisible = state.activeModal === 'settings';
 
     useEffect(() => {
@@ -60,6 +73,21 @@ export const SettingsModal: React.FC = () => {
             getVersion().then(setCurrentVersion).catch(() => setCurrentVersion('0.0.0'));
         }
     }, [isVisible, state.leaguePath, state.leaguePathPbe, state.defaultProjectPath, state.creatorName, state.autoUpdateEnabled, state.verboseLogging, state.ltkManagerModPath, state.autoSyncToLauncher, configStore.binConverterEngine, configStore.jadePath, configStore.quartzPath]);
+
+    // Listen for schema aggregation progress events
+    useEffect(() => {
+        const unlisten = listen<{
+            phase: string;
+            current: number;
+            total: number;
+            bins_parsed: number;
+            bins_failed: number;
+            classes_found: number;
+        }>('schema-progress', (event) => {
+            setSchemaProgress(event.payload);
+        });
+        return () => { unlisten.then((fn) => fn()); };
+    }, []);
 
     const handleBrowse = async (setter: (v: string) => void, title: string) => {
         const selected = await open({ title, directory: true });
@@ -227,6 +255,26 @@ export const SettingsModal: React.FC = () => {
         }
     };
 
+    const handleAggregateBinSchema = async () => {
+        if (!state.leaguePath) {
+            showToast('error', 'League path not configured. Set it in the Paths tab first.');
+            return;
+        }
+        setIsAggregating(true);
+        setSchemaProgress(null);
+        setSchemaResult(null);
+        try {
+            const stats = await api.aggregateBinSchema(state.leaguePath);
+            setSchemaResult(stats);
+            showToast('success', `Schema aggregated: ${stats.classes_found.toLocaleString()} classes, ${stats.total_fields.toLocaleString()} fields`);
+        } catch (error) {
+            console.error('Schema aggregation failed:', error);
+            showToast('error', 'Schema aggregation failed. Check the log for details.');
+        } finally {
+            setIsAggregating(false);
+        }
+    };
+
     const handleSave = async () => {
         if (leaguePath && leaguePath !== state.leaguePath) {
             setIsValidating(true);
@@ -274,6 +322,7 @@ export const SettingsModal: React.FC = () => {
     const tabs: { id: SettingsTab; label: string; icon: Parameters<typeof getIcon>[0] }[] = [
         { id: 'general', label: 'General', icon: 'settings' },
         { id: 'paths', label: 'Paths', icon: 'folder' },
+        { id: 'dev', label: 'Dev', icon: 'code' },
     ];
 
     return (
@@ -653,6 +702,90 @@ export const SettingsModal: React.FC = () => {
                                         )}
                                     </div>
                                 </div>
+                            </div>
+                        )}
+
+                        {/* Dev Tab */}
+                        {activeTab === 'dev' && (
+                            <div className="settings-panel">
+                                <div className="settings-item">
+                                    <label className="settings-item__label">BIN Schema Aggregator</label>
+                                    <div className="settings-item__hint" style={{ marginBottom: '8px' }}>
+                                        Scans all WAD archives in your League installation and extracts the complete
+                                        BIN class/field schema. Parses every BIN, unions all fields per class, and
+                                        outputs a ritobin-style schema reference with value ranges.
+                                    </div>
+                                    <button
+                                        className="btn btn--secondary"
+                                        onClick={handleAggregateBinSchema}
+                                        disabled={isAggregating || !state.leaguePath}
+                                    >
+                                        <span dangerouslySetInnerHTML={{ __html: getIcon('download') }} />
+                                        <span>{isAggregating ? 'Aggregating...' : 'Get BIN Entries'}</span>
+                                    </button>
+                                    {!state.leaguePath && (
+                                        <div className="settings-item__hint" style={{ color: 'var(--color-warning)', marginTop: '4px' }}>
+                                            Configure League path in the Paths tab first
+                                        </div>
+                                    )}
+                                </div>
+
+                                {isAggregating && schemaProgress && (
+                                    <div className="settings-item">
+                                        <div className="settings-item__label">
+                                            {schemaProgress.phase === 'complete'
+                                                ? 'Complete'
+                                                : `Scanning WAD ${schemaProgress.current} / ${schemaProgress.total}`}
+                                        </div>
+                                        <div style={{
+                                            width: '100%',
+                                            height: '4px',
+                                            background: 'var(--color-surface-2)',
+                                            borderRadius: '2px',
+                                            overflow: 'hidden',
+                                            marginTop: '4px',
+                                        }}>
+                                            <div style={{
+                                                width: `${(schemaProgress.current / Math.max(schemaProgress.total, 1)) * 100}%`,
+                                                height: '100%',
+                                                background: 'var(--color-accent)',
+                                                transition: 'width 0.2s ease',
+                                            }} />
+                                        </div>
+                                        <div className="settings-item__hint" style={{ marginTop: '4px' }}>
+                                            {schemaProgress.bins_parsed.toLocaleString()} BINs parsed
+                                            {schemaProgress.bins_failed > 0 && ` (${schemaProgress.bins_failed} failed)`}
+                                            {' | '}{schemaProgress.classes_found.toLocaleString()} classes found
+                                        </div>
+                                    </div>
+                                )}
+
+                                {schemaResult && !isAggregating && (
+                                    <div className="settings-item">
+                                        <div className="settings-item__label">Result</div>
+                                        <div className="settings-item__hint">
+                                            Found {schemaResult.classes_found.toLocaleString()} classes with{' '}
+                                            {schemaResult.total_fields.toLocaleString()} fields across{' '}
+                                            {schemaResult.bins_parsed.toLocaleString()} BIN files
+                                            {schemaResult.bins_failed > 0 && ` (${schemaResult.bins_failed} failed to parse)`}
+                                            {' from '}{schemaResult.wads_scanned.toLocaleString()} WADs
+                                        </div>
+                                        <div className="settings-item__hint" style={{ marginTop: '4px' }}>
+                                            Output: {schemaResult.output_path}
+                                        </div>
+                                        <button
+                                            className="btn btn--ghost btn--sm"
+                                            style={{ marginTop: '6px' }}
+                                            onClick={() => {
+                                                const dir = schemaResult.output_path.replace(/[\\/][^\\/]+$/, '');
+                                                api.openInExplorer(dir).catch(() => {});
+                                            }}
+                                        >
+                                            <span dangerouslySetInnerHTML={{ __html: getIcon('folder') }} />
+                                            <span>Open in Explorer</span>
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>

@@ -92,6 +92,7 @@ export class FlintError extends Error {
             'parse_hud_ritobin_file': 'Failed to parse HUD ritobin file.',
             'save_hud_ritobin_file': 'Failed to save HUD ritobin file.',
             'get_hud_file_stats': 'Failed to get HUD file statistics.',
+            'aggregate_bin_schema': 'Failed to aggregate BIN schema.',
         };
         return messages[this.command] || this.message;
     }
@@ -225,6 +226,7 @@ interface CreateProjectParams {
     projectPath: string;
     leaguePath: string;
     creatorName?: string;
+    useJade?: boolean;
 }
 
 export async function createProject(params: CreateProjectParams): Promise<Project> {
@@ -235,6 +237,7 @@ export async function createProject(params: CreateProjectParams): Promise<Projec
         outputPath: params.projectPath,
         leaguePath: params.leaguePath,
         creatorName: params.creatorName,
+        useJade: params.useJade,
     });
 }
 
@@ -1110,6 +1113,7 @@ export interface ImportOptions {
     cleanup_unused: boolean;
     match_from_league: boolean;
     league_path: string | null;
+    use_jade: boolean | null;
 }
 
 export async function analyzeFantome(wadPath: string): Promise<FantomeAnalysis> {
@@ -1229,4 +1233,21 @@ export async function saveHudRitobinFile(
 
 export async function getHudFileStats(filePath: string): Promise<HudFileStats> {
     return invokeCommand('get_hud_file_stats', { filePath });
+}
+
+// =============================================================================
+// Dev Commands (Schema Aggregation)
+// =============================================================================
+
+export interface SchemaStats {
+    wads_scanned: number;
+    bins_parsed: number;
+    bins_failed: number;
+    classes_found: number;
+    total_fields: number;
+    output_path: string;
+}
+
+export async function aggregateBinSchema(leaguePath: string): Promise<SchemaStats> {
+    return invokeCommand('aggregate_bin_schema', { leaguePath });
 }

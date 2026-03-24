@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { useAppState } from '../../lib/stores';
+import { useAppState, useConfigStore } from '../../lib/stores';
 import { formatRelativeTime } from '../../lib/utils';
 import { open } from '@tauri-apps/plugin-dialog';
 import { appDataDir } from '@tauri-apps/api/path';
@@ -14,6 +14,7 @@ import { listen } from '@tauri-apps/api/event';
 
 export const ProjectListModal: React.FC = () => {
     const { state, dispatch, closeModal, setWorking, setReady, setError, openConfirmDialog } = useAppState();
+    const configStore = useConfigStore();
     const [removingId, setRemovingId] = useState<string | null>(null);
 
     const isVisible = state.activeModal === 'projectList';
@@ -232,6 +233,7 @@ export const ProjectListModal: React.FC = () => {
                 cleanup_unused: false,
                 match_from_league: !isModpkg, // Only match from League for fantome/WAD (modpkg already has all files)
                 league_path: state.leaguePath || null,
+                use_jade: configStore.binConverterEngine === 'jade',
             };
 
             const project = isModpkg

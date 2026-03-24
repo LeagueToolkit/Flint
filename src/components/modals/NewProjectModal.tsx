@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useAppState } from '../../lib/stores';
+import { useAppState, useConfigStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import * as datadragon from '../../lib/datadragon';
 import { appDataDir } from '@tauri-apps/api/path';
@@ -33,6 +33,7 @@ const FPS_OPTIONS = [15, 24, 30, 60];
 
 export const NewProjectModal: React.FC = () => {
     const { state, dispatch, closeModal, showToast, setWorking, setReady } = useAppState();
+    const configStore = useConfigStore();
 
     // ─── Shared state ────────────────────────────────────────────────────
     const [projectType, setProjectType] = useState<ProjectType>('skin');
@@ -300,6 +301,7 @@ export const NewProjectModal: React.FC = () => {
                 projectPath,
                 leaguePath: state.leaguePath,
                 creatorName: state.creatorName || undefined,
+                useJade: configStore.binConverterEngine === 'jade',
             });
 
             await finishProjectCreation(project, selectedChampion.name, selectedSkin.num);
