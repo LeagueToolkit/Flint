@@ -169,7 +169,7 @@ pub fn tree_to_text_with_hashes<H: ltk_ritobin::HashProvider>(
 /// # Returns
 /// A HashMapProvider populated with all loaded hashes
 pub fn load_bin_hashes() -> HashMapProvider {
-    use crate::core::hash::{get_or_open_env, downloader::get_ritoshark_hash_dir};
+    use crate::hash::{get_or_open_env, downloader::get_ritoshark_hash_dir};
 
     let mut hashes = HashMapProvider::new();
 

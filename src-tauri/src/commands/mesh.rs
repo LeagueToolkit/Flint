@@ -5,9 +5,9 @@
 use std::path::Path;
 use std::collections::HashMap;
 
-use crate::core::mesh::skn::{parse_skn_file, SknMeshData};
-use crate::core::mesh::scb::{parse_scb_file, ScbMeshData};
-use crate::core::mesh::texture::{find_skin_bin, MaterialProperties};
+use flint_ltk::mesh::skn::{parse_skn_file, SknMeshData};
+use flint_ltk::mesh::scb::{parse_scb_file, ScbMeshData};
+use flint_ltk::mesh::texture::{find_skin_bin, MaterialProperties};
 use crate::commands::file::decode_dds_to_png;
 
 /// Read and parse an SCB (Static Mesh Binary) file
@@ -60,7 +60,7 @@ pub async fn read_scb_mesh(path: String) -> Result<ScbMeshData, String> {
         };
 
         #[allow(deprecated)]
-        use crate::core::mesh::texture::extract_texture_mapping_from_text;
+        use flint_ltk::mesh::texture::extract_texture_mapping_from_text;
 
         // Extract all texture mappings from combined ritobin text (main + concat)
         let texture_mapping = match extract_texture_mapping_from_text(&combined_text) {
@@ -136,7 +136,7 @@ pub async fn read_scb_mesh(path: String) -> Result<ScbMeshData, String> {
                     decoded_textures.insert(result.0, result.1);
                 }
 
-                use crate::core::mesh::skn::MaterialData;
+                use flint_ltk::mesh::skn::MaterialData;
                 let mut material_data: HashMap<String, MaterialData> = HashMap::new();
 
                 for (material_name, props) in material_props_map {
@@ -298,7 +298,7 @@ fn find_concat_ritobin_text(mesh_path: &Path) -> Option<String> {
 ///
 /// Reads the BIN file, converts it to text using cached hashes, and writes to .ritobin
 pub fn create_ritobin_cache(bin_path: &Path, ritobin_path: &Path) -> anyhow::Result<String> {
-    use crate::core::bin::ltk_bridge;
+    use flint_ltk::bin::ltk_bridge;
 
     tracing::debug!("Reading BIN file: {}", bin_path.display());
 
@@ -412,7 +412,7 @@ pub async fn read_skn_mesh(path: String) -> Result<SknMeshData, String> {
         };
 
         #[allow(deprecated)]
-        use crate::core::mesh::texture::extract_texture_mapping_from_text;
+        use flint_ltk::mesh::texture::extract_texture_mapping_from_text;
 
         // Extract all texture mappings from combined ritobin text (main + concat)
         let texture_mapping = match extract_texture_mapping_from_text(&combined_text) {
@@ -447,7 +447,7 @@ pub async fn read_skn_mesh(path: String) -> Result<SknMeshData, String> {
                     // If not in override list, search for StaticMaterialDef by material name
                     tracing::debug!("  Material '{}' not in override list, searching for StaticMaterialDef...", material_name);
                     #[allow(deprecated)]
-                    use crate::core::mesh::texture::lookup_material_texture_by_name;
+                    use flint_ltk::mesh::texture::lookup_material_texture_by_name;
                     lookup_material_texture_by_name(&combined_text, material_name)
                 })
                 .or_else(|| {
@@ -501,7 +501,7 @@ pub async fn read_skn_mesh(path: String) -> Result<SknMeshData, String> {
                     decoded_textures.insert(result.0, result.1);
                 }
 
-                use crate::core::mesh::skn::MaterialData;
+                use flint_ltk::mesh::skn::MaterialData;
                 let mut material_data: HashMap<String, MaterialData> = HashMap::new();
 
                 for (material_name, props) in material_props_map {
@@ -712,7 +712,7 @@ fn search_wad_folders(base_folder: &Path, stripped: &str) -> Option<String> {
     None
 }
 
-use crate::core::mesh::skl::{parse_skl_file, SklData};
+use flint_ltk::mesh::skl::{parse_skl_file, SklData};
 
 /// Read and parse an SKL (Skeleton) file
 /// 
@@ -729,7 +729,7 @@ pub async fn read_skl_skeleton(path: String) -> Result<SklData, String> {
         })
 }
 
-use crate::core::mesh::animation::{
+use flint_ltk::mesh::animation::{
     find_animation_bin, extract_animation_list, parse_animation_file, 
     resolve_animation_path, evaluate_animation_at,
     AnimationList, AnimationData, AnimationPose,

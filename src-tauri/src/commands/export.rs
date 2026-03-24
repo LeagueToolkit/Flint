@@ -3,9 +3,9 @@
 //! These commands expose export and repathing functionality to the frontend.
 //! Builds proper WAD binary files for fantome export.
 
-use crate::core::export::generate_fantome_filename;
-use crate::core::repath::{organize_project, OrganizerConfig};
-use ltk_mod_project::{ModProject, ModProjectAuthor};
+use flint_ltk::export::generate_fantome_filename;
+use flint_ltk::repath::{organize_project, OrganizerConfig};
+use flint_ltk::ltk_types::{ModProject, ModProjectAuthor};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
@@ -55,6 +55,7 @@ pub async fn repath_project_cmd(
     project_path: String,
     creator_name: Option<String>,
     project_name: Option<String>,
+    use_jade: Option<bool>,
     app: tauri::AppHandle,
 ) -> Result<RepathResultDto, String> {
     tracing::info!("Frontend requested repathing for: {}", project_path);
@@ -79,6 +80,7 @@ pub async fn repath_project_cmd(
         champion: String::new(), // Champion not provided in direct repath call
         target_skin_id: 0,
         cleanup_unused: true,
+        use_jade_engine: use_jade.unwrap_or(false),
     };
 
     let result = tokio::task::spawn_blocking(move || {
@@ -174,7 +176,7 @@ pub async fn export_fantome(
             authors: vec![ModProjectAuthor::Name(metadata.author.clone())],
             license: None,
             transformers: vec![],
-            layers: ltk_mod_project::default_layers(),
+            layers: flint_ltk::ltk_types::default_layers(),
             thumbnail: None,
         }
     };
@@ -217,70 +219,6 @@ pub async fn export_fantome(
             Err(e)
         }
     }
-}
-
-/// Build a proper WAD binary from a .wad.client directory
-///
-/// Uses league_toolkit's WadBuilder to create a valid WAD v3.4 binary
-/// with compressed chunks that mod managers can read.
-pub fn build_wad_from_directory(wad_dir: &Path) -> Result<Vec<u8>, String> {
-    use league_toolkit::wad::{WadBuilder, WadChunkBuilder};
-    use std::io::{Cursor, Write};
-
-    // Collect all files with their WAD-relative paths
-    let mut wad_files: HashMap<String, PathBuf> = HashMap::new();
-    for entry in walkdir::WalkDir::new(wad_dir)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| {
-            let p = e.path().to_string_lossy().to_lowercase();
-            !p.contains("testcuberenderer")
-                && !p.ends_with(".ritobin")
-                && e.path().is_file()
-        })
-    {
-        let relative = entry
-            .path()
-            .strip_prefix(wad_dir)
-            .map_err(|e| format!("Failed to strip prefix: {}", e))?;
-        let wad_path = relative.to_string_lossy().replace('\\', "/");
-        wad_files.insert(wad_path, entry.path().to_path_buf());
-    }
-
-    if wad_files.is_empty() {
-        return Err(format!("No files found in WAD directory: {}", wad_dir.display()));
-    }
-
-    tracing::info!("Building WAD from {} files in {}", wad_files.len(), wad_dir.display());
-
-    // Build hash -> file path lookup (WadBuilder callback receives hash, not path)
-    let mut hash_to_path: HashMap<u64, PathBuf> = HashMap::with_capacity(wad_files.len());
-    let mut builder = WadBuilder::default();
-
-    for (wad_path, file_path) in &wad_files {
-        let hash = xxhash_rust::xxh64::xxh64(wad_path.to_lowercase().as_bytes(), 0);
-        hash_to_path.insert(hash, file_path.clone());
-        builder = builder.with_chunk(WadChunkBuilder::default().with_path(wad_path));
-    }
-
-    // Build WAD binary to memory
-    let mut wad_buffer = Cursor::new(Vec::new());
-    builder
-        .build_to_writer(&mut wad_buffer, |path_hash, cursor| {
-            if let Some(file_path) = hash_to_path.get(&path_hash) {
-                let data = std::fs::read(file_path).map_err(|e| {
-                    league_toolkit::wad::WadBuilderError::IoError(std::io::Error::other(
-                        format!("Failed to read {}: {}", file_path.display(), e),
-                    ))
-                })?;
-                cursor.write_all(&data)?;
-            }
-            Ok(())
-        })
-        .map_err(|e| format!("Failed to build WAD: {}", e))?;
-
-    tracing::info!("WAD built: {} bytes from {} chunks", wad_buffer.get_ref().len(), wad_files.len());
-    Ok(wad_buffer.into_inner())
 }
 
 /// Helper function to export as a fantome package with proper WAD binaries
@@ -329,7 +267,7 @@ fn export_with_ltk_fantome(
             total_files += file_count;
 
             // Build WAD binary from directory contents
-            let wad_bytes = build_wad_from_directory(&path)?;
+            let wad_bytes = flint_ltk::export::build_wad_from_directory(&path)?;
 
             // Write WAD binary into ZIP at WAD/{name}.wad.client
             let options = SimpleFileOptions::default()
@@ -541,8 +479,8 @@ fn export_with_ltk_modpkg(
     output_path: &Path,
     mod_project: &ModProject,
 ) -> Result<(usize, u64), String> {
-    use ltk_modpkg::builder::{ModpkgBuilder, ModpkgChunkBuilder, ModpkgLayerBuilder};
-    use ltk_modpkg::{ModpkgMetadata, ModpkgAuthor};
+    use flint_ltk::ltk_types::{ModpkgBuilder, ModpkgChunkBuilder, ModpkgLayerBuilder};
+    use flint_ltk::ltk_types::{ModpkgMetadata, ModpkgAuthor};
     use std::io::Write;
 
     let content_base = project_path.join("content").join("base");
@@ -587,8 +525,8 @@ fn export_with_ltk_modpkg(
         },
         authors: mod_project.authors.iter().map(|author| {
             match author {
-                ltk_mod_project::ModProjectAuthor::Name(name) => ModpkgAuthor::new(name.clone(), None),
-                ltk_mod_project::ModProjectAuthor::Role { name, role } => ModpkgAuthor::new(name.clone(), Some(role.clone())),
+                flint_ltk::ltk_types::ModProjectAuthor::Name(name) => ModpkgAuthor::new(name.clone(), None),
+                flint_ltk::ltk_types::ModProjectAuthor::Role { name, role } => ModpkgAuthor::new(name.clone(), Some(role.clone())),
             }
         }).collect(),
         ..Default::default()

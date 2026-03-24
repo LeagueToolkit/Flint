@@ -7,7 +7,7 @@ use std::io::BufReader;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 
-use crate::core::bin::ltk_bridge;
+use crate::bin::ltk_bridge;
 use ltk_anim::{AnimationAsset, Animation};
 use ltk_meta::PropertyValueEnum;
 use serde::Serialize;
@@ -134,7 +134,7 @@ pub fn find_animation_bin(skn_path: &Path) -> Option<PathBuf> {
     
     // NEW: Strategy 0 - Check skin BIN for animation graph reference
     // Import find_skin_bin from texture module
-    if let Some(skin_bin_path) = crate::core::mesh::texture::find_skin_bin(skn_path) {
+    if let Some(skin_bin_path) = crate::mesh::texture::find_skin_bin(skn_path) {
         tracing::debug!("Found skin BIN, checking for animation graph reference: {}", skin_bin_path.display());
         if let Some(anim_bin) = extract_animation_graph_path(&skin_bin_path) {
             tracing::debug!("Found animation BIN via skin BIN reference: {}", anim_bin.display());

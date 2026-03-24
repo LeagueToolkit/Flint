@@ -3,10 +3,10 @@
 //! This module provides a central entry point for project organization tasks,
 //! allowing independent control over concat and repathing operations.
 
-use crate::core::bin::concat::{
+use crate::bin::concat::{
     concatenate_linked_bins, ConcatResult,
 };
-use crate::core::repath::refather::{repath_project, RepathConfig, RepathResult};
+use crate::repath::refather::{repath_project, RepathConfig, RepathResult};
 use crate::error::Result;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -29,6 +29,8 @@ pub struct OrganizerConfig {
     pub target_skin_id: u32,
     /// Clean up unused/orphaned files after processing
     pub cleanup_unused: bool,
+    /// Use Jade engine for BIN parsing (instead of LTK)
+    pub use_jade_engine: bool,
 }
 
 /// Result of a complete project organization operation
@@ -127,7 +129,7 @@ pub fn organize_project(
     // Step 3: Run repath if enabled
     if config.enable_repath {
         tracing::info!("Running asset repathing...");
-        
+
         // Build RepathConfig from OrganizerConfig
         let repath_config = RepathConfig {
             creator_name: config.creator_name.clone(),
@@ -135,6 +137,7 @@ pub fn organize_project(
             champion: champion_sanitized.clone(),
             target_skin_id: config.target_skin_id,
             cleanup_unused: config.cleanup_unused,
+            use_jade_engine: config.use_jade_engine,
         };
 
         match repath_project(content_base, &repath_config, path_mappings) {

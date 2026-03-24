@@ -2,15 +2,15 @@
 //!
 //! These commands expose project management functionality to the frontend.
 
-use crate::core::project::{
+use flint_ltk::project::{
     create_project as core_create_project,
     open_project as core_open_project,
     save_project as core_save_project,
     Project,
 };
-use crate::core::repath::{organize_project, OrganizerConfig};
-use crate::core::bin::{classify_bin, BinCategory};
-use crate::core::wad::extractor::{find_champion_wad, extract_skin_assets};
+use flint_ltk::repath::{organize_project, OrganizerConfig};
+use flint_ltk::bin::{classify_bin, BinCategory};
+use flint_ltk::wad::extractor::{find_champion_wad, extract_skin_assets};
 use crate::state::LmdbCacheState;
 use std::path::PathBuf;
 use tauri::Emitter;
@@ -37,6 +37,7 @@ pub async fn create_project(
     league_path: String,
     output_path: String,
     creator_name: Option<String>,
+    use_jade: Option<bool>,
     lmdb: tauri::State<'_, LmdbCacheState>,
     app: tauri::AppHandle,
 ) -> Result<Project, String> {
@@ -54,7 +55,7 @@ pub async fn create_project(
         "message": "Initializing..."
     }));
 
-    let hash_dir = crate::core::hash::downloader::get_ritoshark_hash_dir()
+    let hash_dir = flint_ltk::hash::downloader::get_ritoshark_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
     let env_arc = lmdb.prime(&hash_dir).ok_or_else(|| 
@@ -104,7 +105,7 @@ pub async fn create_project(
         // Build LMDB resolver closure — point lookups only, no full table load
         let env = env_arc;
         let resolve = move |hash: u64| -> String {
-            crate::core::hash::resolve_hashes_lmdb(&[hash], &env)
+            flint_ltk::hash::resolve_hashes_lmdb(&[hash], &env)
                 .into_iter()
                 .next()
                 .unwrap_or_else(|| format!("{:016x}", hash))
@@ -160,6 +161,7 @@ pub async fn create_project(
                 champion: champion.clone(),
                 target_skin_id: skin_id,
                 cleanup_unused: true,
+                use_jade_engine: use_jade.unwrap_or(false),
             };
 
             let assets_path_for_repath = project.assets_path();
@@ -349,7 +351,7 @@ fn encode_spritesheet_to_tex(
     png_data: Vec<u8>,
     assets_base: &std::path::Path,
 ) -> Result<(), String> {
-    use ltk_texture::tex::{Tex, EncodeOptions};
+    use flint_ltk::ltk_types::{Tex, EncodeOptions};
 
     let png_len = png_data.len();
     tracing::info!("Saving spritesheet PNG to temp file ({} bytes)", png_len);
@@ -384,7 +386,7 @@ fn encode_spritesheet_to_tex(
     );
 
     // Encode to TEX (BC1/DXT1 — opaque, no alpha needed for video frames)
-    let options = EncodeOptions::new(ltk_texture::tex::Format::Bc1);
+    let options = EncodeOptions::new(flint_ltk::ltk_types::TexFormat::Bc1);
     let tex = Tex::encode_rgba_image(&img, options)
         .map_err(|e| format!("Failed to encode TEX: {:?}", e))?;
 
@@ -437,7 +439,7 @@ fn extract_uibase_from_game(league_path: &std::path::Path) -> Result<Vec<u8>, St
 
 /// Extract the uibase chunk from a WAD file by its known hash
 fn extract_uibase_chunk(wad_path: &std::path::Path) -> Result<Vec<u8>, String> {
-    use crate::core::wad::reader::WadReader;
+    use flint_ltk::wad::reader::WadReader;
 
     tracing::info!("Extracting uibase from: {}", wad_path.display());
 
@@ -474,9 +476,9 @@ fn fnv1a_lower(s: &str) -> u32 {
 }
 
 /// Build a `BinProperty` from a field name and value.
-fn bin_prop(name: &str, value: ltk_meta::PropertyValueEnum) -> (u32, ltk_meta::BinProperty) {
+fn bin_prop(name: &str, value: flint_ltk::ltk_types::PropertyValueEnum) -> (u32, flint_ltk::ltk_types::BinProperty) {
     let h = fnv1a_lower(name);
-    (h, ltk_meta::BinProperty { name_hash: h, value })
+    (h, flint_ltk::ltk_types::BinProperty { name_hash: h, value })
 }
 
 /// Inject the animation configuration object directly into the uibase BIN tree.
@@ -497,13 +499,11 @@ fn inject_animation_block(
     total_frames: f32,
     cols: f32,
 ) -> Result<(), String> {
-    use glam::{Vec2, Vec4};
-    use ltk_meta::value::*;
-    use ltk_meta::PropertyValueEnum;
+    use flint_ltk::ltk_types::*;
 
     tracing::info!("Injecting animation block into uibase BIN");
 
-    let mut bin = crate::core::bin::read_bin_ltk(uibase_bytes)
+    let mut bin = flint_ltk::bin::read_bin_ltk(uibase_bytes)
         .map_err(|e| format!("Failed to parse uibase BIN: {}", e))?;
 
     tracing::info!("uibase parsed: {} objects", bin.objects.len());
@@ -550,7 +550,7 @@ fn inject_animation_block(
 
     // Top-level object
     let path_hash: u32 = 0x93e6_1733;
-    let anim_obj = ltk_meta::BinTreeObject {
+    let anim_obj = flint_ltk::ltk_types::BinTreeObject {
         path_hash,
         class_hash: fnv1a_lower("UiElementEffectAnimationData"),
         properties: vec![
@@ -571,7 +571,7 @@ fn inject_animation_block(
 
     tracing::info!("Animation object inserted ({} objects total), writing binary", bin.objects.len());
 
-    let binary_data = crate::core::bin::write_bin_ltk(&bin)
+    let binary_data = flint_ltk::bin::write_bin_ltk(&bin)
         .map_err(|e| format!("Failed to write modified BIN: {}", e))?;
 
     // Write modified BIN to project
@@ -733,7 +733,7 @@ pub async fn preconvert_project_bins(
     // Pre-warm the hash cache before parallel processing
     // This ensures the cache is initialized on the main thread before workers access it
     tracing::info!("Pre-warming BIN hash cache...");
-    let _ = crate::core::bin::get_cached_bin_hashes();
+    let _ = flint_ltk::bin::get_cached_bin_hashes();
     tracing::info!("Hash cache ready");
     
     // Find all .bin files
@@ -876,7 +876,7 @@ pub async fn preconvert_project_bins(
 /// Used by parallel processing (rayon doesn't work well with async)
 fn convert_bin_file_sync(bin_path: &str) -> Result<(), String> {
     use std::fs;
-    use crate::core::bin::{read_bin_ltk, tree_to_text_cached, MAX_BIN_SIZE};
+    use flint_ltk::bin::{read_bin_ltk, tree_to_text_cached, MAX_BIN_SIZE};
     
     // Check file size before reading to avoid loading huge corrupt files
     let metadata = fs::metadata(bin_path)

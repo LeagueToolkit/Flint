@@ -10,12 +10,12 @@ use std::io::BufReader;
 use std::path::Path;
 use tauri::{AppHandle, Emitter};
 
-use ltk_modpkg::Modpkg;
+use flint_ltk::ltk_types::Modpkg;
 
 use crate::commands::fantome_import::{
     extract_champion_from_paths, extract_skin_id_from_path, ImportOptions,
 };
-use crate::core::project::Project;
+use flint_ltk::project::Project;
 
 // =============================================================================
 // Types
@@ -150,7 +150,7 @@ fn import_modpkg_internal(
     project_dir: &str,
     options: &ImportOptions,
 ) -> Result<Project, String> {
-    use crate::core::project::save_project as core_save_project;
+    use flint_ltk::project::save_project as core_save_project;
 
     let _ = app.emit(
         "modpkg-import-progress",
@@ -364,7 +364,7 @@ fn import_modpkg_internal(
             }),
         );
 
-        use crate::core::repath::organizer::{organize_project, OrganizerConfig};
+        use flint_ltk::repath::organizer::{organize_project, OrganizerConfig};
 
         let config = OrganizerConfig {
             enable_concat: true,
@@ -374,6 +374,7 @@ fn import_modpkg_internal(
             champion: champion.clone(),
             target_skin_id,
             cleanup_unused: false,
+            use_jade_engine: options.use_jade.unwrap_or(false),
         };
 
         organize_project(&content_path, &config, &path_mappings)

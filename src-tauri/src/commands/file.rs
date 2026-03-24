@@ -1,11 +1,11 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
-use ltk_file::LeagueFileKind;
+use flint_ltk::ltk_types::LeagueFileKind;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 use image::{RgbaImage, Rgba};
-use ltk_texture::Texture;
+use flint_ltk::ltk_types::Texture;
 use std::io::Cursor;
 use std::process::Command;
 
@@ -287,7 +287,7 @@ pub async fn read_file_info(path: String) -> Result<FileInfo, String> {
 
 /// Parse texture dimensions using ltk_texture (handles both DDS and TEX)
 fn parse_texture_dimensions(data: &[u8]) -> Result<(u32, u32), String> {
-    use ltk_texture::Texture;
+    use flint_ltk::ltk_types::Texture;
     use std::io::Cursor;
 
     let mut cursor = Cursor::new(data);
@@ -473,9 +473,9 @@ async fn recolor_single_file(
     // Save back to original file
     match texture {
         Texture::Tex(tex) => {
-            use ltk_texture::tex::EncodeOptions;
+            use flint_ltk::ltk_types::EncodeOptions;
             let options = EncodeOptions::new(tex.format).with_mipmaps();
-            let new_tex = ltk_texture::Tex::encode_rgba_image(&rgba_img, options)
+            let new_tex = flint_ltk::ltk_types::Tex::encode_rgba_image(&rgba_img, options)
                 .map_err(|e| format!("Failed to encode TEX: {:?}", e))?;
             
             let mut output = fs::File::create(&path_buf).map_err(|e| format!("Failed to create output file: {}", e))?;
@@ -609,9 +609,9 @@ async fn colorize_single_file(
     // Save back to original file
     match texture {
         Texture::Tex(tex) => {
-            use ltk_texture::tex::EncodeOptions;
+            use flint_ltk::ltk_types::EncodeOptions;
             let options = EncodeOptions::new(tex.format).with_mipmaps();
-            let new_tex = ltk_texture::Tex::encode_rgba_image(&rgba_img, options)
+            let new_tex = flint_ltk::ltk_types::Tex::encode_rgba_image(&rgba_img, options)
                 .map_err(|e| format!("Failed to encode TEX: {:?}", e))?;
             
             let mut output = fs::File::create(&path_buf).map_err(|e| format!("Failed to create output file: {}", e))?;
@@ -775,7 +775,7 @@ fn replace_filename_in_paths(text: &str, old_name: &str, new_name: &str) -> Stri
 /// Matches by filename only (case-insensitive) because BIN text uses mixed-case
 /// game paths (e.g. `ASSETS/Characters/...`) that differ from the project's lowercase paths.
 fn update_bin_references(project_root: &Path, old_rel: &str, new_rel: &str) -> u32 {
-    use crate::core::bin::{read_bin_ltk, write_bin_ltk, tree_to_text_cached, text_to_tree};
+    use flint_ltk::bin::{read_bin_ltk, write_bin_ltk, tree_to_text_cached, text_to_tree};
 
     // Extract just the filename — BIN text paths have different casing/prefixes than
     // the project structure, so matching the full path would miss everything.

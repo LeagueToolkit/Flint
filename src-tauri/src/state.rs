@@ -1,6 +1,7 @@
 use std::sync::Arc;
-use crate::core::hash::{get_or_open_env, drop_lmdb_cache, build_hash_db};
-use crate::core::wad::cache::WadCache;
+use flint_ltk::heed;
+use flint_ltk::hash::{get_or_open_env, drop_lmdb_cache, build_hash_db};
+use flint_ltk::wad::cache::WadCache;
 
 /// Global WAD metadata cache for fast repeated access.
 /// WADs are immutable once written, so caching headers is safe.

@@ -2,7 +2,7 @@
 //!
 //! These commands expose champion discovery functionality to the frontend.
 
-use crate::core::champion::{
+use flint_ltk::champion::{
     discover_champions as core_discover_champions,
     get_champion_skins as core_get_champion_skins,
     ChampionInfo, SkinInfo,

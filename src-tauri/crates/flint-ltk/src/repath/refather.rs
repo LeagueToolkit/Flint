@@ -6,7 +6,7 @@
 //! 3. Relocates the actual asset files to match the new paths
 //! 4. Optionally combines linked BINs into a single concat BIN
 
-use crate::core::bin::ltk_bridge::{read_bin, write_bin};
+use crate::bin::ltk_bridge::{read_bin, write_bin};
 use crate::error::{Error, Result};
 use ltk_meta::PropertyValueEnum;
 use std::collections::{HashMap, HashSet};
@@ -180,11 +180,14 @@ impl<'a> AssetPath<'a> {
                 let after_skins = Self::strip_prefix_ignore_case(subpath, "skins/")
                     .unwrap_or(subpath);
 
-                // Remap skin IDs in the path (folders AND animation BIN filenames)
-                let mut remapped = remap_skin_ids_full(after_skins, config.target_skin_id);
+                // Strip the skin{ID}/ folder from the beginning (we don't need it anymore)
+                let without_skin_folder = SKIN_FOLDER_RE.replace(after_skins, "").into_owned();
 
-                // Also replace "Base/" with "skin{ID}/" for custom mods
-                remapped = replace_base_folder_in_path(&remapped, config.target_skin_id);
+                // Strip "Base/" folder (both leading and in middle of path)
+                let without_base = strip_base_folder(&without_skin_folder);
+
+                // Still remap animation BIN filenames (animations/skin8.bin → animations/skin42.bin)
+                let remapped = remap_animation_bin_filename(&without_base, config.target_skin_id);
 
                 format!("ASSETS/{}/{}", prefix, remapped)
             }
@@ -237,6 +240,7 @@ pub struct RepathConfig {
     pub champion: String,
     pub target_skin_id: u32,
     pub cleanup_unused: bool,
+    pub use_jade_engine: bool,
 }
 
 impl RepathConfig {
@@ -355,8 +359,9 @@ pub fn repath_project(
 
     // Step 2: Scan BINs to collect referenced asset paths (PARALLEL)
     let all_asset_paths_set: DashSet<String> = DashSet::new();
+    let use_jade = config.use_jade_engine;
     bin_files.par_iter().for_each(|bin_path| {
-        if let Ok(paths) = scan_bin_for_paths(bin_path) {
+        if let Ok(paths) = scan_bin_for_paths(bin_path, use_jade) {
             for path in paths {
                 all_asset_paths_set.insert(path);
             }
@@ -460,10 +465,22 @@ pub fn repath_project(
 }
 
 /// Scan a BIN file for asset path references
-fn scan_bin_for_paths(bin_path: &Path) -> Result<Vec<String>> {
+fn scan_bin_for_paths(bin_path: &Path, use_jade: bool) -> Result<Vec<String>> {
     let data = fs::read(bin_path).map_err(|e| Error::io_with_path(e, bin_path))?;
-    let bin = read_bin(&data)
-        .map_err(|e| Error::InvalidInput(format!("Failed to parse BIN: {}", e)))?;
+
+    let bin = if use_jade {
+        // Use Jade engine
+        crate::bin::jade::convert_bin_to_text(&data)
+            .map_err(|e| Error::InvalidInput(format!("Jade parse failed: {}", e)))
+            .and_then(|text| {
+                crate::bin::text_to_tree(&text)
+                    .map_err(|e| Error::InvalidInput(format!("Failed to parse Jade text: {}", e)))
+            })?
+    } else {
+        // Use LTK engine
+        read_bin(&data)
+            .map_err(|e| Error::InvalidInput(format!("Failed to parse BIN: {}", e)))?
+    };
 
     let mut paths = Vec::new();
 
@@ -548,82 +565,23 @@ fn apply_prefix_to_path(path: &str, _prefix: &str, config: &RepathConfig) -> Str
     }
 }
 
-/// Remap skin ID in folder paths only (not filenames)
-/// Examples:
-///   - skin17/particles/blade.dds → skin42/particles/blade.dds
-///   - skin17/renekton_skin17_base.skn → skin42/renekton_skin17_base.skn (filename unchanged!)
-///   - animations/skin8.bin → animations/skin8.bin (animation BINs unchanged!)
-fn remap_skin_ids(path: &str, target_skin_id: u32) -> String {
-    // Fast path: if path doesn't start with "skin", skip regex entirely
-    if !path.starts_with("skin") && !path.starts_with("Skin") {
-        return path.to_string();
-    }
-
-    // Use static regex (compiled once at startup)
-    SKIN_FOLDER_RE.replace(path, |caps: &regex::Captures| {
-        format!("{}{}{}",
-            &caps[1],           // "skin"
-            target_skin_id,     // "42"
-            &caps[3]            // "/"
-        )
-    }).into_owned()
-}
-
-/// Remap skin IDs in BOTH folder paths AND animation BIN filenames
-/// Examples:
-///   - skin17/particles/blade.dds → skin42/particles/blade.dds
-///   - skin17/renekton_skin17_base.skn → skin42/renekton_skin17_base.skn (filename unchanged!)
-///   - animations/skin8.bin → animations/skin42.bin (animation BIN filename remapped!)
-///   - animations/skin0.bin → animations/skin42.bin
-fn remap_skin_ids_full(path: &str, target_skin_id: u32) -> String {
-    // First remap folder paths using the existing function
-    let with_folders_remapped = remap_skin_ids(path, target_skin_id);
-
-    // Then remap animation BIN filenames
-    // Pattern: animations/skin{N}.bin → animations/skin{target}.bin
-    // Pattern: /animations/skin{N}.bin → /animations/skin{target}.bin
-    let lower = with_folders_remapped.to_lowercase();
-    if (lower.contains("/animations/skin") || lower.contains("animations/skin")) && lower.ends_with(".bin") {
-        // Split path into directory and filename
-        if let Some(last_slash) = with_folders_remapped.rfind('/') {
-            let dir = &with_folders_remapped[..=last_slash];
-            let filename = &with_folders_remapped[last_slash + 1..];
-
-            // Check if filename matches skinN.bin pattern
-            if filename.starts_with("skin") && filename.ends_with(".bin") {
-                let without_ext = &filename[..filename.len() - 4]; // Remove ".bin"
-                if without_ext.len() > 4 {
-                    let number_part = &without_ext[4..]; // After "skin"
-                    if number_part.chars().all(|c| c.is_ascii_digit()) {
-                        // It's a skinN.bin file, remap it
-                        return format!("{}skin{}.bin", dir, target_skin_id);
-                    }
-                }
-            }
-        } else {
-            // No slash found, but might be a file name only like "skin8.bin"
-            let filename = &with_folders_remapped;
-            if filename.starts_with("skin") && filename.ends_with(".bin") {
-                let without_ext = &filename[..filename.len() - 4]; // Remove ".bin"
-                if without_ext.len() > 4 {
-                    let number_part = &without_ext[4..]; // After "skin"
-                    if number_part.chars().all(|c| c.is_ascii_digit()) {
-                        // It's a skinN.bin file, remap it
-                        return format!("skin{}.bin", target_skin_id);
-                    }
-                }
-            }
-        }
-    }
-
-    with_folders_remapped
-}
-
 /// Repath a single BIN file
 fn repath_bin_file(bin_path: &Path, existing_paths: &HashSet<String>, prefix: &str, config: &RepathConfig) -> Result<usize> {
     let data = fs::read(bin_path).map_err(|e| Error::io_with_path(e, bin_path))?;
-    let mut bin = read_bin(&data)
-        .map_err(|e| Error::InvalidInput(format!("Failed to parse BIN: {}", e)))?;
+
+    let mut bin = if config.use_jade_engine {
+        // Use Jade engine
+        crate::bin::jade::convert_bin_to_text(&data)
+            .map_err(|e| Error::InvalidInput(format!("Jade parse failed: {}", e)))
+            .and_then(|text| {
+                crate::bin::text_to_tree(&text)
+                    .map_err(|e| Error::InvalidInput(format!("Failed to parse Jade text: {}", e)))
+            })?
+    } else {
+        // Use LTK engine
+        read_bin(&data)
+            .map_err(|e| Error::InvalidInput(format!("Failed to parse BIN: {}", e)))?
+    };
 
     let mut modified_count = 0;
 
@@ -646,8 +604,17 @@ fn repath_bin_file(bin_path: &Path, existing_paths: &HashSet<String>, prefix: &s
     }
 
     if modified_count > 0 {
-        let new_data = write_bin(&bin)
-            .map_err(|e| Error::InvalidInput(format!("Failed to write BIN: {}", e)))?;
+        let new_data = if config.use_jade_engine {
+            // Use Jade engine to write
+            let text = crate::bin::tree_to_text_cached(&bin)
+                .map_err(|e| Error::InvalidInput(format!("Failed to convert to text: {}", e)))?;
+            crate::bin::jade::convert_text_to_bin(&text)
+                .map_err(|e| Error::InvalidInput(format!("Jade write failed: {}", e)))?
+        } else {
+            // Use LTK engine to write
+            write_bin(&bin)
+                .map_err(|e| Error::InvalidInput(format!("Failed to write BIN: {}", e)))?
+        };
 
         fs::write(bin_path, new_data).map_err(|e| Error::io_with_path(e, bin_path))?;
         tracing::debug!("Repathed {} paths in {}", modified_count, bin_path.display());
@@ -711,34 +678,61 @@ fn repath_value(value: &mut PropertyValueEnum, existing_paths: &HashSet<String>,
     count
 }
 
-/// Replace "Base" folder in file paths with skin ID folder
-/// Example: "Base/Animations/Kayn_Attack1.anm" -> "skin8/Animations/Kayn_Attack1.anm"
-/// Example: "some/path/Base/file.dds" -> "some/path/skin8/file.dds"
-fn replace_base_folder_in_path(path: &str, target_skin_id: u32) -> String {
-    // Handle both leading "Base/" and "/Base/" in the middle of paths
+/// Strip "Base" folder from paths (both leading and in middle)
+/// Example: "Base/Animations/Kayn_Attack1.anm" -> "Animations/Kayn_Attack1.anm"
+/// Example: "some/path/Base/file.dds" -> "some/path/file.dds"
+fn strip_base_folder(path: &str) -> String {
     let lower = path.to_lowercase();
 
     // Check if path starts with "base/"
     if lower.starts_with("base/") {
-        return format!("skin{}/{}", target_skin_id, &path[5..]);
+        return path[5..].to_string();
     }
 
     // Check if path contains "/base/"
     if lower.contains("/base/") {
         let re = regex::Regex::new(r"(?i)/base/").unwrap();
-        return re.replace(path, |_: &regex::Captures| {
-            format!("/skin{}/", target_skin_id)
-        }).into_owned();
+        return re.replace_all(path, "/").into_owned();
     }
 
     path.to_string()
 }
 
-/// Replace "Base" folder in animation paths with skin ID folder
+/// Remap animation BIN filenames only (not folder paths)
+/// Example: animations/skin8.bin → animations/skin42.bin
+/// Example: particles/blade.dds → particles/blade.dds (unchanged)
+fn remap_animation_bin_filename(path: &str, target_skin_id: u32) -> String {
+    let lower = path.to_lowercase();
+
+    // Only remap if it's an animation BIN file
+    if (lower.contains("/animations/skin") || lower.contains("animations/skin")) && lower.ends_with(".bin") {
+        // Split path into directory and filename
+        if let Some(last_slash) = path.rfind('/') {
+            let dir = &path[..=last_slash];
+            let filename = &path[last_slash + 1..];
+
+            // Check if filename matches skinN.bin pattern
+            if filename.starts_with("skin") && filename.ends_with(".bin") {
+                let without_ext = &filename[..filename.len() - 4]; // Remove ".bin"
+                if without_ext.len() > 4 {
+                    let number_part = &without_ext[4..]; // After "skin"
+                    if number_part.chars().all(|c| c.is_ascii_digit()) {
+                        // It's a skinN.bin file, remap it
+                        return format!("{}skin{}.bin", dir, target_skin_id);
+                    }
+                }
+            }
+        }
+    }
+
+    path.to_string()
+}
+
+/// Strip "Base" folder in animation paths
 /// Example: "ASSETS/SirDexal/Project/Base/Animations/Kayn_Attack1.anm"
-///       -> "ASSETS/SirDexal/Project/skin8/Animations/Kayn_Attack1.anm"
-fn replace_base_folder_in_animation_path(path: &str, target_skin_id: u32) -> String {
-    replace_base_folder_in_path(path, target_skin_id)
+///       -> "ASSETS/SirDexal/Project/Animations/Kayn_Attack1.anm"
+fn replace_base_folder_in_animation_path(path: &str, _target_skin_id: u32) -> String {
+    strip_base_folder(path)
 }
 
 fn relocate_assets(content_base: &Path, existing_paths: &HashSet<String>, prefix: &str, config: &RepathConfig) -> Result<usize> {
@@ -1007,75 +1001,67 @@ mod tests {
     }
 
     #[test]
-    fn test_remap_skin_ids() {
-        // Test folder remapping only (not filenames)
+    fn test_strip_base_folder() {
+        // Test leading Base/ folder
         assert_eq!(
-            remap_skin_ids("skin0/base.skn", 42),
-            "skin42/base.skn"
+            strip_base_folder("Base/Animations/Attack.anm"),
+            "Animations/Attack.anm"
         );
 
-        // Test that filename stays unchanged
+        // Test Base/ in middle of path
         assert_eq!(
-            remap_skin_ids("skin17/renekton_skin17_base.skn", 42),
-            "skin42/renekton_skin17_base.skn"
+            strip_base_folder("some/path/Base/file.dds"),
+            "some/path/file.dds"
         );
 
-        // Test that animation paths are NOT remapped (no folder prefix)
+        // Test case-insensitive
         assert_eq!(
-            remap_skin_ids("animations/skin8.bin", 42),
-            "animations/skin8.bin"
+            strip_base_folder("base/textures/skin.tex"),
+            "textures/skin.tex"
         );
 
-        // Test nested paths
         assert_eq!(
-            remap_skin_ids("skin0/particles/blade.dds", 42),
-            "skin42/particles/blade.dds"
+            strip_base_folder("path/BASE/mesh.skn"),
+            "path/mesh.skn"
+        );
+
+        // Test paths without Base/ (should be unchanged)
+        assert_eq!(
+            strip_base_folder("animations/idle.anm"),
+            "animations/idle.anm"
         );
     }
 
     #[test]
-    fn test_remap_skin_ids_full() {
-        // Test folder remapping (same as remap_skin_ids)
-        assert_eq!(
-            remap_skin_ids_full("skin0/base.skn", 42),
-            "skin42/base.skn"
-        );
-
-        // Test that mesh filenames stay unchanged
-        assert_eq!(
-            remap_skin_ids_full("skin17/renekton_skin17_base.skn", 42),
-            "skin42/renekton_skin17_base.skn"
-        );
-
+    fn test_remap_animation_bin_filename() {
         // Test that animation BIN filenames ARE remapped
         assert_eq!(
-            remap_skin_ids_full("animations/skin8.bin", 42),
+            remap_animation_bin_filename("animations/skin8.bin", 42),
             "animations/skin42.bin"
         );
 
         // Test animation BIN with skin0
         assert_eq!(
-            remap_skin_ids_full("animations/skin0.bin", 42),
+            remap_animation_bin_filename("animations/skin0.bin", 42),
             "animations/skin42.bin"
         );
 
-        // Test nested animation path
+        // Test that non-animation files are unchanged
         assert_eq!(
-            remap_skin_ids_full("data/animations/skin17.bin", 42),
-            "data/animations/skin42.bin"
+            remap_animation_bin_filename("particles/blade.dds", 42),
+            "particles/blade.dds"
         );
 
-        // Test skin BIN files in skins folder (folder name unchanged, filename unchanged)
-        // Path is skins/skin17.bin where "skins" is the folder name, not a skin folder
+        // Test mesh files are unchanged
         assert_eq!(
-            remap_skin_ids_full("skins/skin17.bin", 42),
-            "skins/skin17.bin"  // No remapping - not in animations/ folder
+            remap_animation_bin_filename("renekton_skin17_base.skn", 42),
+            "renekton_skin17_base.skn"
         );
 
-        // Test skin folder path (folder should be remapped, but not the BIN filename inside)
+        // Test skin BIN files NOT in animations folder (unchanged)
         assert_eq!(
-            remap_skin_ids_full("skin17/skin17.bin", 42),
-            "skin42/skin17.bin"  // Folder remapped, filename unchanged
+            remap_animation_bin_filename("skins/skin17.bin", 42),
+            "skins/skin17.bin"
         );
     }
 
@@ -1087,31 +1073,32 @@ mod tests {
             champion: "Renekton".to_string(),
             target_skin_id: 42,
             cleanup_unused: true,
+            use_jade_engine: false,
         };
 
-        // Target champion: strip characters/, champion/, skins/ and remap folder
+        // Target champion: strip characters/, champion/, skins/, and skin{ID}/ folder
         // Input: assets/characters/renekton/skins/skin17/renekton_skin17_base.skn
-        // Expected: ASSETS/SirDexal/Renny/skin42/renekton_skin17_base.skn
+        // Expected: ASSETS/SirDexal/Renny/renekton_skin17_base.skn (no skin42 folder)
         assert_eq!(
             apply_prefix_to_path(
                 "assets/characters/renekton/skins/skin17/renekton_skin17_base.skn",
                 "SirDexal/Renny",
                 &config
             ),
-            "ASSETS/SirDexal/Renny/skin42/renekton_skin17_base.skn"
+            "ASSETS/SirDexal/Renny/renekton_skin17_base.skn"
         );
 
-        // Target champion particles
+        // Target champion particles - no skin folder
         assert_eq!(
             apply_prefix_to_path(
                 "assets/characters/renekton/skins/skin17/particles/blade.dds",
                 "SirDexal/Renny",
                 &config
             ),
-            "ASSETS/SirDexal/Renny/skin42/particles/blade.dds"
+            "ASSETS/SirDexal/Renny/particles/blade.dds"
         );
 
-        // Target champion animations - BIN filename now gets remapped
+        // Target champion animations - BIN filename gets remapped but no skin folder
         assert_eq!(
             apply_prefix_to_path(
                 "data/characters/renekton/animations/skin8.bin",
@@ -1130,6 +1117,7 @@ mod tests {
             champion: "Renekton".to_string(),
             target_skin_id: 42,
             cleanup_unused: true,
+            use_jade_engine: false,
         };
 
         // Other champion → shared-champion folder at CREATOR level, flattened (no skinN folders)
@@ -1163,6 +1151,7 @@ mod tests {
             champion: "Renekton".to_string(),
             target_skin_id: 42,
             cleanup_unused: true,
+            use_jade_engine: false,
         };
 
         // Non-champion assets → shared folder at CREATOR level (not project level)
@@ -1206,6 +1195,7 @@ mod tests {
             champion: "Kayn".to_string(),
             target_skin_id: 20,
             cleanup_unused: true,
+            use_jade_engine: false,
         };
 
         // SFX files: Repath to audio/sfx/ with ONLY filename (strip all path components)
@@ -1271,6 +1261,7 @@ mod tests {
             champion: "Renekton".to_string(),
             target_skin_id: 42,
             cleanup_unused: true,
+            use_jade_engine: false,
         };
 
         // HUD files go to project level (not creator level)
@@ -1409,6 +1400,7 @@ mod tests {
             champion: "Kayn".to_string(),
             target_skin_id: 20,
             cleanup_unused: true,
+            use_jade_engine: false,
         };
 
         let asset_path = AssetPath::SoundSfx {
@@ -1429,6 +1421,7 @@ mod tests {
             champion: "Kayn".to_string(),
             target_skin_id: 20,
             cleanup_unused: true,
+            use_jade_engine: false,
         };
 
         let original = "assets/sounds/wwise2016/vo/en_us/kayn_vo.wpk";
@@ -1450,13 +1443,13 @@ mod tests {
 
     #[test]
     fn test_replace_base_folder_in_animation_path() {
-        // Test replacing /Base/ with /skin{ID}/
+        // Test stripping /Base/ folder
         assert_eq!(
             replace_base_folder_in_animation_path(
                 "ASSETS/SirDexal/Seele-Vollerei-Kayn/Base/Animations/Kayn_Attack1.anm",
                 8
             ),
-            "ASSETS/SirDexal/Seele-Vollerei-Kayn/skin8/Animations/Kayn_Attack1.anm"
+            "ASSETS/SirDexal/Seele-Vollerei-Kayn/Animations/Kayn_Attack1.anm"
         );
 
         // Test case-insensitive matching
@@ -1465,7 +1458,7 @@ mod tests {
                 "ASSETS/Creator/Project/base/Animations/Run.anm",
                 42
             ),
-            "ASSETS/Creator/Project/skin42/Animations/Run.anm"
+            "ASSETS/Creator/Project/Animations/Run.anm"
         );
 
         // Test mixed case
@@ -1474,25 +1467,25 @@ mod tests {
                 "ASSETS/Creator/Project/BASE/Animations/Idle.anm",
                 17
             ),
-            "ASSETS/Creator/Project/skin17/Animations/Idle.anm"
+            "ASSETS/Creator/Project/Animations/Idle.anm"
         );
 
         // Test paths without /Base/ (should be unchanged)
         assert_eq!(
             replace_base_folder_in_animation_path(
-                "ASSETS/Creator/Project/skin10/Animations/Attack.anm",
+                "ASSETS/Creator/Project/Animations/Attack.anm",
                 42
             ),
-            "ASSETS/Creator/Project/skin10/Animations/Attack.anm"
+            "ASSETS/Creator/Project/Animations/Attack.anm"
         );
 
         // Test non-animation paths (should be unchanged)
         assert_eq!(
             replace_base_folder_in_animation_path(
-                "ASSETS/Creator/Project/skin0/particles/effect.dds",
+                "ASSETS/Creator/Project/particles/effect.dds",
                 42
             ),
-            "ASSETS/Creator/Project/skin0/particles/effect.dds"
+            "ASSETS/Creator/Project/particles/effect.dds"
         );
     }
 
@@ -1508,41 +1501,4 @@ mod tests {
         assert_ne!(hash, 0); // Should not be zero
     }
 
-    #[test]
-    fn test_replace_base_folder_in_path() {
-        // Test leading Base/ folder
-        assert_eq!(
-            replace_base_folder_in_path("Base/Animations/Attack.anm", 8),
-            "skin8/Animations/Attack.anm"
-        );
-
-        // Test Base/ in middle of path
-        assert_eq!(
-            replace_base_folder_in_path("some/path/Base/file.dds", 42),
-            "some/path/skin42/file.dds"
-        );
-
-        // Test case-insensitive
-        assert_eq!(
-            replace_base_folder_in_path("base/textures/skin.tex", 17),
-            "skin17/textures/skin.tex"
-        );
-
-        assert_eq!(
-            replace_base_folder_in_path("path/BASE/mesh.skn", 99),
-            "path/skin99/mesh.skn"
-        );
-
-        // Test paths without Base/ (should be unchanged)
-        assert_eq!(
-            replace_base_folder_in_path("skin10/animations/idle.anm", 42),
-            "skin10/animations/idle.anm"
-        );
-
-        // Test empty path
-        assert_eq!(
-            replace_base_folder_in_path("", 42),
-            ""
-        );
-    }
 }

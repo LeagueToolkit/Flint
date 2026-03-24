@@ -7,7 +7,7 @@
 //!
 //! This prevents conflicts when multiple linked BINs reference the same assets.
 
-use crate::core::bin::ltk_bridge::{read_bin, write_bin};
+use crate::bin::ltk_bridge::{read_bin, write_bin};
 use crate::error::{Error, Result};
 use ltk_meta::{BinTree, BinTreeBuilder, BinTreeObject};
 use std::collections::HashMap;

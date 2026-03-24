@@ -98,7 +98,7 @@ pub async fn sync_project_to_launcher(
     let ltk_storage_buf = PathBuf::from(&ltk_storage_path);
 
     // 1. Load the project
-    let project = crate::core::project::open_project(&project_path_buf)
+    let project = flint_ltk::project::open_project(&project_path_buf)
         .map_err(|e| format!("Failed to open project: {}", e))?;
 
     tracing::info!("Loaded project: {} v{}", project.name, project.version);
@@ -132,8 +132,8 @@ pub async fn sync_project_to_launcher(
 
 /// Package a Flint project as a .fantome file with proper WAD binaries
 fn package_project(project_path: &std::path::Path, output_path: &std::path::Path) -> Result<(), String> {
-    use crate::commands::export::build_wad_from_directory;
-    use ltk_mod_project::{ModProject, ModProjectAuthor};
+    use flint_ltk::export::build_wad_from_directory;
+    use flint_ltk::ltk_types::{ModProject, ModProjectAuthor};
     use std::io::Write;
     use zip::write::SimpleFileOptions;
     use zip::ZipWriter;

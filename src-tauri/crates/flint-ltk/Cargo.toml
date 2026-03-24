@@ -1,0 +1,94 @@
+[package]
+name = "flint-ltk"
+version = "0.1.0"
+edition = "2021"
+autobins = false
+
+[dependencies]
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+eyre = "0.6"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Async
+tokio = { version = "1.0", features = ["rt-multi-thread", "fs", "io-util", "sync", "macros", "time"] }
+reqwest = { version = "0.11", default-features = false, features = ["json", "stream", "rustls-tls"] }
+futures = "0.3"
+
+# Concurrency
+rayon = "1.10"
+dashmap = "6.0"
+parking_lot = "0.12"
+
+# LTK crates
+ltk_texture = { version = "0.4", features = ["intel-tex"] }
+league-toolkit = { version = "0.2.18", features = ["serde"] }
+ltk_mesh = "0.3.0"
+ltk_meta = { version = "0.3.3", features = ["serde"] }
+ltk_ritobin = "0.1.4"
+ltk_anim = "0.3.0"
+ltk_file = "0.2"
+ltk_mod_project = "0.2"
+ltk_mod_core = "0.1"
+ltk_fantome = "0.2"
+ltk_modpkg = { version = "0.2", features = ["project"] }
+
+# Hematite fixer (config-driven skin fixer) — v2 workspace crates
+hematite-types = { git = "https://github.com/LeagueToolkit/Hematite" }
+hematite-core = { git = "https://github.com/LeagueToolkit/Hematite" }
+hematite-ltk = { git = "https://github.com/LeagueToolkit/Hematite" }
+
+# LMDB via heed — memory-mapped B-tree DB for fast hash lookups
+heed = "0.20"
+
+# Memory-mapped file I/O for WAD extraction
+memmap2 = "0.9"
+
+# Math (must match league-toolkit's version)
+glam = "0.27"
+
+# Binary/codec
+byteorder = "1.4"
+flate2 = "1.0"
+zstd = "0.12"
+xxhash-rust = { version = "0.8", features = ["xxh64"] }
+binrw = "0.14"
+
+# Filesystem/path
+camino = "1.1"
+walkdir = "2.4"
+directories = "5.0"
+
+# Hashing/crypto
+sha1 = "0.10"
+sha2 = "0.10.9"
+
+# Text/data
+regex = "1.12.2"
+indexmap = { version = "2.1", features = ["serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+toml = "0.8"
+slug = "0.1"
+itertools = "0.14"
+semver = "1.0"
+uuid = { version = "1.20.0", features = ["v4"] }
+
+# Image
+image = { version = "0.25", default-features = false, features = ["dds", "png", "webp"] }
+image_dds = "0.6"
+ddsfile = "0.5"
+base64 = "0.21"
+
+# ZIP
+zip = { version = "2.4", features = ["deflate"] }
+
+# Logging (tracing macros only — no Tauri dependency)
+tracing = "0.1"
+
+# Windows registry access (Windows only)
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"

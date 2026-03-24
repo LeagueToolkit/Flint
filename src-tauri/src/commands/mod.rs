@@ -20,3 +20,4 @@ pub mod project_watcher;
 pub mod fantome_import;
 pub mod modpkg_import;
 pub mod hud;
+pub mod dev;

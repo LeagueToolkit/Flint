@@ -1,0 +1,69 @@
+// flint-ltk: League Toolkit abstraction layer for Flint
+
+pub mod error;
+pub mod audio;
+pub mod bin;
+pub mod wad;
+pub mod hash;
+pub mod mesh;
+pub mod champion;
+pub mod league;
+pub mod repath;
+pub mod validation;
+pub mod project;
+pub mod export;
+pub mod checkpoint;
+pub mod hud;
+
+// =============================================================================
+// Re-exports: Types that commands import directly from LTK crates.
+// Commands should import these from `flint_ltk::ltk_types::` instead.
+// =============================================================================
+
+/// LTK types re-exported for the Flint binary crate
+pub mod ltk_types {
+    // ltk_meta types (used by commands/dev.rs, commands/project.rs)
+    pub use ltk_meta::{BinProperty, BinPropertyKind, BinTree, BinTreeObject, PropertyValueEnum};
+    pub use ltk_meta::value::*;
+
+    // ltk_ritobin (used by commands/dev.rs, bin_roundtrip_test.rs)
+    pub use ltk_ritobin::{HashProvider, HashMapProvider, write_with_hashes};
+
+    // ltk_mod_project (used by commands/export.rs, commands/ltk_manager.rs)
+    pub use ltk_mod_project::{ModProject, ModProjectAuthor, default_layers};
+
+    // ltk_file (used by commands/file.rs)
+    pub use ltk_file::LeagueFileKind;
+
+    // ltk_texture (used by commands/file.rs, commands/project.rs)
+    pub use ltk_texture::Texture;
+    pub use ltk_texture::tex::{Tex, EncodeOptions, Format as TexFormat};
+
+    // ltk_modpkg (used by commands/modpkg_import.rs, commands/export.rs)
+    pub use ltk_modpkg::Modpkg;
+    pub use ltk_modpkg::builder::{ModpkgBuilder, ModpkgChunkBuilder, ModpkgLayerBuilder};
+    pub use ltk_modpkg::{ModpkgMetadata, ModpkgAuthor};
+
+    // league-toolkit WAD builders (used by commands/export.rs)
+    pub use league_toolkit::wad::{WadBuilder, WadChunkBuilder, WadBuilderError};
+
+    // glam (used by commands/project.rs)
+    pub use glam::{Vec2, Vec4};
+}
+
+/// Hematite types re-exported for the Flint binary crate (commands/fixer.rs)
+pub mod hematite {
+    pub use hematite_core::context::FixContext;
+    pub use hematite_core::detect::detect_issue;
+    pub use hematite_core::detect::shader::ShaderValidator;
+    pub use hematite_core::pipeline::apply_fixes;
+    pub use hematite_core::traits::BinProvider;
+    pub use hematite_ltk::bin_adapter::LtkBinProvider;
+    pub use hematite_ltk::lmdb_hash_adapter::LmdbHashProvider;
+    pub use hematite_ltk::wad_adapter::LtkWadProvider;
+    pub use hematite_types::champion::{CharacterRelations, ChampionList};
+    pub use hematite_types::config::FixConfig;
+}
+
+/// Re-export heed for state.rs (Arc<heed::Env>)
+pub use heed;

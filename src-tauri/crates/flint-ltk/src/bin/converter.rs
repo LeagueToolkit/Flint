@@ -3,7 +3,7 @@
 //! This module provides functionality to convert League of Legends .bin files
 //! between different formats using ltk_meta and ltk_ritobin.
 
-use crate::core::bin::ltk_bridge::{tree_to_text_cached, text_to_tree};
+use crate::bin::ltk_bridge::{tree_to_text_cached, text_to_tree};
 use crate::error::{Error, Result};
 use ltk_meta::BinTree;
 

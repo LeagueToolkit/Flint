@@ -1,4 +1,4 @@
-use crate::core::hud::{parse_hud_file, serialize_hud_file, HudData};
+use flint_ltk::hud::{parse_hud_file, serialize_hud_file, HudData};
 use std::fs;
 use std::path::PathBuf;
 

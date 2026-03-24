@@ -1,6 +1,6 @@
-use crate::core::hash::{resolve_hashes_lmdb, resolve_hashes_lmdb_bulk};
-use crate::core::wad::extractor::{extract_all, extract_chunk};
-use crate::core::wad::reader::WadReader;
+use flint_ltk::hash::{resolve_hashes_lmdb, resolve_hashes_lmdb_bulk};
+use flint_ltk::wad::extractor::{extract_all, extract_chunk};
+use flint_ltk::wad::reader::WadReader;
 use crate::state::{LmdbCacheState, WadCacheState};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -70,7 +70,7 @@ pub async fn get_wad_chunks(
     let hash_u64s: Vec<u64> = chunks.iter().map(|c| c.path_hash()).collect();
     let resolved: Vec<String> = if let Some(env) = lmdb.get_env(
         // Determine hash dir from the LMDB cache (uses whatever was last primed)
-        &crate::core::hash::downloader::get_ritoshark_hash_dir()
+        &flint_ltk::hash::downloader::get_ritoshark_hash_dir()
             .map(|p| p.to_string_lossy().into_owned())
             .unwrap_or_default()
     ) {
@@ -130,7 +130,7 @@ pub async fn load_all_wad_chunks(
     let cache = wad_cache_state.get();
 
     // Resolve hash dir once
-    let hash_dir = crate::core::hash::downloader::get_ritoshark_hash_dir()
+    let hash_dir = flint_ltk::hash::downloader::get_ritoshark_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
     let env_opt = lmdb.get_env(&hash_dir);
@@ -258,7 +258,7 @@ pub async fn extract_wad(
     let mut reader = WadReader::open(&wad_path)?;
 
     // Get resolver via LMDB (point lookup, no RAM spike)
-    let hash_dir = crate::core::hash::downloader::get_ritoshark_hash_dir()
+    let hash_dir = flint_ltk::hash::downloader::get_ritoshark_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
     let env_opt = lmdb.get_env(&hash_dir);
@@ -371,7 +371,7 @@ pub async fn extract_wad_model_preview(
 
     // Resolve all hashes via LMDB
     let hash_u64s: Vec<u64> = chunks.iter().map(|c| c.path_hash()).collect();
-    let hash_dir = crate::core::hash::downloader::get_ritoshark_hash_dir()
+    let hash_dir = flint_ltk::hash::downloader::get_ritoshark_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
     let resolved_map: HashMap<u64, String> = if let Some(ref env) = lmdb.get_env(&hash_dir) {
@@ -432,7 +432,7 @@ pub async fn extract_wad_model_preview(
                 let _ = std::fs::create_dir_all(parent);
             }
             let chunk_copy = *chunk;
-            if let Err(e) = crate::core::wad::extractor::extract_chunk(
+            if let Err(e) = flint_ltk::wad::extractor::extract_chunk(
                 reader.wad_mut(), &chunk_copy, &output_path, None,
             ) {
                 tracing::warn!("Failed to extract {}: {}", rel_path, e);

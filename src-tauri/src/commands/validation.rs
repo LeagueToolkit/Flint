@@ -2,7 +2,7 @@
 //!
 //! These commands expose asset validation functionality to the frontend.
 
-use crate::core::validation::{
+use flint_ltk::validation::{
     extract_asset_references as core_extract_references,
     validate_assets as core_validate_assets,
     AssetReference, ValidationReport,

@@ -1,4 +1,4 @@
-use crate::core::bin::{bin_to_json, bin_to_text, json_to_bin, read_bin, text_to_bin, write_bin};
+use flint_ltk::bin::{bin_to_json, bin_to_text, json_to_bin, read_bin, text_to_bin, write_bin};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
@@ -375,13 +375,13 @@ pub async fn parse_bin_file_to_text(
     tracing::debug!("Read {} bytes from {}", data.len(), path);
 
     // Parse with ritobin_rust
-    let bin = crate::core::bin::read_bin_ltk(&data)
+    let bin = flint_ltk::bin::read_bin_ltk(&data)
         .map_err(|e| format!("Failed to parse bin file: {}", e))?;
 
     tracing::debug!("Parsed bin file with {} objects", bin.objects.len());
 
     // Convert to text format using cached hash resolution (faster)
-    let text = crate::core::bin::tree_to_text_cached(&bin)
+    let text = flint_ltk::bin::tree_to_text_cached(&bin)
         .map_err(|e| format!("Failed to convert to text: {}", e))?;
 
     tracing::info!("Successfully parsed BIN file to text ({} chars)", text.len());
@@ -489,16 +489,16 @@ pub async fn read_or_convert_bin(
     // Convert binary to text using selected engine
     let text = if use_jade {
         tracing::info!("[BIN_READ] Using Jade Custom converter");
-        crate::core::bin::jade::convert_bin_to_text(&data)?
+        flint_ltk::bin::jade::convert_bin_to_text(&data)?
     } else {
         tracing::info!("[BIN_READ] Using LTK converter");
         tracing::info!("[BIN_READ] Parsing BIN structure...");
-        let bin = crate::core::bin::read_bin_ltk(&data)
+        let bin = flint_ltk::bin::read_bin_ltk(&data)
             .map_err(|e| format!("Failed to parse bin file: {}", e))?;
         tracing::info!("[BIN_READ] Parsed: {} objects, {} dependencies", bin.objects.len(), bin.dependencies.len());
 
         tracing::info!("[BIN_READ] Converting to text (using cached hashes)...");
-        crate::core::bin::tree_to_text_cached(&bin)
+        flint_ltk::bin::tree_to_text_cached(&bin)
             .map_err(|e| format!("Failed to convert to text: {}", e))?
     };
     tracing::info!("[BIN_READ] Converted to {} chars of text", text.len());
@@ -540,15 +540,15 @@ pub async fn save_ritobin_to_bin(
     // Convert text to binary using selected engine
     let binary_data = if use_jade {
         tracing::info!("Using Jade Custom converter");
-        crate::core::bin::jade::convert_text_to_bin(&content)?
+        flint_ltk::bin::jade::convert_text_to_bin(&content)?
     } else {
         tracing::info!("Using LTK converter");
         // Parse the text content back to BIN structure
-        let bin = crate::core::bin::text_to_tree(&content)
+        let bin = flint_ltk::bin::text_to_tree(&content)
             .map_err(|e| format!("Failed to parse text content: {}", e))?;
 
         // Convert to binary format
-        crate::core::bin::write_bin_ltk(&bin)
+        flint_ltk::bin::write_bin_ltk(&bin)
             .map_err(|e| format!("Failed to convert to binary: {}", e))?
     };
 

@@ -1,4 +1,4 @@
-use crate::core::hash::{build_hash_db, force_rebuild_hash_db, downloader::get_ritoshark_hash_dir, download_hashes as core_download_hashes, DownloadStats};
+use flint_ltk::hash::{build_hash_db, force_rebuild_hash_db, downloader::get_ritoshark_hash_dir, download_hashes as core_download_hashes, DownloadStats};
 use crate::state::LmdbCacheState;
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -103,7 +103,7 @@ pub async fn force_rebuild_hashes(lmdb: State<'_, LmdbCacheState>) -> Result<(),
     }
 
     // Reload BIN hash cache to pick up new asset path hashes
-    crate::core::bin::reload_bin_hash_cache();
+    flint_ltk::bin::reload_bin_hash_cache();
 
     // Open the fresh env
     if lmdb.prime(&hash_dir_str).is_some() {

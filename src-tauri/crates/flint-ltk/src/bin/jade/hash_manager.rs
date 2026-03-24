@@ -1,7 +1,7 @@
 use std::path::Path;
 use parking_lot::RwLock;
 use std::sync::OnceLock;
-use crate::core::hash::get_ritoshark_hash_dir;
+use crate::hash::get_ritoshark_hash_dir;
 
 /// High-performance hash manager with sorted arrays and binary search.
 /// Matches the C# HashManager design: packed offset+length in a single

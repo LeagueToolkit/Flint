@@ -2,7 +2,7 @@
 //!
 //! These commands expose league detection functionality to the frontend.
 
-use crate::core::league::{detect_league_installation, validate_league_path, LeagueInstallation};
+use flint_ltk::league::{detect_league_installation, validate_league_path, LeagueInstallation};
 
 /// Automatically detect League of Legends installation
 ///

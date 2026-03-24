@@ -12,9 +12,9 @@ use std::io::BufReader;
 use tauri::{AppHandle, Emitter, State};
 use zip::ZipArchive;
 
-use crate::core::hash::lmdb_cache::{get_or_open_env, resolve_hashes_lmdb};
-use crate::core::wad::reader::WadReader;
-use crate::core::project::Project;
+use flint_ltk::hash::lmdb_cache::{get_or_open_env, resolve_hashes_lmdb};
+use flint_ltk::wad::reader::WadReader;
+use flint_ltk::project::Project;
 use crate::state::LmdbCacheState;
 
 // =============================================================================
@@ -88,6 +88,8 @@ pub struct ImportOptions {
     pub match_from_league: bool,
     /// Path to League installation (for file matching)
     pub league_path: Option<String>,
+    /// Use Jade engine for BIN parsing (instead of LTK)
+    pub use_jade: Option<bool>,
 }
 
 // =============================================================================
@@ -303,7 +305,7 @@ fn match_missing_files_from_league(
     champion: &str,
     existing_hashes: &HashSet<u64>,
 ) -> Result<(), String> {
-    use crate::core::wad::extractor::find_champion_wad;
+    use flint_ltk::wad::extractor::find_champion_wad;
     use walkdir::WalkDir;
 
     tracing::info!("Matching missing files from League installation for {}", champion);
@@ -489,8 +491,9 @@ fn apply_refathering(
     champion: &str,
     target_skin_id: u32,
     path_mappings: &HashMap<String, String>,
+    use_jade: bool,
 ) -> Result<(), String> {
-    use crate::core::repath::organizer::{organize_project, OrganizerConfig};
+    use flint_ltk::repath::organizer::{organize_project, OrganizerConfig};
 
     tracing::info!("Applying refathering to imported mod...");
 
@@ -503,6 +506,7 @@ fn apply_refathering(
         target_skin_id,
         // DON'T cleanup for imports - pre-repathed VFX/particles won't be in BIN references
         cleanup_unused: false,
+        use_jade_engine: use_jade,
     };
 
     organize_project(content_path, &config, path_mappings)
@@ -523,7 +527,7 @@ pub async fn analyze_fantome(
     _lmdb_state: State<'_, LmdbCacheState>,
 ) -> Result<FantomeAnalysis, String> {
     // Get hash directory before spawning blocking task
-    let hash_dir = crate::core::hash::downloader::get_ritoshark_hash_dir()
+    let hash_dir = flint_ltk::hash::downloader::get_ritoshark_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .map_err(|e| format!("Hash directory not found: {}", e))?;
 
@@ -616,7 +620,7 @@ pub async fn import_fantome_wad(
     _lmdb_state: State<'_, LmdbCacheState>,
 ) -> Result<Project, String> {
     // Get hash directory before spawning blocking task
-    let hash_dir = crate::core::hash::downloader::get_ritoshark_hash_dir()
+    let hash_dir = flint_ltk::hash::downloader::get_ritoshark_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .map_err(|e| format!("Hash directory not found: {}", e))?;
 
@@ -634,7 +638,7 @@ fn import_fantome_internal(
     options: &ImportOptions,
     hash_dir: &str,
 ) -> Result<Project, String> {
-    use crate::core::project::save_project as core_save_project;
+    use flint_ltk::project::save_project as core_save_project;
 
     let _ = app.emit("fantome-import-progress", serde_json::json!({
         "status": "starting",
@@ -833,6 +837,7 @@ fn import_fantome_internal(
             &champion,
             target_skin_id,
             &path_mappings,
+            options.use_jade.unwrap_or(false),
         ).map_err(|e| format!("Failed to apply refathering: {}", e))?;
     }
 

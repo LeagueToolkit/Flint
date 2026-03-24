@@ -16,7 +16,6 @@ pub use ltk_bridge::{
 };
 
 // Re-export ltk_meta types directly
-#[allow(unused_imports)]
 pub use ltk_meta::{BinTree, BinTreeObject, BinProperty, BinPropertyKind, PropertyValueEnum};
 
 // Legacy aliases for backwards compatibility with commands

@@ -14,7 +14,7 @@ pub struct DecodedAudio {
 }
 
 /// Embedded codebook binary (packed_codebooks_aoTuV_603.bin)
-const CODEBOOK_DATA: &[u8] = include_bytes!("../../../resources/packed_codebooks_aoTuV_603.bin");
+const CODEBOOK_DATA: &[u8] = include_bytes!("../../resources/packed_codebooks_aoTuV_603.bin");
 
 // ---------------------------------------------------------------------------
 // OGG CRC lookup table

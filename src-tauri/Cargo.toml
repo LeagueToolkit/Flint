@@ -1,3 +1,6 @@
+[workspace]
+members = [".", "crates/flint-ltk"]
+
 [package]
 name = "flint"
 version = "1.8.6"
@@ -20,110 +23,58 @@ path = "src/bin/bin_roundtrip_test.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+# Core library (all LTK deps live here)
+flint-ltk = { path = "crates/flint-ltk" }
+
+# Tauri framework
 tauri = { version = "2", features = ["devtools"] }
 tauri-plugin-dialog = "2.0"
 tauri-plugin-updater = "2.0"
 tauri-plugin-process = "2.0"
 tauri-plugin-opener = "2"
+
+# Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-# Trimmed tokio: rt-multi-thread (async runtime), fs (file I/O), io-util (async write),
-# sync (channels), macros (async tests), time (for Tauri timeouts)
+
+# Async runtime
 tokio = { version = "1.0", features = ["rt-multi-thread", "fs", "io-util", "sync", "macros", "time"] }
-# Use rustls-tls instead of native-tls for smaller binary size
 reqwest = { version = "0.11", default-features = false, features = ["json", "stream", "rustls-tls"] }
+futures = "0.3"
+
+# Error handling
 thiserror = "1.0"
 anyhow = "1.0"
-byteorder = "1.4"
-flate2 = "1.0"
-zstd = "0.12"
-xxhash-rust = { version = "0.8", features = ["xxh64"] }
-camino = "1.1"
+
+# Concurrency
 parking_lot = "0.12"
+rayon = "1.10"
+
+# Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-sha1 = "0.10"
+
+# Data / text
 chrono = { version = "0.4", features = ["serde"] }
 indexmap = { version = "2.1", features = ["serde"] }
+regex = "1.12.2"
+uuid = { version = "1.20.0", features = ["v4"] }
+semver = "1.0"
 
-# Parallel processing for hash loading
-rayon = "1.10"
-futures = "0.3"
-# Thread-safe concurrent collections for parallel BIN processing
-dashmap = "6.0"
-
-# Texture handling (DDS and TEX via league-toolkit)
-ltk_texture = { version = "0.4", features = ["intel-tex"] }
-# Trim image crate to only DDS support for smaller binary
+# Image processing (used directly by commands/file.rs)
 image = { version = "0.25", default-features = false, features = ["dds", "png", "webp"] }
 image_dds = "0.6"
 ddsfile = "0.5"
 base64 = "0.21"
 
-# League toolkit for WAD operations (from crates.io)
-# Updated to 0.2.18+ for WAD 3.3 support
-league-toolkit = { version = "0.2.18", features = ["serde"] }
-
-# ltk_mesh from crates.io (0.3.0 for ltk_primitives 0.3.x compatibility)
-ltk_mesh = "0.3.0"
-
-# glam for vector math (must match league-toolkit's version for Format trait compatibility)
-glam = "0.27"
-
-# League Toolkit for BIN file parsing (crates.io for compatible ltk_primitives version)
-ltk_meta = { version = "0.3.3", features = ["serde"] }
-ltk_ritobin = "0.1.4"
-ltk_anim = "0.3.0"
-
-# League Toolkit file type detection
-ltk_file = "0.2"
-
-# Standard directories
-directories = "5.0"
-
-# Open files with default application (no cmd window)
-opener = "0.7"
-
-# Recursive directory walking
+# Filesystem
 walkdir = "2.4"
-
-# File system watching for auto-sync
 notify = "7.0"
 notify-debouncer-full = "0.4"
+opener = "0.7"
 
-# ZIP file creation for fantome export
+# ZIP (fantome export/import)
 zip = { version = "2.4", features = ["deflate"] }
-regex = "1.12.2"
-
-# League Mod - Project system & export (from crates.io)
-# Updated to 0.2.x for compatibility with league-toolkit 0.2.18+
-ltk_mod_project = "0.2"
-ltk_mod_core = "0.1"  # Still at 0.1.0
-ltk_fantome = "0.2"
-ltk_modpkg = { version = "0.2", features = ["project"] }
-
-# Hematite fixer library (config-driven skin fixer)
-hematite_lib = { package = "hematite", git = "https://github.com/LeagueToolkit/Hematite", default-features = false }
-
-# LMDB via heed — memory-mapped B-tree DB for fast hash lookups
-heed = "0.20"
-
-# Memory-mapped file I/O for WAD extraction
-memmap2 = "0.9"
-
-# Additional dependencies required by ltk crates
-eyre = "0.6"
-binrw = "0.14"
-toml = "0.8"
-slug = "0.1"
-itertools = "0.14"
-semver = "1.0"
-sha2 = "0.10.9"
-uuid = { version = "1.20.0", features = ["v4"] }
-
-# Windows registry access (Windows only)
-[target.'cfg(windows)'.dependencies]
-winreg = "0.52"
 
 [dev-dependencies]
 proptest = "1.0"

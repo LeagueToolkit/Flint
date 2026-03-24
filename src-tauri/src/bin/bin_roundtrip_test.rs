@@ -14,7 +14,7 @@ use std::fs;
 use std::io::Cursor;
 use std::path::Path;
 
-use ltk_meta::BinTree;
+use flint_ltk::ltk_types::{BinTree, HashMapProvider, write_with_hashes};
 fn main() {
     let args: Vec<String> = env::args().collect();
     
@@ -119,7 +119,7 @@ fn main() {
     println!("\n--- Step 6: Converting to ritobin text with hash resolution ---");
     
     // Load hashes from RitoShark directory
-    let mut hashes = ltk_ritobin::HashMapProvider::new();
+    let mut hashes = HashMapProvider::new();
     if let Ok(appdata) = std::env::var("APPDATA") {
         let hash_dir = std::path::PathBuf::from(appdata)
             .join("RitoShark")
@@ -135,7 +135,7 @@ fn main() {
         }
     }
     
-    let original_text = match ltk_ritobin::write_with_hashes(&bin_tree, &hashes) {
+    let original_text = match write_with_hashes(&bin_tree, &hashes) {
         Ok(text) => text,
         Err(e) => {
             eprintln!("WARNING: Failed to convert to text: {:?}", e);
@@ -143,7 +143,7 @@ fn main() {
         }
     };
     
-    let output_text = match ltk_ritobin::write_with_hashes(&verify_tree, &hashes) {
+    let output_text = match write_with_hashes(&verify_tree, &hashes) {
         Ok(text) => text,
         Err(e) => {
             eprintln!("WARNING: Failed to convert output to text: {:?}", e);

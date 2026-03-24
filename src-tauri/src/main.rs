@@ -3,11 +3,10 @@
 
 mod commands;
 mod core;
-mod error;
 mod state;
 
 use commands::project_watcher::WatcherState;
-use core::hash::get_ritoshark_hash_dir;
+use flint_ltk::hash::get_ritoshark_hash_dir;
 use core::frontend_log::{FrontendLogLayer, set_app_handle};
 use state::{LmdbCacheState, WadCacheState};
 use tauri::Manager;
@@ -89,7 +88,7 @@ fn main() {
             let lmdb_state = app.state::<LmdbCacheState>().inner().clone();
             tauri::async_runtime::spawn(async move {
                 tracing::info!("Checking for hash updates...");
-                match crate::core::hash::download_hashes(&hash_dir, false).await {
+                match flint_ltk::hash::download_hashes(&hash_dir, false).await {
                     Ok(stats) => {
                         if stats.downloaded > 0 {
                             tracing::info!(
@@ -250,6 +249,8 @@ fn main() {
             commands::hud::save_hud_ritobin_file,
             commands::hud::create_hud_project,
             commands::hud::get_hud_file_stats,
+            // Dev commands (schema aggregation)
+            commands::dev::aggregate_bin_schema,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
