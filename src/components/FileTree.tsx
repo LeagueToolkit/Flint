@@ -179,6 +179,9 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
     const { state, dispatch, openModal, openContextMenu, openConfirmDialog, showToast } = useAppState();
     const renameInputRef = useRef<HTMLInputElement>(null);
 
+    // Subscribe to file statuses for VFS indicators
+    const fileStatuses = useAppMetadataStore((s) => s.fileStatuses);
+
     // Apply compact-folder merging
     const { displayPath, effectiveNode } = node.isDirectory ? compactNode(node) : { displayPath: node.name, effectiveNode: node };
     const isExpanded = expandedFolders.has(effectiveNode.path);
@@ -497,10 +500,15 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
     const icon = getFileIcon(effectiveNode.name, effectiveNode.isDirectory, isExpanded);
     const expanderIcon = getExpanderIcon(isExpanded);
 
+    // Get file status for VFS indicator (need full project path)
+    const fullPath = activeTab ? `${activeTab.projectPath}/${effectiveNode.path}`.replaceAll('\\', '/') : '';
+    const fileStatus = fileStatuses[fullPath];
+    const statusClass = fileStatus ? `file-tree__item--${fileStatus}` : '';
+
     return (
         <div className="file-tree__node">
             <div
-                className={`file-tree__item ${isSelected ? 'file-tree__item--selected' : ''}`}
+                className={`file-tree__item ${isSelected ? 'file-tree__item--selected' : ''} ${statusClass}`}
                 style={{ paddingLeft: 4 + depth * 12 }}
                 onClick={handleClick}
                 onContextMenu={handleContextMenu}
@@ -527,18 +535,25 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
                         onClick={(e) => e.stopPropagation()}
                     />
                 ) : (
-                    <span className="file-tree__name">
-                        {displayPath.includes('/') ? (
-                            displayPath.split('/').map((segment, idx, arr) => (
-                                <React.Fragment key={idx}>
-                                    <span className="file-tree__compact-segment">{segment}</span>
-                                    {idx < arr.length - 1 && <span className="file-tree__compact-separator">/</span>}
-                                </React.Fragment>
-                            ))
-                        ) : (
-                            displayPath
+                    <>
+                        <span className="file-tree__name">
+                            {displayPath.includes('/') ? (
+                                displayPath.split('/').map((segment, idx, arr) => (
+                                    <React.Fragment key={idx}>
+                                        <span className="file-tree__compact-segment">{segment}</span>
+                                        {idx < arr.length - 1 && <span className="file-tree__compact-separator">/</span>}
+                                    </React.Fragment>
+                                ))
+                            ) : (
+                                displayPath
+                            )}
+                        </span>
+                        {fileStatus && (
+                            <span className={`file-tree__status-badge file-tree__status-badge--${fileStatus}`}>
+                                {fileStatus === 'new' ? 'N' : 'M'}
+                            </span>
                         )}
-                    </span>
+                    </>
                 )}
             </div>
             {effectiveNode.isDirectory && isExpanded && effectiveNode.children && (
@@ -582,6 +597,10 @@ const ProjectsPanel: React.FC = () => {
 
             const files = await api.listProjectFiles(normalizedPath);
             dispatch({ type: 'SET_FILE_TREE', payload: files });
+
+            // Clear file statuses when opening a new project
+            useAppMetadataStore.getState().clearFileStatuses();
+
             setReady();
         } catch (error) {
             console.error('Failed to open project:', error);

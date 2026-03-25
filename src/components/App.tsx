@@ -29,6 +29,7 @@ import { FixerModal } from './modals/FixerModal';
 import { ProjectListModal } from './modals/ProjectListModal';
 import { ModConfigEditorModal } from './modals/ModConfigEditorModal';
 import { ThumbnailCropModal } from './modals/ThumbnailCropModal';
+import { CheckpointModal } from './modals/CheckpointModal';
 import { ToastContainer } from './Toast';
 
 // Helper to get active tab from state
@@ -183,6 +184,19 @@ export const App: React.FC = () => {
             // For create/remove events, refresh the file tree
             if (kind === 'create' || kind === 'remove') {
                 useAppMetadataStore.getState().incrementFileTreeVersion();
+            }
+
+            // Track file status for VFS indicators
+            if (kind === 'create') {
+                useAppMetadataStore.getState().setFileStatus(changedPath, 'new');
+            } else if (kind === 'modify') {
+                const currentStatus = useAppMetadataStore.getState().fileStatuses[changedPath.replaceAll('\\', '/')];
+                // If already marked as 'new', keep it as 'new'. Otherwise mark as 'modified'
+                if (currentStatus !== 'new') {
+                    useAppMetadataStore.getState().setFileStatus(changedPath, 'modified');
+                }
+            } else if (kind === 'remove') {
+                useAppMetadataStore.getState().setFileStatus(changedPath, null);
             }
 
             // Invalidate cache for the changed file
@@ -424,6 +438,7 @@ export const App: React.FC = () => {
             <ProjectListModal />
             <ModConfigEditorModal />
             <ThumbnailCropModal />
+            <CheckpointModal />
 
             {/* Toast notifications */}
             <ToastContainer />

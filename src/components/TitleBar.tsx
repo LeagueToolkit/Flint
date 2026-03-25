@@ -410,6 +410,20 @@ export const TitleBar: React.FC = () => {
                     </button>
                 )}
 
+                {/* Timeline button (only visible when a project is open) */}
+                {state.currentView === 'preview' && currentProject && (
+                    <button
+                        className="titlebar__button titlebar__button--timeline"
+                        onClick={() => openModal('checkpoint')}
+                        title="Project Timeline"
+                        data-tauri-drag-region="false"
+                    >
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                            <path d="M8 1.5a6.5 6.5 0 106.5 6.5H13a5 5 0 11-5-5V4l3-3-3-3v2.5z" fill="currentColor"/>
+                        </svg>
+                    </button>
+                )}
+
                 {/* Export dropdown (only visible when a project is open) */}
                 {state.currentView === 'preview' && currentProject && (
                     <div className="titlebar__dropdown" style={{ position: 'relative', display: 'inline-block' }}>

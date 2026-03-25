@@ -16,6 +16,7 @@ interface AppMetadataState {
   logPanelExpanded: boolean;
   fileVersions: Record<string, number>; // Track file modification versions for hot reload
   fileTreeVersion: number; // Incremented when file tree structure changes (create/remove)
+  fileStatuses: Record<string, 'new' | 'modified'>; // Track file modification status for VFS indicators
 
   // Actions
   setStatus: (status: AppMetadataState['status'], message: string) => void;
@@ -30,6 +31,8 @@ interface AppMetadataState {
   incrementFileVersion: (filePath: string) => void;
   getFileVersion: (filePath: string) => number;
   incrementFileTreeVersion: () => void;
+  setFileStatus: (filePath: string, status: 'new' | 'modified' | null) => void;
+  clearFileStatuses: () => void;
 }
 
 let logIdCounter = 0;
@@ -44,6 +47,7 @@ export const useAppMetadataStore = create<AppMetadataState>((set, get) => ({
   logPanelExpanded: false,
   fileVersions: {},
   fileTreeVersion: 0,
+  fileStatuses: {},
 
   setStatus: (status, message) => set({ status, statusMessage: message }),
   setWorking: (message = 'Working...') => set({ status: 'working', statusMessage: message }),
@@ -72,4 +76,20 @@ export const useAppMetadataStore = create<AppMetadataState>((set, get) => ({
   },
   getFileVersion: (filePath) => get().fileVersions[filePath.replaceAll('\\', '/')] || 0,
   incrementFileTreeVersion: () => set((state) => ({ fileTreeVersion: state.fileTreeVersion + 1 })),
+  setFileStatus: (filePath, status) => {
+    const key = filePath.replaceAll('\\', '/');
+    set((state) => {
+      if (status === null) {
+        const { [key]: _, ...rest } = state.fileStatuses;
+        return { fileStatuses: rest };
+      }
+      return {
+        fileStatuses: {
+          ...state.fileStatuses,
+          [key]: status,
+        },
+      };
+    });
+  },
+  clearFileStatuses: () => set({ fileStatuses: {} }),
 }));
