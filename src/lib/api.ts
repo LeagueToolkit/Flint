@@ -481,6 +481,34 @@ export async function invalidateWadCache(wadPath: string): Promise<void> {
 }
 
 /**
+ * Read and convert a luabin (Lua bytecode) chunk from a WAD to Lua source text.
+ */
+export async function readWadLuabin(wadPath: string, hash: string): Promise<string> {
+    return invokeCommand('read_wad_luabin', { wadPath, hash });
+}
+
+/**
+ * Read and convert a troybin chunk from a WAD to INI-like text.
+ */
+export async function readWadTroybin(wadPath: string, hash: string): Promise<string> {
+    return invokeCommand('read_wad_troybin', { wadPath, hash });
+}
+
+/**
+ * Convert luabin (Lua bytecode) data to Lua source text.
+ */
+export async function convertLuabinToText(data: Uint8Array): Promise<string> {
+    return invokeCommand('convert_luabin_to_text', { data: Array.from(data) });
+}
+
+/**
+ * Convert troybin data to INI-like text.
+ */
+export async function convertTroybinToText(data: Uint8Array): Promise<string> {
+    return invokeCommand('convert_troybin_to_text', { data: Array.from(data) });
+}
+
+/**
  * Extract an SKN chunk + companion files from a WAD to a temp directory for 3D preview.
  */
 export async function extractWadModelPreview(

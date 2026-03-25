@@ -14,6 +14,8 @@ pub mod project;
 pub mod export;
 pub mod checkpoint;
 pub mod hud;
+pub mod luabin;
+pub mod troybin;
 
 // =============================================================================
 // Re-exports: Types that commands import directly from LTK crates.

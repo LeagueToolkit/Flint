@@ -249,6 +249,11 @@ fn main() {
             commands::hud::save_hud_ritobin_file,
             commands::hud::create_hud_project,
             commands::hud::get_hud_file_stats,
+            // Format converter commands (luabin, troybin)
+            commands::format_converters::convert_luabin_to_text,
+            commands::format_converters::convert_troybin_to_text,
+            commands::format_converters::read_wad_luabin,
+            commands::format_converters::read_wad_troybin,
             // Dev commands (schema aggregation)
             commands::dev::aggregate_bin_schema,
         ])

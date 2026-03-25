@@ -249,6 +249,7 @@ function detectType(bytes: Uint8Array, pathHint: string | null): string {
         if (b[0] === 0x44 && b[1] === 0x44 && b[2] === 0x53 && b[3] === 0x20) return 'image/dds';
         if (b[0] === 0x89 && b[1] === 0x50) return 'image/png';
         if (b[0] === 0xff && b[1] === 0xd8) return 'image/jpeg';
+        if (b[0] === 0x1b && b[1] === 0x4c && b[2] === 0x75 && b[3] === 0x61) return 'application/x-luabin'; // \x1bLua
         const magic = String.fromCharCode(b[0], b[1], b[2], b[3]);
         if (magic === 'PROP' || magic === 'PTCH') return 'application/x-bin';
     }
@@ -258,6 +259,7 @@ function detectType(bytes: Uint8Array, pathHint: string | null): string {
         xml: 'application/xml', js: 'text/javascript', ts: 'text/typescript',
         skn: 'model/x-lol-skn', skl: 'model/x-lol-skl', scb: 'model/x-lol-scb',
         anm: 'animation/x-lol-anm', bnk: 'audio/x-wwise-bnk', wpk: 'audio/x-wwise-wpk',
+        luabin: 'application/x-luabin', luabin64: 'application/x-luabin', troybin: 'application/x-troybin',
     };
     return extMap[ext] ?? 'application/octet-stream';
 }
@@ -314,6 +316,10 @@ const ChunkPreview: React.FC<{
                     if (!cancelled) imageUrl = url;
                 } else if (fileType === 'application/x-bin') {
                     if (!cancelled) text = await api.convertBinToText(bytes);
+                } else if (fileType === 'application/x-luabin') {
+                    if (!cancelled) text = await api.readWadLuabin(wadPath, chunk.hash);
+                } else if (fileType === 'application/x-troybin') {
+                    if (!cancelled) text = await api.readWadTroybin(wadPath, chunk.hash);
                 } else if (fileType.startsWith('text/') || fileType === 'application/json' || fileType === 'application/xml') {
                     if (!cancelled) text = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
                 }
@@ -413,9 +419,17 @@ const ChunkPreview: React.FC<{
                     }
 
                     if (text !== null) {
-                        // BIN files get Monaco editor with syntax highlighting
+                        // BIN files get Monaco editor with Ritobin syntax highlighting
                         if (fileType === 'application/x-bin') {
                             return <MonacoBinViewer text={text} />;
+                        }
+                        // LuaBin files get Monaco editor with Lua syntax highlighting
+                        if (fileType === 'application/x-luabin') {
+                            return <MonacoTextViewer text={text} language="lua" />;
+                        }
+                        // TroyBin files get Monaco editor with INI syntax highlighting
+                        if (fileType === 'application/x-troybin') {
+                            return <MonacoTextViewer text={text} language="ini" />;
                         }
                         // Plain text files get simple pre tag
                         return (
@@ -854,6 +868,53 @@ const MonacoBinViewer: React.FC<{ text: string }> = ({ text }) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Generic Monaco Viewer (Lua, INI, etc. with built-in language support)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const MonacoTextViewer: React.FC<{ text: string; language: string }> = ({ text, language }) => {
+    const containerRef = useRef<HTMLDivElement>(null);
+    const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+
+    useEffect(() => {
+        if (!containerRef.current) return;
+
+        const editor = monaco.editor.create(containerRef.current, {
+            value: text,
+            language,
+            theme: 'vs-dark',
+            readOnly: true,
+            automaticLayout: true,
+            fontFamily: 'var(--font-mono), "Cascadia Code", "Fira Code", Consolas, monospace',
+            fontSize: 13,
+            lineHeight: 20,
+            minimap: { enabled: false },
+            scrollBeyondLastLine: false,
+            renderWhitespace: 'none',
+            folding: true,
+            lineNumbers: 'on',
+        });
+
+        editorRef.current = editor;
+
+        return () => {
+            editor.dispose();
+            editorRef.current = null;
+        };
+    }, [language]); // Recreate if language changes
+
+    useEffect(() => {
+        if (editorRef.current) {
+            const model = editorRef.current.getModel();
+            if (model && model.getValue() !== text) {
+                model.setValue(text);
+            }
+        }
+    }, [text]);
+
+    return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Main WadExplorer component
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -920,11 +981,10 @@ export const WadExplorer: React.FC = () => {
         await runScan(picked as string);
     };
 
-    // ── Batch WAD loading (Obsidian-style): one Rust call loads all WADs ──────
-    // Rust uses rayon to read all WAD indexes in parallel, then returns them in
-    // a single IPC round-trip. This is far faster than N individual calls.
+    // ── Lazy WAD loading: load on-demand when WAD is expanded ─────────────────
+    // This is MUCH faster than bulk-loading all 457 WADs upfront (was 15+ seconds).
+    // Now the UI appears instantly and chunks load only when the user expands a WAD.
     const loadWad = useCallback(async (wadPath: string) => {
-        // Fallback used only when a user expands a WAD that somehow stayed 'idle'
         dispatch({ type: 'SET_WAD_EXPLORER_WAD_STATUS', payload: { wadPath, status: 'loading' } });
         try {
             const chunks = await api.getWadChunks(wadPath);
@@ -935,43 +995,51 @@ export const WadExplorer: React.FC = () => {
     }, [dispatch]);
 
     const handleToggleWad = useCallback((wadPath: string) => {
-        dispatch({ type: 'TOGGLE_WAD_EXPLORER_WAD', payload: wadPath });
         const wad = wadExplorer.wads.find(w => w.path === wadPath);
-        if (wad?.status === 'idle') loadWad(wadPath);
-    }, [dispatch, loadWad, wadExplorer.wads]);
+        const wasCollapsed = !wadExplorer.expandedWads.has(wadPath);
 
-    // Load ALL WADs in a single IPC call — the Rust backend handles parallelism
-    // (rayon for I/O, single LMDB txn with deduplication for hash resolution).
+        dispatch({ type: 'TOGGLE_WAD_EXPLORER_WAD', payload: wadPath });
+
+        // Load chunks lazily when WAD is being expanded (was collapsed, will be expanded)
+        if (wad?.status === 'idle' && wasCollapsed) {
+            loadWad(wadPath);
+        }
+    }, [dispatch, loadWad, wadExplorer.wads, wadExplorer.expandedWads]);
+
+    // ── Background bulk indexing for whole-game search (non-blocking) ──────────
+    // Loads all WADs in the background so search works across the entire game.
+    // Uses requestIdleCallback to defer loading until after UI renders (instant UX).
     useEffect(() => {
         if (wadExplorer.scanStatus !== 'ready') return;
         const idlePaths = wadExplorer.wads.filter(w => w.status === 'idle').map(w => w.path);
         if (idlePaths.length === 0) return;
 
-        // Mark all as loading in one dispatch
-        dispatch({
-            type: 'BATCH_SET_WAD_STATUSES',
-            payload: idlePaths.map(p => ({ wadPath: p, status: 'loading' as const })),
+        // Defer bulk load to next idle period (won't block UI rendering)
+        const handle = (window.requestIdleCallback || window.setTimeout)(() => {
+            (async () => {
+                try {
+                    const batches = await api.loadAllWadChunks(idlePaths);
+                    dispatch({
+                        type: 'BATCH_SET_WAD_STATUSES',
+                        payload: batches.map(b => ({
+                            wadPath: b.path,
+                            status: (b.error ? 'error' : 'loaded') as WadExplorerWad['status'],
+                            chunks: b.chunks,
+                            error: b.error ?? undefined,
+                        })),
+                    });
+                } catch (e) {
+                    // Silent fail - lazy loading will handle individual WADs if user expands them
+                    console.warn('Background WAD indexing failed:', e);
+                }
+            })();
         });
 
-        (async () => {
-            try {
-                const batches = await api.loadAllWadChunks(idlePaths);
-                dispatch({
-                    type: 'BATCH_SET_WAD_STATUSES',
-                    payload: batches.map(b => ({
-                        wadPath: b.path,
-                        status: (b.error ? 'error' : 'loaded') as WadExplorerWad['status'],
-                        chunks: b.chunks,
-                        error: b.error ?? undefined,
-                    })),
-                });
-            } catch (e) {
-                dispatch({
-                    type: 'BATCH_SET_WAD_STATUSES',
-                    payload: idlePaths.map(p => ({ wadPath: p, status: 'error' as const, error: (e as Error).message })),
-                });
+        return () => {
+            if (typeof handle === 'number') {
+                (window.cancelIdleCallback || window.clearTimeout)(handle);
             }
-        })();
+        };
     }, [wadExplorer.scanStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const handleToggleFolder = useCallback((key: string) => {
@@ -1081,18 +1149,18 @@ export const WadExplorer: React.FC = () => {
         const checkedCount = wadExplorer.checkedFiles.size;
         const options: Array<{ label: string; icon?: string; onClick: () => void; separator?: boolean; disabled?: boolean }> = [];
         if (chunk.path) {
-            options.push({ label: 'Copy Path', icon: 'copy', onClick: () => navigator.clipboard.writeText(chunk.path!) });
+            options.push({ label: 'Copy Path', icon: getIcon('copy'), onClick: () => navigator.clipboard.writeText(chunk.path!) });
         }
-        options.push({ label: 'Copy Hash', icon: 'copy', onClick: () => navigator.clipboard.writeText(chunk.hash) });
+        options.push({ label: 'Copy Hash', icon: getIcon('copy'), onClick: () => navigator.clipboard.writeText(chunk.hash) });
         options.push({ label: '', separator: true, onClick: () => { } });
         options.push({
             label: isChecked ? 'Uncheck' : 'Check',
-            icon: isChecked ? 'close' : 'check',
+            icon: getIcon(isChecked ? 'close' : 'check'),
             onClick: () => dispatch({ type: 'WAD_EXPLORER_TOGGLE_CHECK', payload: { keys: [key], checked: !isChecked } }),
         });
         options.push({ label: '', separator: true, onClick: () => { } });
         options.push({
-            label: 'Extract File…', icon: 'export',
+            label: 'Extract File…', icon: getIcon('export'),
             onClick: async () => {
                 try {
                     const dest = await open({ title: 'Choose Extraction Folder', directory: true });
@@ -1104,7 +1172,7 @@ export const WadExplorer: React.FC = () => {
         });
         if (checkedCount > 0) {
             options.push({
-                label: `Extract Selected (${checkedCount})…`, icon: 'export',
+                label: `Extract Selected (${checkedCount})…`, icon: getIcon('export'),
                 onClick: handleExtractSelected,
             });
         }
@@ -1119,12 +1187,12 @@ export const WadExplorer: React.FC = () => {
         const options: Array<{ label: string; icon?: string; onClick: () => void; separator?: boolean }> = [];
         options.push({
             label: folderCheckState === 'all' ? 'Uncheck All in Folder' : 'Check All in Folder',
-            icon: folderCheckState === 'all' ? 'close' : 'check',
+            icon: getIcon(folderCheckState === 'all' ? 'close' : 'check'),
             onClick: () => dispatch({ type: 'WAD_EXPLORER_TOGGLE_CHECK', payload: { keys: fileKeys, checked: folderCheckState !== 'all' } }),
         });
         options.push({ label: '', separator: true, onClick: () => { } });
         options.push({
-            label: `Extract Folder (${hashes.length})…`, icon: 'export',
+            label: `Extract Folder (${hashes.length})…`, icon: getIcon('export'),
             onClick: async () => {
                 try {
                     const dest = await open({ title: 'Choose Extraction Folder', directory: true });
@@ -1136,7 +1204,7 @@ export const WadExplorer: React.FC = () => {
         });
         if (checkedCount > 0) {
             options.push({
-                label: `Extract Selected (${checkedCount})…`, icon: 'export',
+                label: `Extract Selected (${checkedCount})…`, icon: getIcon('export'),
                 onClick: handleExtractSelected,
             });
         }
@@ -1150,13 +1218,13 @@ export const WadExplorer: React.FC = () => {
         const options: Array<{ label: string; icon?: string; onClick: () => void; separator?: boolean; disabled?: boolean }> = [];
         options.push({
             label: wadCheckState === 'all' ? 'Uncheck All in WAD' : 'Check All in WAD',
-            icon: wadCheckState === 'all' ? 'close' : 'check',
+            icon: getIcon(wadCheckState === 'all' ? 'close' : 'check'),
             onClick: () => dispatch({ type: 'WAD_EXPLORER_TOGGLE_CHECK', payload: { keys: wadFileKeys, checked: wadCheckState !== 'all' } }),
             disabled: wad.status !== 'loaded',
         });
         options.push({ label: '', separator: true, onClick: () => { } });
         options.push({
-            label: 'Extract WAD…', icon: 'export',
+            label: 'Extract WAD…', icon: getIcon('export'),
             onClick: async () => {
                 try {
                     const dest = await open({ title: 'Choose Extraction Folder', directory: true });
@@ -1169,20 +1237,20 @@ export const WadExplorer: React.FC = () => {
         });
         if (checkedCount > 0) {
             options.push({
-                label: `Extract Selected (${checkedCount})…`, icon: 'export',
+                label: `Extract Selected (${checkedCount})…`, icon: getIcon('export'),
                 onClick: handleExtractSelected,
             });
         }
         options.push({ label: '', separator: true, onClick: () => { } });
         options.push({
-            label: 'Copy WAD Path', icon: 'copy',
+            label: 'Copy WAD Path', icon: getIcon('copy'),
             onClick: () => {
                 navigator.clipboard.writeText(wad.path);
                 showToast('success', 'WAD path copied');
             },
         });
         options.push({
-            label: 'Reload WAD', icon: 'refresh',
+            label: 'Reload WAD', icon: getIcon('refresh'),
             onClick: async () => {
                 try {
                     await api.invalidateWadCache(wad.path);
@@ -1486,12 +1554,12 @@ export const WadExplorer: React.FC = () => {
                                 const options: Array<{ label: string; icon?: string; onClick: () => void; separator?: boolean }> = [
                                     {
                                         label: fcs === 'all' ? 'Uncheck All in Folder' : 'Check All in Folder',
-                                        icon: fcs === 'all' ? 'close' : 'check',
+                                        icon: getIcon(fcs === 'all' ? 'close' : 'check'),
                                         onClick: () => handleToggleCheck(fileKeys, fcs !== 'all'),
                                     },
                                     { label: '', separator: true, onClick: () => { } },
                                     {
-                                        label: `Extract Folder (${hashes.length})…`, icon: 'export',
+                                        label: `Extract Folder (${hashes.length})…`, icon: getIcon('export'),
                                         onClick: async () => {
                                             try {
                                                 const dest = await open({ title: 'Choose Extraction Folder', directory: true });
@@ -1504,7 +1572,7 @@ export const WadExplorer: React.FC = () => {
                                 ];
                                 if (wadExplorer.checkedFiles.size > 0) {
                                     options.push({
-                                        label: `Extract Selected (${wadExplorer.checkedFiles.size})…`, icon: 'export',
+                                        label: `Extract Selected (${wadExplorer.checkedFiles.size})…`, icon: getIcon('export'),
                                         onClick: handleExtractSelected,
                                     });
                                 }
