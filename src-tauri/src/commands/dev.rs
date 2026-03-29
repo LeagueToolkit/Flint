@@ -93,7 +93,6 @@ impl ValueRange {
             (ValueRange::Color(smin, smax), ValueRange::Color(omin, omax)) => {
                 for i in 0..4 { smin[i] = smin[i].min(omin[i]); smax[i] = smax[i].max(omax[i]); }
             }
-            // Mismatched types or None — keep self as-is
             _ => {}
         }
     }

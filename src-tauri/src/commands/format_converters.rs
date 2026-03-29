@@ -1,4 +1,4 @@
-/// Format conversion commands for luabin and troybin files
+//! Format conversion commands for luabin and troybin files
 
 use flint_ltk::wad::reader::WadReader;
 

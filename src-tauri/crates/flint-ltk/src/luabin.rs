@@ -207,16 +207,14 @@ impl Reader {
                 self.cursor.read_exact(&mut b)?;
                 Ok(i32::from_le_bytes(b) as f64)
             }
+        } else if self.number_len == 8 {
+            let mut b = [0u8; 8];
+            self.cursor.read_exact(&mut b)?;
+            Ok(f64::from_le_bytes(b))
         } else {
-            if self.number_len == 8 {
-                let mut b = [0u8; 8];
-                self.cursor.read_exact(&mut b)?;
-                Ok(f64::from_le_bytes(b))
-            } else {
-                let mut b = [0u8; 4];
-                self.cursor.read_exact(&mut b)?;
-                Ok(f32::from_le_bytes(b) as f64)
-            }
+            let mut b = [0u8; 4];
+            self.cursor.read_exact(&mut b)?;
+            Ok(f32::from_le_bytes(b) as f64)
         }
     }
 
@@ -466,8 +464,8 @@ fn simulate_function(func: &FunctionProto) -> Vec<(String, LuaValue)> {
                 if b == 0 {
                     // Count non-nil registers from a+1 upward
                     b = 0;
-                    for i in (a + 1)..registers.len() {
-                        if matches!(registers[i], LuaValue::Nil) { break; }
+                    for reg in registers.iter().skip(a + 1) {
+                        if matches!(reg, LuaValue::Nil) { break; }
                         b += 1;
                     }
                 }

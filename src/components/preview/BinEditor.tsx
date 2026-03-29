@@ -326,14 +326,14 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
     const isDirty = content !== originalContent;
     const basePath = filePath.split(/[/\\]/).slice(0, -1).join('\\');
 
-    // Run bracket validation (debounced)
+    // Run bracket validation and syntax validation (debounced)
     const runBracketCheck = useCallback((text: string) => {
         if (bracketCheckTimerRef.current) clearTimeout(bracketCheckTimerRef.current);
-        bracketCheckTimerRef.current = setTimeout(() => {
+        bracketCheckTimerRef.current = setTimeout(async () => {
             const result = validateBrackets(text);
             setBracketStatus(result);
 
-            // Update Monaco decorations to highlight errors
+            // Update Monaco decorations to highlight bracket errors
             const ed = editorRef.current;
             const model = ed?.getModel();
             if (ed && model) {
@@ -354,6 +354,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
                     },
                 }));
                 decorationsRef.current = ed.deltaDecorations(decorationsRef.current, newDecorations);
+
             }
         }, BRACKET_CHECK_DEBOUNCE_MS);
     }, []);
@@ -462,6 +463,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
                 }));
                 decorationsRef.current = ed.deltaDecorations([], newDecorations);
             }
+
         }
 
         return () => {

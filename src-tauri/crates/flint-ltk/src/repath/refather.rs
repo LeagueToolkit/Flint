@@ -36,8 +36,9 @@ static CHAMPION_SKIN_NAME_HASH: LazyLock<u32> = LazyLock::new(|| {
 });
 
 /// Static regex for skin folder remapping (compiled once, used many times)
+/// Case-insensitive so it matches both "skin19/" and "Skin19/" (League uses mixed case internally)
 static SKIN_FOLDER_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(skin)(\d+)(/)").expect("Invalid skin folder regex")
+    Regex::new(r"(?i)^(skin)(\d+)(/)").expect("Invalid skin folder regex")
 });
 
 /// Parsed asset path with structured components (zero-copy where possible)

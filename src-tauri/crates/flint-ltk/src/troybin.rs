@@ -184,7 +184,7 @@ fn read_bools(r: &mut BinReader) -> io::Result<Vec<HashEntry>> {
     for _ in 0..num {
         keys.push(r.read_u32_le()?);
     }
-    let bytes_count = num / 8 + if num % 8 > 0 { 1 } else { 0 };
+    let bytes_count = num.div_ceil(8);
     let bools = r.read_bytes(bytes_count)?;
     let mut result = Vec::with_capacity(num);
     for j in 0..num {
@@ -201,7 +201,7 @@ fn read_numbers(r: &mut BinReader, fmt: NumFmt, count: usize, mul: f64) -> io::R
         keys.push(r.read_u32_le()?);
     }
     let mut result = Vec::with_capacity(num);
-    for j in 0..num {
+    for &key in &keys {
         let mut vals = Vec::with_capacity(count);
         for _ in 0..count {
             let raw: f64 = match fmt {
@@ -224,7 +224,7 @@ fn read_numbers(r: &mut BinReader, fmt: NumFmt, count: usize, mul: f64) -> io::R
         } else {
             TroybinValue::Vec(vals)
         };
-        result.push(HashEntry { hash: keys[j], value });
+        result.push(HashEntry { hash: key, value });
     }
     Ok(result)
 }

@@ -226,7 +226,7 @@ pub fn extract_skin_assets(
     output_dir: impl AsRef<Path>,
     champion: &str,
     _skin_id: u32,
-    resolve_path: impl Fn(u64) -> String + Send + Sync,
+    resolve_paths: impl Fn(&[u64]) -> HashMap<u64, String>,
 ) -> Result<ExtractionResult> {
     let wad_path   = wad_path.as_ref();
     let output_dir = output_dir.as_ref();
@@ -261,8 +261,10 @@ pub fn extract_skin_assets(
     tracing::info!("Total chunks in WAD: {}", total_chunks);
 
     // ── Phase 1: bulk-resolve hashes, filter, plan dirs (sequential) ──────
-    // Resolve ALL hashes in one LMDB read txn (already done by caller's closure),
-    // then filter to only assets/ and data/ files.
+    // Resolve ALL hashes in one LMDB read txn — single call instead of N per-chunk calls.
+    let all_hashes: Vec<u64> = chunks.iter().map(|c| c.path_hash()).collect();
+    let resolved_map = resolve_paths(&all_hashes);
+
     let mut extraction_plan: Vec<(WadChunk, PathBuf)> = Vec::with_capacity(total_chunks / 2);
     let mut path_mappings:   HashMap<String, String>  = HashMap::new();
     let mut parents:         HashSet<PathBuf>          = HashSet::new();
@@ -270,7 +272,9 @@ pub fn extract_skin_assets(
 
     for chunk in &chunks {
         let path_hash    = chunk.path_hash();
-        let resolved     = resolve_path(path_hash);
+        let resolved     = resolved_map.get(&path_hash)
+            .cloned()
+            .unwrap_or_else(|| format!("{:016x}", path_hash));
         let path_lower   = resolved.to_lowercase();
         let is_unresolved = resolved.chars().all(|c| c.is_ascii_hexdigit());
 

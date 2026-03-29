@@ -11,7 +11,9 @@ use flint_ltk::project::{
 use flint_ltk::repath::{organize_project, OrganizerConfig};
 use flint_ltk::bin::{classify_bin, BinCategory};
 use flint_ltk::wad::extractor::{find_champion_wad, extract_skin_assets};
+use flint_ltk::hash::resolve_hashes_lmdb_bulk;
 use crate::state::LmdbCacheState;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use tauri::Emitter;
 
@@ -104,11 +106,8 @@ pub async fn create_project(
     let extraction_result = tokio::task::spawn_blocking(move || {
         // Build LMDB resolver closure — point lookups only, no full table load
         let env = env_arc;
-        let resolve = move |hash: u64| -> String {
-            flint_ltk::hash::resolve_hashes_lmdb(&[hash], &env)
-                .into_iter()
-                .next()
-                .unwrap_or_else(|| format!("{:016x}", hash))
+        let resolve = move |hashes: &[u64]| -> HashMap<u64, String> {
+            resolve_hashes_lmdb_bulk(hashes, &env)
         };
 
         extract_skin_assets(
