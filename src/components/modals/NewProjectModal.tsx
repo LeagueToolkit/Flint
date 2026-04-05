@@ -9,7 +9,6 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAppState, useConfigStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import * as datadragon from '../../lib/datadragon';
-import { appDataDir } from '@tauri-apps/api/path';
 import type { DDragonChampion, DDragonSkin } from '../../lib/datadragon';
 import type { Project } from '../../lib/types';
 import {
@@ -48,6 +47,10 @@ export const NewProjectModal: React.FC = () => {
     const [champions, setChampions] = useState<DDragonChampion[]>([]);
     const [skins, setSkins] = useState<DDragonSkin[]>([]);
     const [championSearch, setChampionSearch] = useState('');
+    const [skinSearch, setSkinSearch] = useState('');
+    const [splashLoaded, setSplashLoaded] = useState(false);
+    const [skinPickerOpen, setSkinPickerOpen] = useState(false);
+    const [cacheReady, setCacheReady] = useState(0); // bumped when preload batches finish
 
     // ─── Loading screen state ────────────────────────────────────────────
     const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -88,6 +91,10 @@ export const NewProjectModal: React.FC = () => {
         }
     }, [selectedChampion]);
 
+    useEffect(() => {
+        setSplashLoaded(false);
+    }, [selectedSkin, selectedChampion]);
+
     // Recalculate budget whenever video params change
     useEffect(() => {
         if (!videoMeta) {
@@ -109,11 +116,8 @@ export const NewProjectModal: React.FC = () => {
 
     const setDefaultProjectPath = async () => {
         try {
-            const dir = await appDataDir();
-            const parts = dir.replace(/\\/g, '/').split('/');
-            parts.pop();
-            const appData = parts.join('/');
-            setProjectPath(`${appData}/RitoShark/Flint/Projects`);
+            const home = await api.getAppHome();
+            setProjectPath(`${home.replace(/\\/g, '/')}/projects`);
         } catch {
             setProjectPath('C:/Users/Projects/Flint');
         }
@@ -125,6 +129,8 @@ export const NewProjectModal: React.FC = () => {
             const result = await datadragon.fetchChampions();
             setChampions(result);
             setReady();
+            // Preload all champion icons in background
+            datadragon.preloadChampionIcons(result).then(() => setCacheReady(v => v + 1));
         } catch {
             showToast('error', 'Failed to load champions from DataDragon');
             setReady();
@@ -139,6 +145,9 @@ export const NewProjectModal: React.FC = () => {
             const baseSkin = result.find(s => s.isBase) || result[0];
             setSelectedSkin(baseSkin);
             setReady();
+            // Preload all skin splashes in background
+            const champ = champions.find(c => c.id === championId);
+            if (champ) datadragon.preloadSkinSplashes(champ.alias, result).then(() => setCacheReady(v => v + 1));
         } catch {
             setSkins([{ id: 0, name: 'Base', num: 0, isBase: true }]);
             setSelectedSkin({ id: 0, name: 'Base', num: 0, isBase: true });
@@ -163,7 +172,6 @@ export const NewProjectModal: React.FC = () => {
     const onVideoInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
-        // Reset input so re-selecting the same file triggers onChange again
         e.target.value = '';
         try {
             await loadVideoFile(file);
@@ -181,10 +189,8 @@ export const NewProjectModal: React.FC = () => {
             setTrimEnd(meta.duration);
             setCustomFps(Math.min(30, Math.round(meta.fps)));
 
-            // Clean up old preview
             if (previewUrl) { URL.revokeObjectURL(previewUrl); setPreviewUrl(null); }
 
-            // Set video thumbnail
             if (videoPreviewRef.current) {
                 videoPreviewRef.current.src = URL.createObjectURL(file);
             }
@@ -204,7 +210,6 @@ export const NewProjectModal: React.FC = () => {
             const duration = trimEnd - trimStart;
             const totalFrames = Math.ceil(duration * customFps);
 
-            // Load video
             const video = document.createElement('video');
             video.preload = 'auto';
             video.muted = true;
@@ -215,13 +220,11 @@ export const NewProjectModal: React.FC = () => {
                 video.src = srcUrl;
             });
 
-            // Canvas for frame capture
             const canvas = document.createElement('canvas');
             canvas.width = outW;
             canvas.height = outH;
             const ctx = canvas.getContext('2d')!;
 
-            // MediaRecorder for WebM output
             const stream = canvas.captureStream(0);
             const recorder = new MediaRecorder(stream, {
                 mimeType: 'video/webm;codecs=vp9',
@@ -235,7 +238,6 @@ export const NewProjectModal: React.FC = () => {
             });
             recorder.start();
 
-            // Draw frames at target FPS
             const frameInterval = 1 / customFps;
             for (let i = 0; i < totalFrames; i++) {
                 const time = Math.min(trimStart + i * frameInterval, video.duration - 0.001);
@@ -248,10 +250,8 @@ export const NewProjectModal: React.FC = () => {
                 });
 
                 ctx.drawImage(video, 0, 0, outW, outH);
-                // Request a frame from the capture stream
                 (stream.getVideoTracks()[0] as any).requestFrame?.();
 
-                // Wait one frame interval so MediaRecorder captures at correct timing
                 await new Promise(r => setTimeout(r, frameInterval * 1000));
             }
 
@@ -262,7 +262,6 @@ export const NewProjectModal: React.FC = () => {
             const url = URL.createObjectURL(blob);
             setPreviewUrl(url);
 
-            // Auto-play in the preview element
             if (previewVideoRef.current) {
                 previewVideoRef.current.src = url;
                 previewVideoRef.current.play().catch(() => {});
@@ -323,7 +322,6 @@ export const NewProjectModal: React.FC = () => {
         setIsCreating(true);
 
         try {
-            // Phase 1: Generate spritesheet (browser-side)
             setProgress('Extracting video frames...');
             const blob = await generateSpritesheet({
                 file: videoFile,
@@ -337,7 +335,6 @@ export const NewProjectModal: React.FC = () => {
                 onProgress: (cur, total) => setProgress(`Extracting frame ${cur}/${total}...`),
             });
 
-            // Phase 2: Call Rust backend with PNG bytes
             setProgress('Encoding spritesheet & injecting config...');
             const arrayBuf = await blob.arrayBuffer();
             const pngBytes = Array.from(new Uint8Array(arrayBuf));
@@ -384,7 +381,6 @@ export const NewProjectModal: React.FC = () => {
                 projectsDir: projectPath,
             });
 
-            // Load the project
             const project = await api.openProject(projectPathStr);
             await finishProjectCreation(project, 'HUD Editor', 0);
         } catch (err) {
@@ -433,6 +429,10 @@ export const NewProjectModal: React.FC = () => {
         ? champions.filter(c => c.name.toLowerCase().includes(championSearch.toLowerCase()))
         : champions;
 
+    const filteredSkins = skinSearch
+        ? skins.filter(s => s.name.toLowerCase().includes(skinSearch.toLowerCase()))
+        : skins;
+
     const canCreateSkin = projectType === 'skin'
         && !!projectName && !!projectPath && !!selectedChampion && !!selectedSkin && !isCreating;
 
@@ -444,205 +444,244 @@ export const NewProjectModal: React.FC = () => {
 
     const canCreate = canCreateSkin || canCreateLoadingScreen || canCreateHudEditor;
 
-    // ─── Budget display helper ───────────────────────────────────────────
-
     const budgetMaxDim = budget ? Math.max(budget.grid?.sheetWidth ?? 0, budget.grid?.sheetHeight ?? 0) : 0;
     const budgetPercent = Math.min(100, (budgetMaxDim / 16384) * 100);
+
+    // ─── Image URL helpers (use blob cache when available) ────────────────
+
+    const cachedUrl = (url: string) => {
+        void cacheReady; // dependency — re-renders when preload completes
+        return datadragon.getCachedImageUrl?.(url) ?? url;
+    };
+
+    const getHeroSplashUrl = () => {
+        if (!selectedChampion || !selectedSkin) return '';
+        return cachedUrl(datadragon.getSkinSplashUrl(selectedChampion.alias, selectedSkin.num));
+    };
+
+    const getHeroSplashFallback = () => {
+        if (!selectedChampion || !selectedSkin) return '';
+        return cachedUrl(datadragon.getSkinSplashCDragonUrl(selectedChampion.id, selectedSkin.id));
+    };
 
     if (!isVisible) return null;
 
     return (
         <div className={`modal-overlay ${isVisible ? 'modal-overlay--visible' : ''}`}>
-            <div className="modal modal--wide">
+            <div className="modal modal--new-project">
+                {/* Loading overlay */}
                 {isCreating && (
-                    <div className="modal__loading-overlay">
-                        <div className="modal__loading-content">
-                            <div className="spinner spinner--lg" />
-                            <div className="modal__loading-text">Creating Project</div>
-                            <div className="modal__loading-progress">{progress}</div>
+                    <div className="np-loading-overlay">
+                        <div className="np-loading-content">
+                            <div className="np-loading-spinner" />
+                            <div className="np-loading-title">Creating Project</div>
+                            <div className="np-loading-progress">{progress}</div>
                         </div>
                     </div>
                 )}
 
-                <div className="modal__header">
-                    <h2 className="modal__title">Create New Project</h2>
-                    <button className="modal__close" onClick={closeModal}>&times;</button>
+                {/* Header */}
+                <div className="np-header">
+                    <div className="np-header__text">
+                        <h2 className="np-header__title">New Project</h2>
+                        <span className="np-header__subtitle">Choose a project type and configure it</span>
+                    </div>
+                    <button className="np-close" onClick={closeModal}>
+                        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                            <path d="M4.5 4.5L13.5 13.5M13.5 4.5L4.5 13.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                        </svg>
+                    </button>
                 </div>
 
-                <div className="modal__body">
-                    {/* Project Type Selector */}
-                    <div className="form-group">
-                        <label className="form-label">Project Type</label>
-                        <div className="project-type-selector">
+                {/* Body */}
+                <div className="np-body">
+                    {/* ─── Project Type Cards ─── */}
+                    <div className="np-type-selector">
+                        <button
+                            className={`np-type-card${projectType === 'skin' ? ' np-type-card--active' : ''}`}
+                            onClick={() => setProjectType('skin')}
+                        >
+                            <div className="np-type-card__glow" />
+                            <div className="np-type-card__icon">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+                                    <path d="M7 12.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zM10 8.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zM14 8.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zM17 12.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3z" fill="currentColor"/>
+                                    <path d="M16.36 14.64a3 3 0 01-2.83 2.36c-.55 0-1-.45-1-1v-1a1 1 0 00-1-1h-1a1 1 0 00-1 1v1c0 .55-.45 1-1 1a3 3 0 01-2.83-2.36" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/>
+                                </svg>
+                            </div>
+                            <span className="np-type-card__label">Skin</span>
+                        </button>
+
+                        <button
+                            className={`np-type-card${projectType === 'loading-screen' ? ' np-type-card--active' : ''}`}
+                            onClick={() => setProjectType('loading-screen')}
+                        >
+                            <div className="np-type-card__glow" />
+                            <div className="np-type-card__icon">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                                    <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+                                    <polygon points="10,9 10,15 15,12" fill="currentColor"/>
+                                </svg>
+                            </div>
+                            <span className="np-type-card__label">Loading Screen</span>
+                        </button>
+
+                        {import.meta.env.DEV && (
                             <button
-                                className={`project-type-card${projectType === 'skin' ? ' project-type-card--selected' : ''}`}
-                                onClick={() => setProjectType('skin')}
+                                className={`np-type-card${projectType === 'hud-editor' ? ' np-type-card--active' : ''}`}
+                                onClick={() => setProjectType('hud-editor')}
                             >
-                                <div className="project-type-card__icon">
-                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-                                        <path d="M7 12.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zM10 8.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zM14 8.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zM17 12.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3z" fill="currentColor"/>
-                                        <path d="M16.36 14.64a3 3 0 01-2.83 2.36c-.55 0-1-.45-1-1v-1a1 1 0 00-1-1h-1a1 1 0 00-1 1v1c0 .55-.45 1-1 1a3 3 0 01-2.83-2.36" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/>
+                                <div className="np-type-card__glow" />
+                                <div className="np-type-card__icon">
+                                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                                        <rect x="2" y="3" width="20" height="18" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+                                        <circle cx="6" cy="7" r="1" fill="currentColor"/>
+                                        <circle cx="18" cy="7" r="1" fill="currentColor"/>
+                                        <circle cx="6" cy="17" r="1" fill="currentColor"/>
+                                        <circle cx="18" cy="17" r="1" fill="currentColor"/>
+                                        <rect x="10" y="10" width="4" height="4" rx="0.5" stroke="currentColor" strokeWidth="1.5" fill="none"/>
                                     </svg>
                                 </div>
-                                <div className="project-type-card__text">
-                                    <span className="project-type-card__title">Skin Project</span>
-                                    <span className="project-type-card__desc">Modify champion skins, textures, and models</span>
-                                </div>
+                                <span className="np-type-card__label">HUD Editor</span>
                             </button>
-
-                            <button
-                                className={`project-type-card${projectType === 'loading-screen' ? ' project-type-card--selected' : ''}`}
-                                onClick={() => setProjectType('loading-screen')}
-                            >
-                                <div className="project-type-card__icon">
-                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                                        <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-                                        <polygon points="10,9 10,15 15,12" fill="currentColor"/>
-                                    </svg>
-                                </div>
-                                <div className="project-type-card__text">
-                                    <span className="project-type-card__title">Animated Loading Screen</span>
-                                    <span className="project-type-card__desc">Create custom animated loading screens</span>
-                                </div>
-                            </button>
-
-                            {/* HUD Editor - Dev Only */}
-                            {import.meta.env.DEV && (
-                                <button
-                                    className={`project-type-card${projectType === 'hud-editor' ? ' project-type-card--selected' : ''}`}
-                                    onClick={() => setProjectType('hud-editor')}
-                                >
-                                    <div className="project-type-card__icon">
-                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                                            <rect x="2" y="3" width="20" height="18" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-                                            <circle cx="6" cy="7" r="1" fill="currentColor"/>
-                                            <circle cx="18" cy="7" r="1" fill="currentColor"/>
-                                            <circle cx="6" cy="17" r="1" fill="currentColor"/>
-                                            <circle cx="18" cy="17" r="1" fill="currentColor"/>
-                                            <rect x="10" y="10" width="4" height="4" rx="0.5" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-                                        </svg>
-                                    </div>
-                                    <div className="project-type-card__text">
-                                        <span className="project-type-card__title">HUD Editor</span>
-                                        <span className="project-type-card__desc">Visual editor for in-game HUD elements</span>
-                                    </div>
-                                </button>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* ════════════ Skin Project Form ════════════ */}
-                    <div className={`project-type-form${projectType === 'skin' ? ' project-type-form--active' : ''}`}>
-                        <div className="form-group">
-                            <label className="form-label">Project Name</label>
-                            <input
-                                type="text"
-                                className="form-input"
-                                placeholder="e.g., Ahri Base Rework"
-                                value={projectName}
-                                onChange={(e) => setProjectName(e.target.value)}
-                            />
-                        </div>
-
-                        <div className="form-group">
-                            <label className="form-label">Project Location</label>
-                            <div className="form-input--with-button">
-                                <input
-                                    type="text"
-                                    className="form-input"
-                                    placeholder="Select folder..."
-                                    value={projectPath}
-                                    onChange={(e) => setProjectPath(e.target.value)}
-                                />
-                                <button className="btn btn--secondary" onClick={handleBrowsePath}>Browse</button>
-                            </div>
-                        </div>
-
-                        <div className="form-group">
-                            <label className="form-label">Champion</label>
-                            <input
-                                type="text"
-                                className="form-input form-input--search"
-                                placeholder="Search champions..."
-                                value={championSearch}
-                                onChange={(e) => setChampionSearch(e.target.value)}
-                            />
-                            <div className="champion-grid">
-                                {filteredChampions.map((champ) => (
-                                    <div
-                                        key={champ.id}
-                                        className={`champion-card ${selectedChampion?.id === champ.id ? 'champion-card--selected' : ''}`}
-                                        onClick={() => { setSelectedChampion(champ); setChampionSearch(''); }}
-                                        title={champ.name}
-                                    >
-                                        <img
-                                            src={datadragon.getChampionIconUrl(champ.id)}
-                                            alt={champ.name}
-                                            className="champion-card__icon"
-                                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                                        />
-                                        <span className="champion-card__name">{champ.name}</span>
-                                    </div>
-                                ))}
-                            </div>
-                            {selectedChampion && (
-                                <div className="form-hint">Selected: {selectedChampion.name}</div>
-                            )}
-                        </div>
-
-                        {selectedChampion && (
-                            <div className="form-group">
-                                <label className="form-label">Skin</label>
-                                <div className="skin-grid">
-                                    {skins.map((skin) => (
-                                        <div
-                                            key={skin.id}
-                                            className={`skin-card ${selectedSkin?.id === skin.id ? 'skin-card--selected' : ''}`}
-                                            onClick={() => setSelectedSkin(skin)}
-                                        >
-                                            <img
-                                                src={datadragon.getSkinSplashUrl(selectedChampion.alias, skin.num)}
-                                                alt={skin.name}
-                                                className="skin-card__splash"
-                                                onError={(e) => {
-                                                    (e.target as HTMLImageElement).src =
-                                                        datadragon.getSkinSplashCDragonUrl(selectedChampion.id, skin.id);
-                                                }}
-                                            />
-                                            <span className="skin-card__name">{skin.name}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
                         )}
                     </div>
 
-                    {/* ════════════ Loading Screen Form ════════════ */}
-                    <div className={`project-type-form${projectType === 'loading-screen' ? ' project-type-form--active' : ''}`}>
-                        {/* Project Name & Location */}
-                        <div className="form-group">
-                            <label className="form-label">Project Name</label>
-                            <input
-                                type="text"
-                                className="form-input"
-                                placeholder="e.g., My Animated Loadscreen"
-                                value={projectName}
-                                onChange={(e) => setProjectName(e.target.value)}
-                            />
-                        </div>
+                    {/* ════════════ Skin Project Form ════════════ */}
+                    <div className={`np-form${projectType === 'skin' ? ' np-form--active' : ''}`}>
+                        {/* Hero splash preview */}
+                        {selectedChampion && selectedSkin && (
+                            <div className="np-hero-splash">
+                                <img
+                                    key={`${selectedChampion.id}-${selectedSkin.id}`}
+                                    src={getHeroSplashUrl()}
+                                    alt={selectedSkin.name}
+                                    className={`np-hero-splash__img${splashLoaded ? ' np-hero-splash__img--loaded' : ''}`}
+                                    onLoad={() => setSplashLoaded(true)}
+                                    onError={(e) => {
+                                        (e.target as HTMLImageElement).src = getHeroSplashFallback();
+                                    }}
+                                />
+                                <div className="np-hero-splash__overlay" />
+                                <div className="np-hero-splash__info">
+                                    <span className="np-hero-splash__champion">{selectedChampion.name}</span>
+                                    <span className="np-hero-splash__skin">{selectedSkin.name}</span>
+                                </div>
+                                <button
+                                    className="np-hero-splash__edit"
+                                    onClick={() => { setSkinSearch(''); setSkinPickerOpen(true); }}
+                                    title="Change skin"
+                                >
+                                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                        <path d="M11.5 1.5l3 3L5 14H2v-3L11.5 1.5z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" fill="none"/>
+                                        <path d="M9.5 3.5l3 3" stroke="currentColor" strokeWidth="1.5"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        )}
 
-                        <div className="form-group">
-                            <label className="form-label">Project Location</label>
-                            <div className="form-input--with-button">
+                        {/* Project details row */}
+                        <div className="np-fields-row">
+                            <div className="np-field np-field--grow">
+                                <label className="np-label">Project Name</label>
                                 <input
                                     type="text"
-                                    className="form-input"
-                                    placeholder="Select folder..."
-                                    value={projectPath}
-                                    onChange={(e) => setProjectPath(e.target.value)}
+                                    className="np-input"
+                                    placeholder="e.g., Ahri Base Rework"
+                                    value={projectName}
+                                    onChange={(e) => setProjectName(e.target.value)}
                                 />
-                                <button className="btn btn--secondary" onClick={handleBrowsePath}>Browse</button>
+                            </div>
+                            <div className="np-field np-field--grow">
+                                <label className="np-label">Location</label>
+                                <div className="np-input-group">
+                                    <input
+                                        type="text"
+                                        className="np-input"
+                                        placeholder="Select folder..."
+                                        value={projectPath}
+                                        onChange={(e) => setProjectPath(e.target.value)}
+                                    />
+                                    <button className="np-btn-browse" onClick={handleBrowsePath}>
+                                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                            <path d="M2 3.5A1.5 1.5 0 013.5 2h2.879a1.5 1.5 0 011.06.44l.622.62a.5.5 0 00.353.147H12.5A1.5 1.5 0 0114 4.707V12.5a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 12.5v-9z" stroke="currentColor" strokeWidth="1.3" fill="none"/>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Champion Selection */}
+                        <div className="np-section">
+                            <div className="np-section__header">
+                                <label className="np-label">Champion</label>
+                                <div className="np-search-wrap">
+                                    <svg className="np-search-icon" width="13" height="13" viewBox="0 0 16 16" fill="none">
+                                        <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.5"/>
+                                        <path d="M11 11l3.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                                    </svg>
+                                    <input
+                                        type="text"
+                                        className="np-search"
+                                        placeholder="Search..."
+                                        value={championSearch}
+                                        onChange={(e) => setChampionSearch(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+                            <div className="np-champion-grid">
+                                {filteredChampions.map((champ, i) => (
+                                    <button
+                                        key={champ.id}
+                                        className={`np-champ-card${selectedChampion?.id === champ.id ? ' np-champ-card--active' : ''}`}
+                                        onClick={() => { setSelectedChampion(champ); setChampionSearch(''); }}
+                                        title={champ.name}
+                                        style={{ animationDelay: `${Math.min(i * 15, 300)}ms` }}
+                                    >
+                                        <img
+                                            src={cachedUrl(datadragon.getChampionIconUrl(champ.id))}
+                                            alt={champ.name}
+                                            className="np-champ-card__icon"
+                                            loading="lazy"
+                                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                                        />
+                                        <span className="np-champ-card__name">{champ.name}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                    </div>
+
+                    {/* ════════════ Loading Screen Form ════════════ */}
+                    <div className={`np-form${projectType === 'loading-screen' ? ' np-form--active' : ''}`}>
+                        <div className="np-fields-row">
+                            <div className="np-field np-field--grow">
+                                <label className="np-label">Project Name</label>
+                                <input
+                                    type="text"
+                                    className="np-input"
+                                    placeholder="e.g., My Animated Loadscreen"
+                                    value={projectName}
+                                    onChange={(e) => setProjectName(e.target.value)}
+                                />
+                            </div>
+                            <div className="np-field np-field--grow">
+                                <label className="np-label">Location</label>
+                                <div className="np-input-group">
+                                    <input
+                                        type="text"
+                                        className="np-input"
+                                        placeholder="Select folder..."
+                                        value={projectPath}
+                                        onChange={(e) => setProjectPath(e.target.value)}
+                                    />
+                                    <button className="np-btn-browse" onClick={handleBrowsePath}>
+                                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                            <path d="M2 3.5A1.5 1.5 0 013.5 2h2.879a1.5 1.5 0 011.06.44l.622.62a.5.5 0 00.353.147H12.5A1.5 1.5 0 0114 4.707V12.5a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 12.5v-9z" stroke="currentColor" strokeWidth="1.3" fill="none"/>
+                                        </svg>
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
@@ -654,8 +693,8 @@ export const NewProjectModal: React.FC = () => {
                             style={{ display: 'none' }}
                             onChange={onVideoInputChange}
                         />
-                        <div className="form-group">
-                            <label className="form-label">Video File</label>
+                        <div className="np-section">
+                            <label className="np-label">Video File</label>
                             {!videoFile ? (
                                 <div
                                     className="video-picker"
@@ -690,7 +729,6 @@ export const NewProjectModal: React.FC = () => {
                                                 </>
                                             )}
                                         </div>
-                                        {/* Inline trim controls */}
                                         {videoMeta && (
                                             <div className="trim-controls--inline">
                                                 <div className="trim-controls__inputs">
@@ -748,7 +786,6 @@ export const NewProjectModal: React.FC = () => {
                                     </div>
                                 </div>
                             )}
-                            {/* Preview player */}
                             {previewUrl && (
                                 <div className="video-preview-player">
                                     <video
@@ -765,14 +802,13 @@ export const NewProjectModal: React.FC = () => {
                             )}
                         </div>
 
-                        {/* Editing Controls (only shown when video is loaded) */}
                         {videoMeta && (
                             <>
                                 <div className="form-row">
-                                    <div className="form-group form-group--half">
-                                        <label className="form-label">Resolution</label>
+                                    <div className="np-field np-field--grow">
+                                        <label className="np-label">Resolution</label>
                                         <select
-                                            className="form-input"
+                                            className="np-input"
                                             value={scaleFactor}
                                             onChange={(e) => setScaleFactor(parseFloat(e.target.value))}
                                         >
@@ -784,10 +820,10 @@ export const NewProjectModal: React.FC = () => {
                                         </select>
                                     </div>
 
-                                    <div className="form-group form-group--half">
-                                        <label className="form-label">FPS</label>
+                                    <div className="np-field np-field--grow">
+                                        <label className="np-label">FPS</label>
                                         <select
-                                            className="form-input"
+                                            className="np-input"
                                             value={customFps}
                                             onChange={(e) => setCustomFps(parseInt(e.target.value, 10))}
                                         >
@@ -798,9 +834,8 @@ export const NewProjectModal: React.FC = () => {
                                     </div>
                                 </div>
 
-                                {/* Budget Indicator */}
-                                <div className="form-group">
-                                    <label className="form-label">Spritesheet Budget</label>
+                                <div className="np-section">
+                                    <label className="np-label">Spritesheet Budget</label>
                                     <div className={`budget-indicator ${budget?.fits ? 'budget-indicator--ok' : 'budget-indicator--exceeded'}`}>
                                         {budget && (
                                             <>
@@ -847,64 +882,124 @@ export const NewProjectModal: React.FC = () => {
 
                     {/* ════════════ HUD Editor Form (Dev Only) ════════════ */}
                     {import.meta.env.DEV && (
-                    <div className={`project-type-form${projectType === 'hud-editor' ? ' project-type-form--active' : ''}`}>
-                        <div className="form-group">
-                            <label className="form-label">Project Name</label>
-                            <input
-                                type="text"
-                                className="form-input"
-                                placeholder="e.g., My Custom HUD"
-                                value={projectName}
-                                onChange={(e) => setProjectName(e.target.value)}
-                            />
-                        </div>
-
-                        <div className="form-group">
-                            <label className="form-label">Project Location</label>
-                            <div className="form-input--with-button">
+                    <div className={`np-form${projectType === 'hud-editor' ? ' np-form--active' : ''}`}>
+                        <div className="np-fields-row">
+                            <div className="np-field np-field--grow">
+                                <label className="np-label">Project Name</label>
                                 <input
                                     type="text"
-                                    className="form-input"
-                                    placeholder="Select folder..."
-                                    value={projectPath}
-                                    onChange={(e) => setProjectPath(e.target.value)}
+                                    className="np-input"
+                                    placeholder="e.g., My Custom HUD"
+                                    value={projectName}
+                                    onChange={(e) => setProjectName(e.target.value)}
                                 />
-                                <button className="btn btn--secondary" onClick={handleBrowsePath}>Browse</button>
+                            </div>
+                            <div className="np-field np-field--grow">
+                                <label className="np-label">Location</label>
+                                <div className="np-input-group">
+                                    <input
+                                        type="text"
+                                        className="np-input"
+                                        placeholder="Select folder..."
+                                        value={projectPath}
+                                        onChange={(e) => setProjectPath(e.target.value)}
+                                    />
+                                    <button className="np-btn-browse" onClick={handleBrowsePath}>
+                                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                            <path d="M2 3.5A1.5 1.5 0 013.5 2h2.879a1.5 1.5 0 011.06.44l.622.62a.5.5 0 00.353.147H12.5A1.5 1.5 0 0114 4.707V12.5a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 12.5v-9z" stroke="currentColor" strokeWidth="1.3" fill="none"/>
+                                        </svg>
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
-                        <div className="form-hint">
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{marginRight: '8px'}}>
+                        <div className="np-hint">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{marginRight: '8px', flexShrink: 0}}>
                                 <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" fill="none"/>
                                 <path d="M8 5v3M8 10v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
                             </svg>
-                            The HUD editor allows you to visually edit League of Legends HUD files (uibase.ritobin). After creating the project, you can import an existing HUD BIN file to edit.
+                            The HUD editor allows you to visually edit League of Legends HUD files. After creating the project, you can import an existing HUD BIN file to edit.
                         </div>
                     </div>
                     )}
                 </div>
 
-                <div className="modal__footer modal__footer--split">
+                {/* Footer */}
+                <div className="np-footer">
+                    <button className="np-btn np-btn--ghost" onClick={closeModal}>Cancel</button>
                     <button
-                        className="btn btn--secondary"
-                        onClick={() => showToast('info', 'Launcher sync coming soon!')}
-                        title="Sync project with launcher"
+                        className="np-btn np-btn--create"
+                        onClick={handleCreate}
+                        disabled={!canCreate}
                     >
-                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13.65 2.35A7 7 0 1014.25 8h-1.5a5.5 5.5 0 11-1.1-3.4l1.1 1.1.9-2.35z" fill="currentColor"/></svg>
-                        Sync with Launcher
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                            <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                        </svg>
+                        Create Project
                     </button>
-                    <div className="modal__footer-actions">
-                        <button className="btn btn--secondary" onClick={closeModal}>Cancel</button>
-                        <button
-                            className="btn btn--primary"
-                            onClick={handleCreate}
-                            disabled={!canCreate}
-                        >
-                            Create Project
-                        </button>
-                    </div>
                 </div>
             </div>
+
+            {/* ─── Skin Picker Modal ─── */}
+            {skinPickerOpen && selectedChampion && (
+                <div className="np-skin-picker-overlay" onClick={() => setSkinPickerOpen(false)}>
+                    <div className="np-skin-picker" onClick={(e) => e.stopPropagation()}>
+                        <div className="np-skin-picker__header">
+                            <h3 className="np-skin-picker__title">Choose Skin</h3>
+                            <div className="np-search-wrap np-search-wrap--picker">
+                                <svg className="np-search-icon" width="13" height="13" viewBox="0 0 16 16" fill="none">
+                                    <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.5"/>
+                                    <path d="M11 11l3.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                                </svg>
+                                <input
+                                    type="text"
+                                    className="np-search"
+                                    placeholder="Search skins..."
+                                    value={skinSearch}
+                                    onChange={(e) => setSkinSearch(e.target.value)}
+                                    autoFocus
+                                />
+                            </div>
+                            <button className="np-close" onClick={() => setSkinPickerOpen(false)}>
+                                <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                                    <path d="M4.5 4.5L13.5 13.5M13.5 4.5L4.5 13.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <div className="np-skin-picker__grid">
+                            {filteredSkins.map((skin, i) => (
+                                <button
+                                    key={skin.id}
+                                    className={`np-skin-card${selectedSkin?.id === skin.id ? ' np-skin-card--active' : ''}`}
+                                    onClick={() => { setSelectedSkin(skin); setSkinPickerOpen(false); }}
+                                    style={{ animationDelay: `${Math.min(i * 25, 300)}ms` }}
+                                >
+                                    <div className="np-skin-card__img-wrap">
+                                        <img
+                                            src={cachedUrl(datadragon.getSkinSplashUrl(selectedChampion.alias, skin.num))}
+                                            alt={skin.name}
+                                            className="np-skin-card__img"
+                                            loading="lazy"
+                                            onError={(e) => {
+                                                (e.target as HTMLImageElement).src =
+                                                    cachedUrl(datadragon.getSkinSplashCDragonUrl(selectedChampion.id, skin.id));
+                                            }}
+                                        />
+                                        {selectedSkin?.id === skin.id && (
+                                            <div className="np-skin-card__check">
+                                                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                                    <path d="M3.5 8.5L6.5 11.5L12.5 4.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                                </svg>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <span className="np-skin-card__name">{skin.name}</span>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

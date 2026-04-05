@@ -27,6 +27,66 @@ export interface DDragonSkin {
 let cachedPatch: string | null = null;
 let cachedChampions: DDragonChampion[] | null = null;
 
+// Image blob cache — maps URL → blob URL for reuse
+const imageBlobCache = new Map<string, string>();
+// In-flight fetches to avoid duplicate requests
+const imageFetchQueue = new Map<string, Promise<string>>();
+
+/**
+ * Fetch an image URL and return a cached blob URL.
+ * First call fetches + caches; subsequent calls return instantly.
+ */
+export function getCachedImageUrl(url: string): string | null {
+    return imageBlobCache.get(url) ?? null;
+}
+
+/**
+ * Preload an image URL into the blob cache.
+ * Returns the blob URL. Safe to call multiple times (deduped).
+ */
+export async function preloadImage(url: string): Promise<string> {
+    const cached = imageBlobCache.get(url);
+    if (cached) return cached;
+
+    const inflight = imageFetchQueue.get(url);
+    if (inflight) return inflight;
+
+    const promise = fetch(url)
+        .then(res => {
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return res.blob();
+        })
+        .then(blob => {
+            const blobUrl = URL.createObjectURL(blob);
+            imageBlobCache.set(url, blobUrl);
+            imageFetchQueue.delete(url);
+            return blobUrl;
+        })
+        .catch(() => {
+            imageFetchQueue.delete(url);
+            return url; // fallback to original URL
+        });
+
+    imageFetchQueue.set(url, promise);
+    return promise;
+}
+
+/**
+ * Preload all champion icons in the background.
+ */
+export async function preloadChampionIcons(champions: DDragonChampion[]): Promise<void> {
+    const batch = champions.map(c => preloadImage(getChampionIconUrl(c.id)));
+    await Promise.allSettled(batch);
+}
+
+/**
+ * Preload all skin splashes for a champion.
+ */
+export async function preloadSkinSplashes(alias: string, skins: DDragonSkin[]): Promise<void> {
+    const batch = skins.map(s => preloadImage(getSkinSplashUrl(alias, s.num)));
+    await Promise.allSettled(batch);
+}
+
 /**
  * Fetch with retry logic
  */
@@ -159,4 +219,9 @@ export function getSkinSplashCDragonUrl(championId: number, skinId: number): str
 export function clearCache(): void {
     cachedPatch = null;
     cachedChampions = null;
+    for (const blobUrl of imageBlobCache.values()) {
+        URL.revokeObjectURL(blobUrl);
+    }
+    imageBlobCache.clear();
+    imageFetchQueue.clear();
 }
