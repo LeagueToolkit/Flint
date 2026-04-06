@@ -80,10 +80,10 @@ export async function preloadChampionIcons(champions: DDragonChampion[]): Promis
 }
 
 /**
- * Preload all skin splashes for a champion.
+ * Preload all skin splashes for a champion (uses CDragon — whitelisted in CSP).
  */
-export async function preloadSkinSplashes(alias: string, skins: DDragonSkin[]): Promise<void> {
-    const batch = skins.map(s => preloadImage(getSkinSplashUrl(alias, s.num)));
+export async function preloadSkinSplashes(championId: number, skins: DDragonSkin[]): Promise<void> {
+    const batch = skins.map(s => preloadImage(getSkinSplashCDragonUrl(championId, s.id)));
     await Promise.allSettled(batch);
 }
 
@@ -156,40 +156,87 @@ export async function fetchChampions(): Promise<DDragonChampion[]> {
 }
 
 /**
- * Fetch skins for a specific champion
+ * Fetch with a timeout (no retries — fail fast).
  */
-export async function fetchChampionSkins(championId: number): Promise<DDragonSkin[]> {
+async function fetchWithTimeout<T>(url: string, timeoutMs = 8000): Promise<T> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-        // Get individual champion data which includes skins
-        const url = `${CDRAGON_BASE_URL}/champions/${championId}.json`;
-        interface ChampionData {
-            skins?: Array<{
-                id: number;
-                name?: string;
-                isBase?: boolean;
-                splashPath?: string;
-                tilePath?: string;
-            }>;
-        }
-        const champion = await fetchWithRetry<ChampionData>(url);
-
-        if (!champion.skins) {
-            return [{ id: 0, name: 'Base', num: 0, isBase: true }];
-        }
-
-        return champion.skins.map(skin => ({
-            id: skin.id,
-            name: skin.name || `Skin ${skin.id}`,
-            num: skin.id % 1000,  // Skin number is last 3 digits
-            isBase: skin.isBase || skin.id % 1000 === 0,
-            splashPath: skin.splashPath,
-            tilePath: skin.tilePath
-        }));
-    } catch (error) {
-        console.error(`Failed to fetch skins for champion ${championId}:`, error);
-        // Return at least base skin
-        return [{ id: 0, name: 'Base', num: 0, isBase: true }];
+        const response = await fetch(url, { signal: controller.signal });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const text = await response.text();
+        return JSON.parse(text) as T;
+    } finally {
+        clearTimeout(timer);
     }
+}
+
+interface CDragonSkinData {
+    id: number;
+    name?: string;
+    isBase?: boolean;
+    splashPath?: string;
+    tilePath?: string;
+}
+
+function mapCDragonSkins(skins: CDragonSkinData[]): DDragonSkin[] {
+    return skins.map(skin => ({
+        id: skin.id,
+        name: skin.name || `Skin ${skin.id}`,
+        num: skin.id % 1000,
+        isBase: skin.isBase || skin.id % 1000 === 0,
+        splashPath: skin.splashPath,
+        tilePath: skin.tilePath
+    }));
+}
+
+/**
+ * Fetch skins for a specific champion.
+ * Tries CommunityDragon first, falls back to DataDragon.
+ * Throws on total failure so the caller can show an error.
+ */
+export async function fetchChampionSkins(championId: number, alias?: string): Promise<DDragonSkin[]> {
+    const errors: string[] = [];
+
+    // Try CommunityDragon
+    try {
+        const url = `${CDRAGON_BASE_URL}/champions/${championId}.json`;
+        const champion = await fetchWithTimeout<{ skins?: CDragonSkinData[] }>(url);
+        if (champion.skins && champion.skins.length > 0) {
+            return mapCDragonSkins(champion.skins);
+        }
+    } catch (err) {
+        errors.push(`CDragon: ${err instanceof Error ? err.message : err}`);
+    }
+
+    // Fallback: DataDragon
+    if (alias) {
+        try {
+            const patch = await getLatestPatch();
+            const url = `${DDRAGON_BASE_URL}/cdn/${patch}/data/en_US/champion/${alias}.json`;
+            const response = await fetchWithTimeout<{
+                data?: Record<string, { skins?: Array<{ id: string; num: number; name: string }> }>;
+            }>(url);
+            const champData = response.data?.[alias];
+            if (champData?.skins && champData.skins.length > 0) {
+                return champData.skins.map(skin => ({
+                    id: parseInt(skin.id, 10),
+                    name: skin.name === 'default' ? alias : skin.name,
+                    num: skin.num,
+                    isBase: skin.num === 0,
+                }));
+            }
+        } catch (err) {
+            errors.push(`DDragon: ${err instanceof Error ? err.message : err}`);
+        }
+    }
+
+    // If both failed, throw so caller can surface the error
+    if (errors.length > 0) {
+        throw new Error(`Failed to fetch skins: ${errors.join('; ')}`);
+    }
+
+    return [{ id: championId * 1000, name: 'Base', num: 0, isBase: true }];
 }
 
 /**

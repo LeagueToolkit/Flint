@@ -84,7 +84,7 @@ export const NewProjectModal: React.FC = () => {
 
     useEffect(() => {
         if (selectedChampion) {
-            loadSkins(selectedChampion.id);
+            loadSkins(selectedChampion.id, selectedChampion.alias);
         } else {
             setSkins([]);
             setSelectedSkin(null);
@@ -137,21 +137,25 @@ export const NewProjectModal: React.FC = () => {
         }
     };
 
-    const loadSkins = async (championId: number) => {
+    const loadSkins = async (championId: number, alias: string) => {
+        let result: datadragon.DDragonSkin[] | null = null;
         try {
             setWorking('Loading skins...');
-            const result = await datadragon.fetchChampionSkins(championId);
+            result = await datadragon.fetchChampionSkins(championId, alias);
             setSkins(result);
             const baseSkin = result.find(s => s.isBase) || result[0];
             setSelectedSkin(baseSkin);
             setReady();
-            // Preload all skin splashes in background
-            const champ = champions.find(c => c.id === championId);
-            if (champ) datadragon.preloadSkinSplashes(champ.alias, result).then(() => setCacheReady(v => v + 1));
-        } catch {
-            setSkins([{ id: 0, name: 'Base', num: 0, isBase: true }]);
-            setSelectedSkin({ id: 0, name: 'Base', num: 0, isBase: true });
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : 'Unknown error';
+            showToast('error', `Skin fetch failed: ${msg}`);
+            setSkins([{ id: championId * 1000, name: 'Base', num: 0, isBase: true }]);
+            setSelectedSkin({ id: championId * 1000, name: 'Base', num: 0, isBase: true });
             setReady();
+        }
+        // Preload splashes — outside try/catch so failures don't reset skins
+        if (result && result.length > 0) {
+            datadragon.preloadSkinSplashes(championId, result).catch(() => {});
         }
     };
 
@@ -456,12 +460,12 @@ export const NewProjectModal: React.FC = () => {
 
     const getHeroSplashUrl = () => {
         if (!selectedChampion || !selectedSkin) return '';
-        return cachedUrl(datadragon.getSkinSplashUrl(selectedChampion.alias, selectedSkin.num));
+        return cachedUrl(datadragon.getSkinSplashCDragonUrl(selectedChampion.id, selectedSkin.id));
     };
 
     const getHeroSplashFallback = () => {
         if (!selectedChampion || !selectedSkin) return '';
-        return cachedUrl(datadragon.getSkinSplashCDragonUrl(selectedChampion.id, selectedSkin.id));
+        return cachedUrl(datadragon.getSkinSplashUrl(selectedChampion.alias, selectedSkin.num));
     };
 
     if (!isVisible) return null;
@@ -559,7 +563,13 @@ export const NewProjectModal: React.FC = () => {
                                     className={`np-hero-splash__img${splashLoaded ? ' np-hero-splash__img--loaded' : ''}`}
                                     onLoad={() => setSplashLoaded(true)}
                                     onError={(e) => {
-                                        (e.target as HTMLImageElement).src = getHeroSplashFallback();
+                                        const img = e.target as HTMLImageElement;
+                                        const fallback = getHeroSplashFallback();
+                                        if (img.src !== fallback) {
+                                            img.src = fallback;
+                                        } else {
+                                            setSplashLoaded(true);
+                                        }
                                     }}
                                 />
                                 <div className="np-hero-splash__overlay" />
@@ -976,13 +986,16 @@ export const NewProjectModal: React.FC = () => {
                                 >
                                     <div className="np-skin-card__img-wrap">
                                         <img
-                                            src={cachedUrl(datadragon.getSkinSplashUrl(selectedChampion.alias, skin.num))}
+                                            src={cachedUrl(datadragon.getSkinSplashCDragonUrl(selectedChampion.id, skin.id))}
                                             alt={skin.name}
                                             className="np-skin-card__img"
                                             loading="lazy"
                                             onError={(e) => {
-                                                (e.target as HTMLImageElement).src =
-                                                    cachedUrl(datadragon.getSkinSplashCDragonUrl(selectedChampion.id, skin.id));
+                                                const img = e.target as HTMLImageElement;
+                                                const fallback = cachedUrl(datadragon.getSkinSplashUrl(selectedChampion.alias, skin.num));
+                                                if (img.src !== fallback) {
+                                                    img.src = fallback;
+                                                }
                                             }}
                                         />
                                         {selectedSkin?.id === skin.id && (
