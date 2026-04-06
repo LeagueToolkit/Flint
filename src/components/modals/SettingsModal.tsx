@@ -40,6 +40,10 @@ export const SettingsModal: React.FC = () => {
     const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
     const [updateAvailable, setUpdateAvailable] = useState(false);
 
+    // Theme state
+    const [selectedTheme, setSelectedTheme] = useState(configStore.selectedTheme || '');
+    const [availableThemes, setAvailableThemes] = useState<api.ThemeInfo[]>([]);
+
     // Hash database state
     const [isRebuildingHashes, setIsRebuildingHashes] = useState(false);
 
@@ -70,9 +74,11 @@ export const SettingsModal: React.FC = () => {
             setBinConverterEngine(configStore.binConverterEngine);
             setJadePath(configStore.jadePath || '');
             setQuartzPath(configStore.quartzPath || '');
+            setSelectedTheme(configStore.selectedTheme || '');
             getVersion().then(setCurrentVersion).catch(() => setCurrentVersion('0.0.0'));
+            api.listThemes().then(setAvailableThemes).catch(() => {});
         }
-    }, [isVisible, state.leaguePath, state.leaguePathPbe, state.defaultProjectPath, state.creatorName, state.autoUpdateEnabled, state.verboseLogging, state.ltkManagerModPath, state.autoSyncToLauncher, configStore.binConverterEngine, configStore.jadePath, configStore.quartzPath]);
+    }, [isVisible, state.leaguePath, state.leaguePathPbe, state.defaultProjectPath, state.creatorName, state.autoUpdateEnabled, state.verboseLogging, state.ltkManagerModPath, state.autoSyncToLauncher, configStore.binConverterEngine, configStore.jadePath, configStore.quartzPath, configStore.selectedTheme]);
 
     // Listen for schema aggregation progress events
     useEffect(() => {
@@ -311,6 +317,7 @@ export const SettingsModal: React.FC = () => {
         configStore.setBinConverterEngine(binConverterEngine);
         configStore.setJadePath(jadePath || null);
         configStore.setQuartzPath(quartzPath || null);
+        configStore.setSelectedTheme(selectedTheme || null);
 
         api.setLogLevel(verboseLogging).catch(() => { });
         showToast('success', 'Settings saved');
@@ -529,6 +536,42 @@ export const SettingsModal: React.FC = () => {
                                         value={creatorName}
                                         onChange={(e) => setCreatorName(e.target.value)}
                                     />
+                                </div>
+
+                                <div className="settings-item">
+                                    <label className="settings-item__label">Theme</label>
+                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                        <select
+                                            className="form-input"
+                                            style={{ flex: 1 }}
+                                            value={selectedTheme}
+                                            onChange={(e) => setSelectedTheme(e.target.value || '')}
+                                        >
+                                            <option value="">Default (Red)</option>
+                                            {availableThemes.map(t => (
+                                                <option key={t.id} value={t.id}>{t.name}</option>
+                                            ))}
+                                        </select>
+                                        <button
+                                            className="btn btn--secondary btn--sm"
+                                            onClick={async () => {
+                                                try {
+                                                    const path = await api.createDefaultTheme();
+                                                    await api.openInExplorer(path.replace(/[^/\\]*$/, ''));
+                                                    showToast('success', 'Theme template created — edit custom.json and restart');
+                                                    // Refresh theme list
+                                                    api.listThemes().then(setAvailableThemes).catch(() => {});
+                                                } catch (err) {
+                                                    showToast('error', 'Failed to create theme template');
+                                                }
+                                            }}
+                                        >
+                                            Create Custom
+                                        </button>
+                                    </div>
+                                    <div className="settings-item__hint">
+                                        Drop .json theme files in the themes folder to add more options
+                                    </div>
                                 </div>
 
                                 <div className="settings-item">

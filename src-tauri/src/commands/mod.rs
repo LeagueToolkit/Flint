@@ -22,3 +22,4 @@ pub mod modpkg_import;
 pub mod hud;
 pub mod dev;
 pub mod format_converters;
+pub mod settings;

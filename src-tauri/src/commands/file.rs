@@ -996,8 +996,18 @@ pub async fn duplicate_file(
     Ok(new_rel)
 }
 
-/// Get bundled floor texture as PNG bytes (MindCorpViewer floor)
+/// Get floor texture as PNG bytes.
+/// Checks `%APPDATA%/Flint/themes/floor.png` first for user customization,
+/// falls back to the bundled default.
 #[tauri::command]
 pub fn get_bundled_floor_png() -> Vec<u8> {
+    if let Ok(home) = super::settings::get_flint_home() {
+        let custom = home.join("themes").join("floor.png");
+        if custom.exists() {
+            if let Ok(bytes) = std::fs::read(&custom) {
+                return bytes;
+            }
+        }
+    }
     FLOOR_PNG.to_vec()
 }

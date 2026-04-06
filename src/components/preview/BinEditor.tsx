@@ -89,6 +89,8 @@ interface BracketError {
     column: number;
     char: string;
     message: string;
+    /** Where the fix should be inserted (may differ from `line` for unclosed brackets) */
+    suggestLine: number;
 }
 
 interface BracketValidation {
@@ -190,6 +192,7 @@ function validateBrackets(text: string): BracketValidation {
                         column: col + 1,
                         char: ch,
                         message: `Unexpected '${ch}' — no matching '${expected}'`,
+                        suggestLine: lineIdx + 1,
                     });
                 } else {
                     const top = stack[stack.length - 1];
@@ -199,6 +202,7 @@ function validateBrackets(text: string): BracketValidation {
                             column: col + 1,
                             char: ch,
                             message: `Expected '${BRACKET_PAIRS[top.char]}' (opened at line ${top.line}) but found '${ch}'`,
+                            suggestLine: lineIdx + 1,
                         });
                     } else {
                         stack.pop();
@@ -208,13 +212,31 @@ function validateBrackets(text: string): BracketValidation {
         }
     }
 
-    // Report unclosed brackets
-    for (const unclosed of stack) {
+    // Report unclosed brackets — suggest insertion point using indentation heuristic.
+    // Scan forward from the opener to find the last line indented deeper than it;
+    // that's where the closing bracket belongs (same logic as the ghost-text completer).
+    for (let i = stack.length - 1; i >= 0; i--) {
+        const unclosed = stack[i];
+        const openerLineIdx = unclosed.line - 1;
+        const openerIndent = lines[openerLineIdx].match(/^(\s*)/)?.[1].length ?? 0;
+
+        // Find the last line that's indented deeper than the opener (skipping blanks/comments)
+        let blockEnd = openerLineIdx;
+        for (let j = openerLineIdx + 1; j < lines.length; j++) {
+            const trimmed = lines[j].trim();
+            if (trimmed === '' || trimmed.startsWith('#') || trimmed.startsWith('//')) continue;
+            const indent = lines[j].match(/^(\s*)/)?.[1].length ?? 0;
+            if (indent <= openerIndent) break;
+            blockEnd = j;
+        }
+        const suggestLine = blockEnd + 1; // 1-based
+
         errors.push({
             line: unclosed.line,
             column: unclosed.column,
             char: unclosed.char,
-            message: `Unclosed '${unclosed.char}' — missing '${BRACKET_PAIRS[unclosed.char]}'`,
+            message: `Unclosed '${unclosed.char}' (opened at line ${unclosed.line}) — add '${BRACKET_PAIRS[unclosed.char]}' after line ${suggestLine}`,
+            suggestLine,
         });
     }
 
@@ -304,6 +326,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
 
     // Bracket validation state
     const [bracketStatus, setBracketStatus] = useState<BracketValidation>({ valid: true, errors: [] });
+    const [bracketErrorIndex, setBracketErrorIndex] = useState(0);
     const bracketCheckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const decorationsRef = useRef<string[]>([]);
 
@@ -332,27 +355,39 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
         bracketCheckTimerRef.current = setTimeout(async () => {
             const result = validateBrackets(text);
             setBracketStatus(result);
+            setBracketErrorIndex(0);
 
             // Update Monaco decorations to highlight bracket errors
             const ed = editorRef.current;
             const model = ed?.getModel();
             if (ed && model) {
-                const newDecorations: editor.IModelDeltaDecoration[] = result.errors.map(err => ({
-                    range: new monaco.Range(err.line, 1, err.line, model.getLineMaxColumn(err.line)),
-                    options: {
-                        isWholeLine: true,
-                        className: 'bracket-error-line',
-                        glyphMarginClassName: 'bracket-error-glyph',
-                        overviewRuler: {
-                            color: '#ff4444',
-                            position: monaco.editor.OverviewRulerLane.Right,
+                const newDecorations: editor.IModelDeltaDecoration[] = result.errors.flatMap(err => {
+                    const openerDec: editor.IModelDeltaDecoration = {
+                        range: new monaco.Range(err.line, 1, err.line, model.getLineMaxColumn(err.line)),
+                        options: {
+                            isWholeLine: true,
+                            className: 'bracket-error-line',
+                            glyphMarginClassName: 'bracket-error-glyph',
+                            overviewRuler: { color: '#ff4444', position: monaco.editor.OverviewRulerLane.Right },
+                            minimap: { color: '#ff4444', position: monaco.editor.MinimapPosition.Inline },
                         },
-                        minimap: {
-                            color: '#ff4444',
-                            position: monaco.editor.MinimapPosition.Inline,
-                        },
-                    },
-                }));
+                    };
+                    // For unclosed brackets, also mark where the closing bracket should go
+                    if (err.suggestLine !== err.line && err.suggestLine <= model.getLineCount()) {
+                        const suggestDec: editor.IModelDeltaDecoration = {
+                            range: new monaco.Range(err.suggestLine, 1, err.suggestLine, model.getLineMaxColumn(err.suggestLine)),
+                            options: {
+                                isWholeLine: true,
+                                className: 'bracket-suggest-line',
+                                afterContentClassName: 'bracket-suggest-after',
+                                overviewRuler: { color: '#f0a020', position: monaco.editor.OverviewRulerLane.Right },
+                                minimap: { color: '#f0a020', position: monaco.editor.MinimapPosition.Inline },
+                            },
+                        };
+                        return [openerDec, suggestDec];
+                    }
+                    return [openerDec];
+                });
                 decorationsRef.current = ed.deltaDecorations(decorationsRef.current, newDecorations);
 
             }
@@ -570,10 +605,14 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
     const bracketLabel = useMemo(() => {
         if (bracketStatus.valid) return null;
         const count = bracketStatus.errors.length;
-        const first = bracketStatus.errors[0];
-        if (count === 1) return `Bracket error at line ${first.line}`;
-        return `${count} bracket errors (line ${first.line})`;
-    }, [bracketStatus]);
+        const idx = Math.min(bracketErrorIndex, count - 1);
+        const err = bracketStatus.errors[idx];
+        // For unclosed brackets, point to where the fix goes, not where it opened
+        const displayLine = err.suggestLine !== err.line ? err.suggestLine : err.line;
+        const suffix = err.suggestLine !== err.line ? `insert after line ${displayLine}` : `line ${displayLine}`;
+        if (count === 1) return `Missing '${BRACKET_PAIRS[err.char] ?? err.char}' — ${suffix}`;
+        return `Bracket error ${idx + 1}/${count} — ${suffix}`;
+    }, [bracketStatus, bracketErrorIndex]);
 
     if (loading) {
         return (
@@ -604,14 +643,22 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath }) => {
                     {bracketLabel && (
                         <span
                             className="bin-editor__bracket-error"
-                            title={bracketStatus.errors.map(e => `Line ${e.line}: ${e.message}`).join('\n')}
+                            title={bracketStatus.errors.map((e, i) => `${i + 1}. Line ${e.line}: ${e.message}`).join('\n')}
                             onClick={() => {
-                                const first = bracketStatus.errors[0];
-                                if (first && editorRef.current) {
-                                    editorRef.current.revealLineInCenter(first.line);
-                                    editorRef.current.setPosition({ lineNumber: first.line, column: first.column });
+                                const count = bracketStatus.errors.length;
+                                const idx = Math.min(bracketErrorIndex, count - 1);
+                                const err = bracketStatus.errors[idx];
+                                if (err && editorRef.current) {
+                                    // Navigate to where the fix goes, not where the opener is
+                                    const navLine = err.suggestLine !== err.line ? err.suggestLine : err.line;
+                                    const navCol = err.suggestLine !== err.line
+                                        ? (editorRef.current.getModel()?.getLineMaxColumn(navLine) ?? 1)
+                                        : err.column;
+                                    editorRef.current.revealLineInCenter(navLine);
+                                    editorRef.current.setPosition({ lineNumber: navLine, column: navCol });
                                     editorRef.current.focus();
                                 }
+                                setBracketErrorIndex((idx + 1) % count);
                             }}
                         >
                             {bracketLabel}

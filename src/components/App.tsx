@@ -90,10 +90,11 @@ export const App: React.FC = () => {
             }
         });
 
-        // Load initial data
-        loadInitialData();
-        // Clean stale projects
-        cleanStaleProjects();
+        // Hydrate settings from disk (migrates localStorage if needed), then load data
+        useConfigStore.getState().hydrate().then(() => {
+            loadInitialData();
+            cleanStaleProjects();
+        });
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Manage file watcher for auto-sync
@@ -387,12 +388,13 @@ export const App: React.FC = () => {
     // Show a left panel for any view that isn't the welcome screen or WAD Explorer
     const hasProject = !isWadExplorer && state.currentView !== 'welcome';
 
-    // Check if first-time setup is needed
+    // Check if first-time setup is needed (wait for settings to load from disk first)
+    const hydrated = useConfigStore((s) => s._hydrated);
     useEffect(() => {
-        if (!state.creatorName && !state.activeModal) {
+        if (hydrated && !state.creatorName && !state.activeModal) {
             openModal('firstTimeSetup');
         }
-    }, [state.creatorName, state.activeModal, openModal]);
+    }, [hydrated, state.creatorName, state.activeModal, openModal]);
 
     return (
         <>

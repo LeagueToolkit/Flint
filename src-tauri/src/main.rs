@@ -6,6 +6,7 @@ mod core;
 mod state;
 
 use commands::project_watcher::WatcherState;
+use commands::settings::{initialize_app_home, get_flint_home};
 use flint_ltk::hash::get_ritoshark_hash_dir;
 use core::frontend_log::{FrontendLogLayer, set_app_handle};
 use state::{LmdbCacheState, WadCacheState};
@@ -13,6 +14,16 @@ use tauri::Manager;
 use tracing_subscriber::{fmt, prelude::*, reload, EnvFilter};
 
 fn main() {
+    // Create log directory early so the file appender can start writing
+    let log_dir = get_flint_home()
+        .map(|h| h.join("logs"))
+        .unwrap_or_else(|_| std::path::PathBuf::from("./logs"));
+    std::fs::create_dir_all(&log_dir).ok();
+
+    // Daily rolling log file: flint.YYYY-MM-DD.log in %APPDATA%/Flint/logs/
+    let file_appender = tracing_appender::rolling::daily(&log_dir, "flint.log");
+    let (file_writer, _guard) = tracing_appender::non_blocking(file_appender);
+
     // Initialize tracing/logging with frontend layer
     // Use reload layer so log level can be changed at runtime via set_log_level command
     //
@@ -52,6 +63,7 @@ fn main() {
 
     tracing_subscriber::registry()
         .with(fmt::layer())
+        .with(fmt::layer().with_ansi(false).with_writer(file_writer))
         .with(FrontendLogLayer)
         .with(filter_layer)
         .init();
@@ -69,16 +81,20 @@ fn main() {
         .setup(|app| {
             // Set app handle for frontend logging
             set_app_handle(app.handle().clone());
-            
-            // Use RitoShark directory for hash files (shared with other RitoShark tools)
+
+            // Initialize Flint home directory structure + migrate old hashes
+            if let Err(e) = initialize_app_home() {
+                tracing::error!("Failed to initialize app home: {}", e);
+            }
+
+            // Hash directory stays in shared RitoShark location
             let hash_dir = get_ritoshark_hash_dir().unwrap_or_else(|e| {
                 tracing::warn!("Failed to get RitoShark hash directory: {}", e);
-                // Fallback to Tauri app data directory if RitoShark path not available
                 app.path().app_data_dir()
                     .unwrap_or_else(|_| std::path::PathBuf::from("./hashes"))
                     .join("hashes")
             });
-            
+
             tracing::info!("Hash directory: {}", hash_dir.display());
             
             // Prime LMDB: build hashes.lmdb from .txt files if stale, then mmap it.
@@ -256,6 +272,15 @@ fn main() {
             commands::format_converters::read_wad_troybin,
             // Dev commands (schema aggregation)
             commands::dev::aggregate_bin_schema,
+            // Settings commands (disk-based settings)
+            commands::settings::get_app_home,
+            commands::settings::get_settings,
+            commands::settings::save_settings,
+            commands::settings::migrate_from_localstorage,
+            commands::settings::migrate_projects,
+            commands::settings::list_themes,
+            commands::settings::load_theme,
+            commands::settings::create_default_theme,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

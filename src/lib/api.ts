@@ -4,7 +4,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import type { HashStatus, Project, FileTreeNode, Champion, GameWadInfo, AudioBankInfo, DecodedAudio, HircData, BinEventString, EventMapping } from './types';
+import type { HashStatus, Project, FileTreeNode, Champion, GameWadInfo, AudioBankInfo, DecodedAudio, HircData, BinEventString, EventMapping, RecentProject, SavedProject } from './types';
 
 // =============================================================================
 // Error Handling
@@ -1278,4 +1278,70 @@ export interface SchemaStats {
 
 export async function aggregateBinSchema(leaguePath: string): Promise<SchemaStats> {
     return invokeCommand('aggregate_bin_schema', { leaguePath });
+}
+
+// =============================================================================
+// Settings Commands (disk-based settings)
+// =============================================================================
+
+export interface FlintSettings {
+    schemaVersion: number;
+    leaguePath: string | null;
+    leaguePathPbe: string | null;
+    defaultProjectPath: string | null;
+    creatorName: string | null;
+    autoUpdateEnabled: boolean;
+    skippedUpdateVersion: string | null;
+    recentProjects: RecentProject[];
+    savedProjects: SavedProject[];
+    ltkManagerModPath: string | null;
+    autoSyncToLauncher: boolean;
+    binConverterEngine: string;
+    jadePath: string | null;
+    quartzPath: string | null;
+    selectedTheme: string | null;
+}
+
+export async function getAppHome(): Promise<string> {
+    return invokeCommand('get_app_home');
+}
+
+export async function getSettings(): Promise<FlintSettings> {
+    return invokeCommand('get_settings');
+}
+
+export async function saveSettings(settings: FlintSettings): Promise<void> {
+    return invokeCommand('save_settings', { settings });
+}
+
+export async function migrateFromLocalStorage(legacyJson: string): Promise<void> {
+    return invokeCommand('migrate_from_localstorage', { legacyJson });
+}
+
+export interface MigrateProjectsResult {
+    moved: number;
+    skipped: number;
+}
+
+export async function migrateProjects(): Promise<MigrateProjectsResult> {
+    return invokeCommand('migrate_projects');
+}
+
+// Theme commands
+
+export interface ThemeInfo {
+    id: string;
+    name: string;
+}
+
+export async function listThemes(): Promise<ThemeInfo[]> {
+    return invokeCommand('list_themes');
+}
+
+export async function loadTheme(themeId: string): Promise<Record<string, unknown>> {
+    return invokeCommand('load_theme', { themeId });
+}
+
+export async function createDefaultTheme(): Promise<string> {
+    return invokeCommand('create_default_theme');
 }
