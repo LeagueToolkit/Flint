@@ -62,9 +62,16 @@ export const NewProjectModal: React.FC = () => {
     const [budget, setBudget] = useState<BudgetResult | null>(null);
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const [isGeneratingPreview, setIsGeneratingPreview] = useState(false);
+    const [videoEditorOpen, setVideoEditorOpen] = useState(false);
+    const [editorPlaying, setEditorPlaying] = useState(false);
+    const [editorCurrentTime, setEditorCurrentTime] = useState(0);
     const videoPreviewRef = useRef<HTMLVideoElement>(null);
     const videoInputRef = useRef<HTMLInputElement>(null);
     const previewVideoRef = useRef<HTMLVideoElement>(null);
+    const videoEditorRef = useRef<HTMLVideoElement>(null);
+    const timelineRef = useRef<HTMLDivElement>(null);
+    const draggingHandle = useRef<'start' | 'end' | null>(null);
+    const editorVideoUrlRef = useRef<string | null>(null);
 
     const isVisible = state.activeModal === 'newProject';
 
@@ -111,6 +118,55 @@ export const NewProjectModal: React.FC = () => {
         });
         setBudget(result);
     }, [videoMeta, scaleFactor, customFps, trimStart, trimEnd]);
+
+    // ─── Video editor effects & handlers ─────────────────────────────────
+
+    useEffect(() => {
+        if (!videoEditorOpen || !videoFile || !videoEditorRef.current) return;
+        const url = URL.createObjectURL(videoFile);
+        editorVideoUrlRef.current = url;
+        const vid = videoEditorRef.current;
+        vid.src = url;
+        vid.currentTime = trimStart;
+        return () => {
+            URL.revokeObjectURL(url);
+            editorVideoUrlRef.current = null;
+        };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [videoEditorOpen, videoFile]);
+
+    const handleEditorMouseMove = (e: React.MouseEvent) => {
+        if (!draggingHandle.current || !timelineRef.current || !videoMeta) return;
+        const rect = timelineRef.current.getBoundingClientRect();
+        const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        const time = parseFloat((ratio * videoMeta.duration).toFixed(2));
+        if (draggingHandle.current === 'start') {
+            setTrimStart(Math.min(time, trimEnd - 0.1));
+        } else {
+            setTrimEnd(Math.max(time, trimStart + 0.1));
+        }
+    };
+
+    const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
+        if (draggingHandle.current || !timelineRef.current || !videoMeta) return;
+        const rect = timelineRef.current.getBoundingClientRect();
+        const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        const time = ratio * videoMeta.duration;
+        const distStart = Math.abs(time - trimStart);
+        const distEnd = Math.abs(time - trimEnd);
+        if (distStart <= distEnd) {
+            setTrimStart(parseFloat(Math.min(time, trimEnd - 0.1).toFixed(2)));
+        } else {
+            setTrimEnd(parseFloat(Math.max(time, trimStart + 0.1).toFixed(2)));
+        }
+        if (videoEditorRef.current) videoEditorRef.current.currentTime = time;
+    };
+
+    const formatEditorTime = (s: number) => {
+        const m = Math.floor(s / 60);
+        const sec = (s % 60).toFixed(1).padStart(4, '0');
+        return `${m}:${sec}`;
+    };
 
     // ─── Helpers ─────────────────────────────────────────────────────────
 
@@ -735,43 +791,25 @@ export const NewProjectModal: React.FC = () => {
                                             {videoMeta && (
                                                 <>
                                                     <span>{videoMeta.width}&times;{videoMeta.height}</span>
-                                                    <span>{videoMeta.duration.toFixed(1)}s</span>
+                                                    <span className="video-info__tag">{(trimEnd - trimStart).toFixed(1)}s clip</span>
+                                                    <span className="video-info__tag">{Math.floor(videoMeta.width * scaleFactor)}&times;{Math.floor(videoMeta.height * scaleFactor)}</span>
+                                                    <span className="video-info__tag">{customFps} fps</span>
                                                 </>
                                             )}
                                         </div>
-                                        {videoMeta && (
-                                            <div className="trim-controls--inline">
-                                                <div className="trim-controls__inputs">
-                                                    <label className="trim-controls__label">
-                                                        Start
-                                                        <input
-                                                            type="number"
-                                                            className="form-input form-input--sm"
-                                                            min={0}
-                                                            max={trimEnd - 0.1}
-                                                            step={0.1}
-                                                            value={trimStart.toFixed(1)}
-                                                            onChange={(e) => setTrimStart(Math.max(0, parseFloat(e.target.value) || 0))}
-                                                        />
-                                                        <span className="trim-controls__unit">s</span>
-                                                    </label>
-                                                    <label className="trim-controls__label">
-                                                        End
-                                                        <input
-                                                            type="number"
-                                                            className="form-input form-input--sm"
-                                                            min={trimStart + 0.1}
-                                                            max={videoMeta.duration}
-                                                            step={0.1}
-                                                            value={trimEnd.toFixed(1)}
-                                                            onChange={(e) => setTrimEnd(Math.min(videoMeta.duration, parseFloat(e.target.value) || 0))}
-                                                        />
-                                                        <span className="trim-controls__unit">s</span>
-                                                    </label>
-                                                    <span className="trim-controls__duration">
-                                                        = {(trimEnd - trimStart).toFixed(1)}s
-                                                    </span>
-                                                </div>
+                                        {budget && (
+                                            <div className={`video-info__budget-badge${budget.fits ? ' video-info__budget-badge--ok' : ' video-info__budget-badge--exceeded'}`}>
+                                                {budget.fits ? (
+                                                    <>
+                                                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                                                        {budget.totalFrames} frames · {budget.grid?.sheetWidth}&times;{budget.grid?.sheetHeight}px
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 2v5M6 9v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+                                                        Exceeds 16k limit — open editor to adjust
+                                                    </>
+                                                )}
                                             </div>
                                         )}
                                         <div className="video-info__actions">
@@ -782,112 +820,23 @@ export const NewProjectModal: React.FC = () => {
                                                     setVideoFile(null); setVideoMeta(null); setBudget(null);
                                                 }}
                                             >
-                                                Change Video
+                                                Change
                                             </button>
                                             <button
                                                 className="btn btn--primary btn--sm"
-                                                onClick={generatePreview}
-                                                disabled={isGeneratingPreview || !budget?.fits}
-                                                title="Generate a preview with current settings"
+                                                onClick={() => setVideoEditorOpen(true)}
                                             >
-                                                {isGeneratingPreview ? 'Generating...' : 'Preview'}
+                                                <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                                                    <path d="M11.5 1.5l3 3L5 14H2v-3L11.5 1.5z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" fill="none"/>
+                                                    <path d="M9.5 3.5l3 3" stroke="currentColor" strokeWidth="1.5"/>
+                                                </svg>
+                                                Edit
                                             </button>
                                         </div>
                                     </div>
                                 </div>
                             )}
-                            {previewUrl && (
-                                <div className="video-preview-player">
-                                    <video
-                                        ref={previewVideoRef}
-                                        src={previewUrl}
-                                        muted
-                                        loop
-                                        autoPlay
-                                        playsInline
-                                        controls
-                                        className="video-preview-player__video"
-                                    />
-                                </div>
-                            )}
                         </div>
-
-                        {videoMeta && (
-                            <>
-                                <div className="form-row">
-                                    <div className="np-field np-field--grow">
-                                        <label className="np-label">Resolution</label>
-                                        <select
-                                            className="np-input"
-                                            value={scaleFactor}
-                                            onChange={(e) => setScaleFactor(parseFloat(e.target.value))}
-                                        >
-                                            {SCALE_OPTIONS.map(opt => (
-                                                <option key={opt.value} value={opt.value}>
-                                                    {opt.label} ({Math.floor(videoMeta.width * opt.value)}&times;{Math.floor(videoMeta.height * opt.value)})
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </div>
-
-                                    <div className="np-field np-field--grow">
-                                        <label className="np-label">FPS</label>
-                                        <select
-                                            className="np-input"
-                                            value={customFps}
-                                            onChange={(e) => setCustomFps(parseInt(e.target.value, 10))}
-                                        >
-                                            {FPS_OPTIONS.map(fps => (
-                                                <option key={fps} value={fps}>{fps} fps</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                </div>
-
-                                <div className="np-section">
-                                    <label className="np-label">Spritesheet Budget</label>
-                                    <div className={`budget-indicator ${budget?.fits ? 'budget-indicator--ok' : 'budget-indicator--exceeded'}`}>
-                                        {budget && (
-                                            <>
-                                                <div className="budget-indicator__summary">
-                                                    <span>{budget.totalFrames} frames</span>
-                                                    {budget.grid && (
-                                                        <>
-                                                            <span>{budget.grid.cols}&times;{budget.grid.rows} grid</span>
-                                                            <span>{budget.grid.sheetWidth}&times;{budget.grid.sheetHeight} px</span>
-                                                        </>
-                                                    )}
-                                                </div>
-                                                <div className="budget-indicator__bar-container">
-                                                    <div className="budget-indicator__bar">
-                                                        <div
-                                                            className="budget-indicator__fill"
-                                                            style={{ width: `${Math.min(100, budgetPercent)}%` }}
-                                                        />
-                                                    </div>
-                                                    <span className="budget-indicator__label">
-                                                        {budgetMaxDim.toLocaleString()} / 16,384
-                                                    </span>
-                                                </div>
-                                                {!budget.fits && (
-                                                    <div className="budget-indicator__warning">
-                                                        Exceeds 16,384 pixel limit.
-                                                        {budget.suggestedFrameCounts.length > 0 && (
-                                                            <> Try reducing resolution or duration (suggested frame counts: {budget.suggestedFrameCounts.slice(0, 3).join(', ')})</>
-                                                        )}
-                                                    </div>
-                                                )}
-                                                {budget.fits && (
-                                                    <div className="budget-indicator__ok">
-                                                        Fits within texture limit
-                                                    </div>
-                                                )}
-                                            </>
-                                        )}
-                                    </div>
-                                </div>
-                            </>
-                        )}
                     </div>
 
                     {/* ════════════ HUD Editor Form (Dev Only) ════════════ */}
@@ -949,6 +898,224 @@ export const NewProjectModal: React.FC = () => {
                     </button>
                 </div>
             </div>
+
+            {/* ─── Video Editor Panel ─── */}
+            {videoEditorOpen && videoFile && videoMeta && (
+                <div className="np-video-editor-overlay" onClick={() => setVideoEditorOpen(false)}>
+                    <div
+                        className="np-video-editor"
+                        onClick={(e) => e.stopPropagation()}
+                        onMouseMove={handleEditorMouseMove}
+                        onMouseUp={() => { draggingHandle.current = null; }}
+                        onMouseLeave={() => { draggingHandle.current = null; }}
+                    >
+                        {/* Header */}
+                        <div className="np-ve-header">
+                            <span className="np-ve-header__title">Edit Video</span>
+                            <button className="np-close" onClick={() => setVideoEditorOpen(false)}>
+                                <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                                    <path d="M4.5 4.5L13.5 13.5M13.5 4.5L4.5 13.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                                </svg>
+                            </button>
+                        </div>
+
+                        {/* Content */}
+                        <div className="np-ve-content">
+                            {/* Left: Video player */}
+                            <div className="np-ve-player">
+                                <div className="np-ve-player__viewport">
+                                    <video
+                                        ref={videoEditorRef}
+                                        muted
+                                        playsInline
+                                        className="np-ve-video"
+                                        onTimeUpdate={(e) => setEditorCurrentTime(e.currentTarget.currentTime)}
+                                        onPlay={() => setEditorPlaying(true)}
+                                        onPause={() => setEditorPlaying(false)}
+                                        onEnded={() => { setEditorPlaying(false); if (videoEditorRef.current) videoEditorRef.current.currentTime = trimStart; }}
+                                    />
+                                </div>
+                                <div className="np-ve-player__controls">
+                                    <button
+                                        className="np-ve-play-btn"
+                                        onClick={() => {
+                                            const vid = videoEditorRef.current;
+                                            if (!vid) return;
+                                            if (editorPlaying) {
+                                                vid.pause();
+                                            } else {
+                                                if (vid.currentTime < trimStart || vid.currentTime >= trimEnd) {
+                                                    vid.currentTime = trimStart;
+                                                }
+                                                vid.play().catch(() => {});
+                                            }
+                                        }}
+                                    >
+                                        {editorPlaying ? (
+                                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                                                <rect x="2" y="2" width="3.5" height="10" rx="1" fill="currentColor"/>
+                                                <rect x="8.5" y="2" width="3.5" height="10" rx="1" fill="currentColor"/>
+                                            </svg>
+                                        ) : (
+                                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                                                <polygon points="3,2 11,7 3,12" fill="currentColor"/>
+                                            </svg>
+                                        )}
+                                    </button>
+                                    <span className="np-ve-player__time">
+                                        {formatEditorTime(editorCurrentTime)} / {formatEditorTime(videoMeta.duration)}
+                                    </span>
+                                    <span className="np-ve-player__dims">{videoMeta.width}&times;{videoMeta.height}</span>
+                                </div>
+                            </div>
+
+                            {/* Right: Controls */}
+                            <div className="np-ve-controls">
+                                {/* Trim timeline */}
+                                <div className="np-ve-section">
+                                    <label className="np-label">Trim</label>
+                                    <div
+                                        ref={timelineRef}
+                                        className="np-ve-timeline"
+                                        onClick={handleTimelineClick}
+                                    >
+                                        {/* Dimmed regions outside trim */}
+                                        <div className="np-ve-timeline__bg" />
+                                        <div
+                                            className="np-ve-timeline__range"
+                                            style={{
+                                                left: `${(trimStart / videoMeta.duration) * 100}%`,
+                                                width: `${((trimEnd - trimStart) / videoMeta.duration) * 100}%`,
+                                            }}
+                                        />
+                                        {/* Playhead */}
+                                        <div
+                                            className="np-ve-timeline__playhead"
+                                            style={{ left: `${(editorCurrentTime / videoMeta.duration) * 100}%` }}
+                                        />
+                                        {/* Start handle */}
+                                        <div
+                                            className="np-ve-timeline__handle np-ve-timeline__handle--start"
+                                            style={{ left: `${(trimStart / videoMeta.duration) * 100}%` }}
+                                            onMouseDown={(e) => { e.stopPropagation(); draggingHandle.current = 'start'; }}
+                                        />
+                                        {/* End handle */}
+                                        <div
+                                            className="np-ve-timeline__handle np-ve-timeline__handle--end"
+                                            style={{ left: `${(trimEnd / videoMeta.duration) * 100}%` }}
+                                            onMouseDown={(e) => { e.stopPropagation(); draggingHandle.current = 'end'; }}
+                                        />
+                                    </div>
+                                    <div className="np-ve-timeline__labels">
+                                        <span>{trimStart.toFixed(1)}s</span>
+                                        <span className="np-ve-timeline__duration">{(trimEnd - trimStart).toFixed(1)}s selected</span>
+                                        <span>{trimEnd.toFixed(1)}s</span>
+                                    </div>
+                                </div>
+
+                                {/* Resolution + FPS */}
+                                <div className="np-ve-row">
+                                    <div className="np-field np-field--grow">
+                                        <label className="np-label">Resolution</label>
+                                        <select
+                                            className="np-input"
+                                            value={scaleFactor}
+                                            onChange={(e) => setScaleFactor(parseFloat(e.target.value))}
+                                        >
+                                            {SCALE_OPTIONS.map(opt => (
+                                                <option key={opt.value} value={opt.value}>
+                                                    {opt.label} ({Math.floor(videoMeta.width * opt.value)}&times;{Math.floor(videoMeta.height * opt.value)})
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="np-field np-field--grow">
+                                        <label className="np-label">FPS</label>
+                                        <select
+                                            className="np-input"
+                                            value={customFps}
+                                            onChange={(e) => setCustomFps(parseInt(e.target.value, 10))}
+                                        >
+                                            {FPS_OPTIONS.map(fps => (
+                                                <option key={fps} value={fps}>{fps} fps</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                {/* Spritesheet budget */}
+                                <div className="np-ve-section">
+                                    <label className="np-label">Spritesheet Budget</label>
+                                    <div className={`budget-indicator ${budget?.fits ? 'budget-indicator--ok' : 'budget-indicator--exceeded'}`}>
+                                        {budget && (
+                                            <>
+                                                <div className="budget-indicator__summary">
+                                                    <span>{budget.totalFrames} frames</span>
+                                                    {budget.grid && (
+                                                        <>
+                                                            <span>{budget.grid.cols}&times;{budget.grid.rows} grid</span>
+                                                            <span>{budget.grid.sheetWidth}&times;{budget.grid.sheetHeight} px</span>
+                                                        </>
+                                                    )}
+                                                </div>
+                                                <div className="budget-indicator__bar-container">
+                                                    <div className="budget-indicator__bar">
+                                                        <div
+                                                            className="budget-indicator__fill"
+                                                            style={{ width: `${Math.min(100, budgetPercent)}%` }}
+                                                        />
+                                                    </div>
+                                                    <span className="budget-indicator__label">
+                                                        {budgetMaxDim.toLocaleString()} / 16,384
+                                                    </span>
+                                                </div>
+                                                {!budget.fits && (
+                                                    <div className="budget-indicator__warning">
+                                                        Exceeds 16,384 pixel limit.
+                                                        {budget.suggestedFrameCounts.length > 0 && (
+                                                            <> Try: lower resolution or shorter clip (fits at {budget.suggestedFrameCounts.slice(0, 3).join(', ')} frames)</>
+                                                        )}
+                                                    </div>
+                                                )}
+                                                {budget.fits && (
+                                                    <div className="budget-indicator__ok">Fits within texture limit</div>
+                                                )}
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Preview */}
+                                {previewUrl && (
+                                    <div className="video-preview-player">
+                                        <video
+                                            ref={previewVideoRef}
+                                            src={previewUrl}
+                                            muted loop autoPlay playsInline controls
+                                            className="video-preview-player__video"
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div className="np-ve-footer">
+                            <button
+                                className="btn btn--secondary btn--sm"
+                                onClick={generatePreview}
+                                disabled={isGeneratingPreview || !budget?.fits}
+                                title="Generate a preview with current settings"
+                            >
+                                {isGeneratingPreview ? 'Generating...' : 'Preview'}
+                            </button>
+                            <button className="np-btn np-btn--create" onClick={() => setVideoEditorOpen(false)}>
+                                Done
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* ─── Skin Picker Modal ─── */}
             {skinPickerOpen && selectedChampion && (
