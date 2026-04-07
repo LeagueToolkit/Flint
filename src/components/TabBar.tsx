@@ -4,7 +4,8 @@
  */
 
 import React, { useCallback } from 'react';
-import { useAppState } from '../lib/stores';
+import { useProjectTabStore, useNavigationStore, useWadExplorerStore, useWadExtractStore } from '../lib/stores';
+import { navigationCoordinator } from '../lib/stores/navigationCoordinator';
 import { getIcon } from '../lib/fileIcons';
 import type { ProjectTab, ExtractSession } from '../lib/types';
 
@@ -123,33 +124,39 @@ const ExtractTab: React.FC<ExtractTabProps> = ({ session, isActive, onSwitch, on
  * Tab bar component showing all open project tabs, WAD extract sessions, and WAD Explorer
  */
 export const TabBar: React.FC = () => {
-    const { state, dispatch } = useAppState();
+    const openTabs = useProjectTabStore((s) => s.openTabs);
+    const activeTabId = useProjectTabStore((s) => s.activeTabId);
+    const currentView = useNavigationStore((s) => s.currentView);
+    const isWadExplorerOpen = useWadExplorerStore((s) => s.isOpen);
+    const extractSessions = useWadExtractStore((s) => s.extractSessions);
+    const activeExtractId = useWadExtractStore((s) => s.activeExtractId);
 
     const handleSwitchTab = useCallback((tabId: string) => {
-        dispatch({ type: 'SWITCH_TAB', payload: tabId });
-    }, [dispatch]);
+        useProjectTabStore.getState().switchTab(tabId);
+        useNavigationStore.getState().setView('preview');
+    }, []);
 
     const handleCloseTab = useCallback((e: React.MouseEvent, tabId: string) => {
         e.stopPropagation();
-        dispatch({ type: 'REMOVE_TAB', payload: tabId });
-    }, [dispatch]);
+        navigationCoordinator.removeTabWithFallback(tabId);
+    }, []);
 
     const handleSwitchExtract = useCallback((sessionId: string) => {
-        dispatch({ type: 'SWITCH_EXTRACT_TAB', payload: sessionId });
-    }, [dispatch]);
+        useWadExtractStore.getState().switchSession(sessionId);
+        useNavigationStore.getState().setView('extract');
+    }, []);
 
     const handleCloseExtract = useCallback((e: React.MouseEvent, sessionId: string) => {
         e.stopPropagation();
-        dispatch({ type: 'CLOSE_EXTRACT_SESSION', payload: sessionId });
-    }, [dispatch]);
+        useWadExtractStore.getState().closeSession(sessionId);
+    }, []);
 
-    const isWadExplorerOpen = state.wadExplorer.isOpen;
-    const isWadExplorerActive = state.currentView === 'wad-explorer';
-    const isProjectActive = state.currentView === 'preview';
-    const isExtractActive = state.currentView === 'extract';
+    const isWadExplorerActive = currentView === 'wad-explorer';
+    const isProjectActive = currentView === 'preview';
+    const isExtractActive = currentView === 'extract';
 
     // Don't render if nothing is open
-    if (state.openTabs.length === 0 && state.extractSessions.length === 0 && !isWadExplorerOpen) {
+    if (openTabs.length === 0 && extractSessions.length === 0 && !isWadExplorerOpen) {
         return null;
     }
 
@@ -160,7 +167,7 @@ export const TabBar: React.FC = () => {
                 {isWadExplorerOpen && (
                     <div
                         className={`tabbar__tab ${isWadExplorerActive ? 'tabbar__tab--active' : ''}`}
-                        onClick={() => dispatch({ type: 'OPEN_WAD_EXPLORER' })}
+                        onClick={() => navigationCoordinator.openWadExplorer()}
                         title="WAD Explorer — unified game asset browser"
                     >
                         <span
@@ -170,7 +177,7 @@ export const TabBar: React.FC = () => {
                         <span className="tabbar__tab-name">WAD Explorer</span>
                         <button
                             className="tabbar__tab-close"
-                            onClick={e => { e.stopPropagation(); dispatch({ type: 'CLOSE_WAD_EXPLORER' }); }}
+                            onClick={e => { e.stopPropagation(); navigationCoordinator.closeWadExplorerWithFallback(); }}
                             title="Close WAD Explorer"
                         >
                             <svg viewBox="0 0 16 16" width="14" height="14">
@@ -180,20 +187,20 @@ export const TabBar: React.FC = () => {
                     </div>
                 )}
 
-                {state.openTabs.map(tab => (
+                {openTabs.map(tab => (
                     <Tab
                         key={tab.id}
                         tab={tab}
-                        isActive={tab.id === state.activeTabId && isProjectActive}
+                        isActive={tab.id === activeTabId && isProjectActive}
                         onSwitch={() => handleSwitchTab(tab.id)}
                         onClose={(e) => handleCloseTab(e, tab.id)}
                     />
                 ))}
-                {state.extractSessions.map(session => (
+                {extractSessions.map(session => (
                     <ExtractTab
                         key={session.id}
                         session={session}
-                        isActive={session.id === state.activeExtractId && isExtractActive}
+                        isActive={session.id === activeExtractId && isExtractActive}
                         onSwitch={() => handleSwitchExtract(session.id)}
                         onClose={(e) => handleCloseExtract(e, session.id)}
                     />

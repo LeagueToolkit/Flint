@@ -26,6 +26,7 @@ interface AppMetadataState {
   setHashInfo: (loaded: boolean, count: number) => void;
   setVerboseLogging: (enabled: boolean) => void;
   addLog: (level: LogEntry['level'], message: string) => void;
+  addLogsBatch: (entries: Array<{ level: LogEntry['level']; message: string }>) => void;
   clearLogs: () => void;
   toggleLogPanel: () => void;
   incrementFileVersion: (filePath: string) => void;
@@ -63,6 +64,16 @@ export const useAppMetadataStore = create<AppMetadataState>((set, get) => ({
       message,
     }].slice(-100), // Keep last 100
   })),
+  addLogsBatch: (entries) => set((state) => {
+    const now = Date.now();
+    const newEntries = entries.map(e => ({
+      id: ++logIdCounter,
+      timestamp: now,
+      level: e.level,
+      message: e.message,
+    }));
+    return { logs: [...state.logs, ...newEntries].slice(-100) };
+  }),
   clearLogs: () => set({ logs: [] }),
   toggleLogPanel: () => set((state) => ({ logPanelExpanded: !state.logPanelExpanded })),
   incrementFileVersion: (filePath) => {

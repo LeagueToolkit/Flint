@@ -3,14 +3,14 @@
  */
 
 import React, { useEffect, useRef } from 'react';
-import { useAppState } from '../lib/stores';
+import { useModalStore } from '../lib/stores';
 
 export const ContextMenu: React.FC = () => {
-    const { state, closeContextMenu } = useAppState();
+    const menu = useModalStore((s) => s.contextMenu);
+    const closeContextMenu = useModalStore((s) => s.closeContextMenu);
     const menuRef = useRef<HTMLDivElement>(null);
 
-    const isVisible = !!state.contextMenu;
-    const menu = state.contextMenu;
+    const isVisible = !!menu;
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {

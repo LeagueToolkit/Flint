@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { useAppState } from '../lib/stores';
+import { useProjectTabStore, useNavigationStore } from '../lib/stores';
 import { WelcomeScreen } from './WelcomeScreen';
 import { PreviewPanel } from './PreviewPanel';
 import { CheckpointTimeline } from './CheckpointTimeline';
@@ -42,12 +42,11 @@ const QuickActionCard: React.FC<QuickActionCardProps> = ({ icon, title, descript
 };
 
 const ProjectView: React.FC = () => {
-    const { state } = useAppState();
+    const activeTabId = useProjectTabStore((s) => s.activeTabId);
+    const openTabs = useProjectTabStore((s) => s.openTabs);
 
     // Get project from active tab
-    const activeTab = state.activeTabId
-        ? state.openTabs.find(t => t.id === state.activeTabId)
-        : null;
+    const activeTab = activeTabId ? openTabs.find(t => t.id === activeTabId) : null;
     const project = activeTab?.project || null;
 
     return (
@@ -75,10 +74,10 @@ const ProjectView: React.FC = () => {
 };
 
 export const CenterPanel: React.FC = () => {
-    const { state } = useAppState();
+    const currentView = useNavigationStore((s) => s.currentView);
 
     const renderView = () => {
-        switch (state.currentView) {
+        switch (currentView) {
             case 'welcome':
                 return <WelcomeScreen />;
             case 'preview':

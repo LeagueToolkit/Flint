@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { useAppState } from '../lib/stores';
+import { useNotificationStore } from '../lib/stores';
 import { getToastIcon } from '../lib/fileIcons';
 
 const ToastIcon: React.FC<{ type: string }> = ({ type }) => {
@@ -12,15 +12,16 @@ const ToastIcon: React.FC<{ type: string }> = ({ type }) => {
 };
 
 export const ToastContainer: React.FC = () => {
-    const { state, dismissToast } = useAppState();
+    const toasts = useNotificationStore((s) => s.toasts);
+    const dismissToast = useNotificationStore((s) => s.dismissToast);
 
-    if (state.toasts.length === 0) {
+    if (toasts.length === 0) {
         return null;
     }
 
     return (
         <div className="toast-container">
-            {state.toasts.map(toast => (
+            {toasts.map(toast => (
                 <div key={toast.id} className={`toast toast-${toast.type}`}>
                     <div className="toast-icon">
                         <ToastIcon type={toast.type} />

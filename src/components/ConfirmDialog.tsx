@@ -4,14 +4,13 @@
  */
 
 import React, { useEffect, useRef } from 'react';
-import { useAppState } from '../lib/stores';
+import { useModalStore } from '../lib/stores';
 
 export const ConfirmDialog: React.FC = () => {
-    const { state, closeConfirmDialog } = useAppState();
+    const dialog = useModalStore((s) => s.confirmDialog);
+    const closeConfirmDialog = useModalStore((s) => s.closeConfirmDialog);
     const dialogRef = useRef<HTMLDivElement>(null);
     const confirmBtnRef = useRef<HTMLButtonElement>(null);
-
-    const dialog = state.confirmDialog;
 
     // Focus the confirm button when dialog opens, handle Escape key
     useEffect(() => {

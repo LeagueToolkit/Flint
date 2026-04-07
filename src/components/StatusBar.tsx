@@ -4,8 +4,7 @@
  */
 
 import React, { useEffect, useRef } from 'react';
-import { useAppState } from '../lib/stores';
-import { useAppMetadataStore } from '../lib/stores/appMetadataStore';
+import { useAppMetadataStore, useNotificationStore } from '../lib/stores';
 import { setLogStore } from '../lib/logger';
 
 // SVG Icons
@@ -37,20 +36,25 @@ const TerminalIcon = () => (
 );
 
 export const LogPanel: React.FC = () => {
-    const { state, toggleLogPanel, clearLogs, showToast } = useAppState();
-    const { logs, logPanelExpanded } = state;
+    const logs = useAppMetadataStore((s) => s.logs);
+    const logPanelExpanded = useAppMetadataStore((s) => s.logPanelExpanded);
+    const status = useAppMetadataStore((s) => s.status);
+    const statusMessage = useAppMetadataStore((s) => s.statusMessage);
+    const toggleLogPanel = useAppMetadataStore((s) => s.toggleLogPanel);
+    const clearLogs = useAppMetadataStore((s) => s.clearLogs);
     const addLog = useAppMetadataStore((s) => s.addLog);
+    const addLogsBatch = useAppMetadataStore((s) => s.addLogsBatch);
+    const showToast = useNotificationStore((s) => s.showToast);
     const contentRef = useRef<HTMLDivElement>(null);
     const hasConnectedRef = useRef(false);
 
-    // Connect the logger to the store on mount
+    // Connect the logger to the store on mount (pass batch function for throttled flushing)
     useEffect(() => {
         if (hasConnectedRef.current) return;
         hasConnectedRef.current = true;
 
-        // Give the logger direct access to the store's addLog function
-        setLogStore(addLog);
-    }, [addLog]);
+        setLogStore(addLog, addLogsBatch);
+    }, [addLog, addLogsBatch]);
 
     // Auto-scroll to bottom when new logs appear
     useEffect(() => {
@@ -61,7 +65,7 @@ export const LogPanel: React.FC = () => {
 
     // Get the latest log message or default
     const latestLog = logs.length > 0 ? logs[logs.length - 1] : null;
-    const displayMessage = latestLog ? latestLog.message : state.statusMessage || 'Ready';
+    const displayMessage = latestLog ? latestLog.message : statusMessage || 'Ready';
     const displayLevel = latestLog?.level || 'info';
 
     // Format timestamp
@@ -102,7 +106,7 @@ export const LogPanel: React.FC = () => {
     // Get indicator class based on latest log level
     const getIndicatorClass = () => {
         if (!latestLog) {
-            switch (state.status) {
+            switch (status) {
                 case 'working':
                     return 'log-panel__indicator--working';
                 case 'error':

@@ -3,15 +3,15 @@
  */
 
 import React, { useState, useMemo, useCallback, useRef, useEffect, CSSProperties } from 'react';
-import { useAppState, useAppMetadataStore } from '../lib/stores';
+import { useAppMetadataStore, useProjectTabStore, useModalStore, useNotificationStore, useConfigStore, useNavigationStore } from '../lib/stores';
 import { getFileIcon, getExpanderIcon, getIcon } from '../lib/fileIcons';
 import * as api from '../lib/api';
 import type { FileTreeNode, ProjectTab, ContextMenuOption } from '../lib/types';
 
-// Helper to get active tab
-function getActiveTab(state: { activeTabId: string | null; openTabs: ProjectTab[] }): ProjectTab | null {
-    if (!state.activeTabId) return null;
-    return state.openTabs.find(t => t.id === state.activeTabId) || null;
+// Helper to get active tab from projectTabStore state
+function getActiveTab(activeTabId: string | null, openTabs: ProjectTab[]): ProjectTab | null {
+    if (!activeTabId) return null;
+    return openTabs.find(t => t.id === activeTabId) || null;
 }
 
 interface LeftPanelProps {
@@ -19,10 +19,11 @@ interface LeftPanelProps {
 }
 
 export const LeftPanel: React.FC<LeftPanelProps> = ({ style }) => {
-    const { state } = useAppState();
+    const activeTabId = useProjectTabStore((s) => s.activeTabId);
+    const openTabs = useProjectTabStore((s) => s.openTabs);
     const [searchQuery, setSearchQuery] = useState('');
 
-    const activeTab = getActiveTab(state);
+    const activeTab = getActiveTab(activeTabId, openTabs);
     const hasProject = !!activeTab;
 
     if (!hasProject) {
@@ -50,10 +51,15 @@ interface FileTreeProps {
 }
 
 const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
-    const { state, dispatch } = useAppState();
+    const activeTabId = useProjectTabStore((s) => s.activeTabId);
+    const openTabs = useProjectTabStore((s) => s.openTabs);
+    const toggleFolder = useProjectTabStore((s) => s.toggleFolder);
+    const setFileTree = useProjectTabStore((s) => s.setFileTree);
+    const setSelectedFile = useProjectTabStore((s) => s.setSelectedFile);
+    const bulkSetFolders = useProjectTabStore((s) => s.bulkSetFolders);
 
     // Get active tab for file tree data
-    const activeTab = getActiveTab(state);
+    const activeTab = getActiveTab(activeTabId, openTabs);
     const fileTree = activeTab?.fileTree || null;
     const selectedFile = activeTab?.selectedFile || null;
     const expandedFolders = activeTab?.expandedFolders || new Set<string>();
@@ -63,7 +69,7 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
     useEffect(() => {
         if (!activeTab || fileTreeVersion === 0) return;
         api.listProjectFiles(activeTab.projectPath).then((files) => {
-            dispatch({ type: 'SET_FILE_TREE', payload: files });
+            setFileTree(activeTab.id, files);
         }).catch(() => {});
     }, [fileTreeVersion]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -72,22 +78,18 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
 
     const handleItemClick = useCallback((path: string, isFolder: boolean) => {
         if (isFolder) {
-            dispatch({ type: 'TOGGLE_FOLDER', payload: path });
+            if (activeTab) toggleFolder(activeTab.id, path);
         } else {
-            // Update selected file on active tab
             if (activeTab) {
-                dispatch({
-                    type: 'SET_TAB_SELECTED_FILE',
-                    payload: { tabId: activeTab.id, filePath: path }
-                });
-                dispatch({ type: 'SET_STATE', payload: { currentView: 'preview' } });
+                setSelectedFile(activeTab.id, path);
+                useNavigationStore.getState().setView('preview');
             }
         }
-    }, [dispatch, activeTab]);
+    }, [activeTab, toggleFolder, setSelectedFile]);
 
     const handleDeepToggle = useCallback((paths: string[], expand: boolean) => {
-        dispatch({ type: 'BULK_SET_FOLDERS', payload: { paths, expand } });
-    }, [dispatch]);
+        if (activeTab) bulkSetFolders(activeTab.id, paths, expand);
+    }, [activeTab, bulkSetFolders]);
 
     const filteredTree = useMemo(() => {
         if (!fileTree || !searchQuery) return fileTree;
@@ -113,6 +115,7 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
                 onDeepToggle={handleDeepToggle}
                 renamingPath={renamingPath}
                 setRenamingPath={setRenamingPath}
+                projectPath={activeTab?.projectPath || ''}
             />
         </div>
     );
@@ -127,6 +130,7 @@ interface TreeNodeProps {
     onDeepToggle: (paths: string[], expand: boolean) => void;
     renamingPath: string | null;
     setRenamingPath: (path: string | null) => void;
+    projectPath: string;
 }
 
 // Compact folders: merge single-child directory chains into one label
@@ -175,12 +179,13 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
     onDeepToggle,
     renamingPath,
     setRenamingPath,
+    projectPath,
 }) => {
-    const { state, dispatch, openModal, openContextMenu, openConfirmDialog, showToast } = useAppState();
+    const openModal = useModalStore((s) => s.openModal);
+    const openContextMenu = useModalStore((s) => s.openContextMenu);
+    const openConfirmDialog = useModalStore((s) => s.openConfirmDialog);
+    const showToast = useNotificationStore((s) => s.showToast);
     const renameInputRef = useRef<HTMLInputElement>(null);
-
-    // Subscribe to file statuses for VFS indicators
-    const fileStatuses = useAppMetadataStore((s) => s.fileStatuses);
 
     // Apply compact-folder merging
     const { displayPath, effectiveNode } = node.isDirectory ? compactNode(node) : { displayPath: node.name, effectiveNode: node };
@@ -188,8 +193,9 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
     const isSelected = selectedFile === effectiveNode.path;
     const isRenaming = renamingPath === effectiveNode.path;
 
-    const activeTab = getActiveTab(state);
-    const projectPath = activeTab?.projectPath || '';
+    // Subscribe to file status for THIS node only (not all statuses)
+    const fullPath = projectPath ? `${projectPath}/${effectiveNode.path}`.replaceAll('\\', '/') : '';
+    const fileStatus = useAppMetadataStore((s) => s.fileStatuses[fullPath]);
 
     // Focus rename input when it appears
     useEffect(() => {
@@ -208,9 +214,10 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
     }, [isRenaming]);
 
     const refreshFileTree = async () => {
-        if (!activeTab) return;
-        const files = await api.listProjectFiles(activeTab.projectPath);
-        dispatch({ type: 'SET_FILE_TREE', payload: files });
+        if (!projectPath) return;
+        const files = await api.listProjectFiles(projectPath);
+        const { activeTabId } = useProjectTabStore.getState();
+        if (activeTabId) useProjectTabStore.getState().setFileTree(activeTabId, files);
     };
 
     const handleClick = (e: React.MouseEvent) => {
@@ -500,9 +507,6 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
     const icon = getFileIcon(effectiveNode.name, effectiveNode.isDirectory, isExpanded);
     const expanderIcon = getExpanderIcon(isExpanded);
 
-    // Get file status for VFS indicator (need full project path)
-    const fullPath = activeTab ? `${activeTab.projectPath}/${effectiveNode.path}`.replaceAll('\\', '/') : '';
-    const fileStatus = fileStatuses[fullPath];
     const statusClass = fileStatus ? `file-tree__item--${fileStatus}` : '';
 
     return (
@@ -569,6 +573,7 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
                             onDeepToggle={onDeepToggle}
                             renamingPath={renamingPath}
                             setRenamingPath={setRenamingPath}
+                            projectPath={projectPath}
                         />
                     ))}
                 </div>
@@ -578,7 +583,9 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
 });
 
 const ProjectsPanel: React.FC = () => {
-    const { state, dispatch, openModal, setWorking, setReady, setError } = useAppState();
+    const openModal = useModalStore((s) => s.openModal);
+    const recentProjects = useConfigStore((s) => s.recentProjects);
+    const { setWorking, setReady, setError } = useAppMetadataStore();
 
     const handleOpenProject = async (projectPath: string) => {
         try {
@@ -593,10 +600,22 @@ const ProjectsPanel: React.FC = () => {
 
             const project = await api.openProject(normalizedPath);
 
-            dispatch({ type: 'SET_PROJECT', payload: { project, path: normalizedPath } });
+            // Add tab + switch to preview
+            useProjectTabStore.getState().addTab(project, normalizedPath);
+            useNavigationStore.getState().setView('preview');
+
+            // Auto-save to saved projects list
+            useConfigStore.getState().addSavedProject({
+                id: `proj-${Date.now()}`,
+                name: project.display_name || project.name,
+                champion: project.champion,
+                path: normalizedPath,
+                lastOpened: new Date().toISOString(),
+            });
 
             const files = await api.listProjectFiles(normalizedPath);
-            dispatch({ type: 'SET_FILE_TREE', payload: files });
+            const tabId = useProjectTabStore.getState().activeTabId;
+            if (tabId) useProjectTabStore.getState().setFileTree(tabId, files);
 
             // Clear file statuses when opening a new project
             useAppMetadataStore.getState().clearFileStatuses();
@@ -621,7 +640,7 @@ const ProjectsPanel: React.FC = () => {
                 />
             </div>
             <div className="projects-panel__list">
-                {state.recentProjects.length === 0 ? (
+                {recentProjects.length === 0 ? (
                     <div className="projects-panel__empty">
                         <p>No recent projects</p>
                         <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
@@ -629,7 +648,7 @@ const ProjectsPanel: React.FC = () => {
                         </p>
                     </div>
                 ) : (
-                    state.recentProjects.map((project) => (
+                    recentProjects.map((project) => (
                         <div
                             key={project.path}
                             className="projects-panel__item"

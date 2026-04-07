@@ -7,23 +7,47 @@
 import type { LogEntry } from './types';
 
 // Direct import of the store - no dispatcher pattern needed
-let addLogToStore: ((level: LogEntry['level'], message: string) => void) | null = null;
+let addLogBatchToStore: ((entries: Array<{ level: LogEntry['level']; message: string }>) => void) | null = null;
 
-/**
- * Set the store's addLog function (called once when store is ready)
- */
-export function setLogStore(addLog: (level: LogEntry['level'], message: string) => void) {
-    addLogToStore = addLog;
+// Batched log buffer — collects logs and flushes to store at most every 250ms.
+// This prevents each console.log/Rust tracing event from triggering a separate
+// zustand store update and re-render cascade across all subscribed components.
+let logBuffer: Array<{ level: LogEntry['level']; message: string }> = [];
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+const LOG_FLUSH_INTERVAL = 250; // ms
+
+function flushLogBuffer() {
+    flushTimer = null;
+    if (logBuffer.length === 0 || !addLogBatchToStore) return;
+    const entries = logBuffer;
+    logBuffer = [];
+    addLogBatchToStore(entries);
 }
 
 /**
- * Add a log entry directly to the store
+ * Set the store's log function (called once when store is ready).
+ * Accepts either addLogsBatch (preferred, single store update) or addLog (fallback).
+ */
+export function setLogStore(
+    addLog: (level: LogEntry['level'], message: string) => void,
+    addLogsBatch?: (entries: Array<{ level: LogEntry['level']; message: string }>) => void,
+) {
+    addLogBatchToStore = addLogsBatch ?? ((entries) => {
+        for (const e of entries) addLog(e.level, e.message);
+    });
+    // Flush any entries that were buffered before store was ready
+    if (logBuffer.length > 0) flushLogBuffer();
+}
+
+/**
+ * Add a log entry — buffered to reduce re-renders.
+ * Flushes at most every LOG_FLUSH_INTERVAL ms.
  */
 function addLogEntry(level: LogEntry['level'], message: string) {
-    if (addLogToStore) {
-        addLogToStore(level, message);
+    logBuffer.push({ level, message });
+    if (!flushTimer) {
+        flushTimer = setTimeout(flushLogBuffer, LOG_FLUSH_INTERVAL);
     }
-    // If store not ready yet, just drop the log (rare, only very early logs)
 }
 
 // Store original console methods

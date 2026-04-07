@@ -180,45 +180,56 @@ export const App: React.FC = () => {
 
         const unlistenFileChanged = listen<{ path: string; kind: string }>('file-changed', (event) => {
             const { path: changedPath, kind } = event.payload;
-            console.log(`[Hot Reload] ${kind}: ${changedPath}`);
 
-            // For create/remove events, refresh the file tree
-            if (kind === 'create' || kind === 'remove') {
-                useAppMetadataStore.getState().incrementFileTreeVersion();
-            }
-
-            // Track file status for VFS indicators
-            if (kind === 'create') {
-                useAppMetadataStore.getState().setFileStatus(changedPath, 'new');
-            } else if (kind === 'modify') {
-                const currentStatus = useAppMetadataStore.getState().fileStatuses[changedPath.replaceAll('\\', '/')];
-                // If already marked as 'new', keep it as 'new'. Otherwise mark as 'modified'
-                if (currentStatus !== 'new') {
-                    useAppMetadataStore.getState().setFileStatus(changedPath, 'modified');
-                }
-            } else if (kind === 'remove') {
-                useAppMetadataStore.getState().setFileStatus(changedPath, null);
-            }
-
-            // Invalidate cache for the changed file
+            // Invalidate image cache (no store update, pure cache op)
             invalidateCachedImage(changedPath);
 
-            // Increment file version to trigger re-render in preview components
-            useAppMetadataStore.getState().incrementFileVersion(changedPath);
+            // Batch all store updates into a single zustand set() call to avoid
+            // multiple re-render cascades per file change event.
+            const store = useAppMetadataStore.getState();
+            const key = changedPath.replaceAll('\\', '/');
 
-            // Cascading reload: if a texture changed, also reload any model currently being previewed
+            // Build the partial update object
+            const updates: Partial<{
+                fileTreeVersion: number;
+                fileVersions: Record<string, number>;
+                fileStatuses: Record<string, 'new' | 'modified'>;
+            }> = {};
+
+            // File tree version (create/remove)
+            if (kind === 'create' || kind === 'remove') {
+                updates.fileTreeVersion = store.fileTreeVersion + 1;
+            }
+
+            // File status (VFS indicators)
+            if (kind === 'create') {
+                updates.fileStatuses = { ...store.fileStatuses, [key]: 'new' };
+            } else if (kind === 'modify') {
+                if (store.fileStatuses[key] !== 'new') {
+                    updates.fileStatuses = { ...store.fileStatuses, [key]: 'modified' };
+                }
+            } else if (kind === 'remove') {
+                const { [key]: _, ...rest } = store.fileStatuses;
+                updates.fileStatuses = rest;
+            }
+
+            // File version for preview hot reload
+            const newVersions = { ...store.fileVersions, [key]: (store.fileVersions[key] || 0) + 1 };
+
+            // Cascading reload: if a texture changed, also bump the model version
             if (isTextureFile(changedPath)) {
                 const activeTab = getActiveTab(stateRef.current);
                 if (activeTab?.selectedFile) {
-                    // Normalize to forward slashes — watcher uses '/', but Windows projectPath may use '\'
                     const selectedFilePath = `${activeTab.projectPath}/${activeTab.selectedFile}`.replaceAll('\\', '/');
-                    const lower = selectedFilePath.toLowerCase();
-                    if (MODEL_EXTS.some(ext => lower.endsWith(ext))) {
-                        console.log('[Hot Reload] Texture changed → cascading reload to model:', selectedFilePath);
-                        useAppMetadataStore.getState().incrementFileVersion(selectedFilePath);
+                    if (MODEL_EXTS.some(ext => selectedFilePath.toLowerCase().endsWith(ext))) {
+                        newVersions[selectedFilePath] = (store.fileVersions[selectedFilePath] || 0) + 1;
                     }
                 }
             }
+            updates.fileVersions = newVersions;
+
+            // Single store update → single re-render cycle
+            useAppMetadataStore.setState(updates);
         });
 
         return () => {
