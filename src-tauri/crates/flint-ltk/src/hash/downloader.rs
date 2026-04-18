@@ -24,8 +24,6 @@ const RELEASE_API_URL: &str =
     "https://api.github.com/repos/LeagueToolkit/lmdb-hashes/releases/latest";
 const META_FILE_NAME: &str = "hashes-meta.json";
 const USER_AGENT: &str = "flint-hash-manager";
-/// Skip the GitHub API call entirely if meta was updated within this window.
-const AUTO_SYNC_FRESHNESS: Duration = Duration::from_secs(30 * 60); // 30 minutes
 
 /// A single LMDB asset published by lmdb-hashes.
 struct Asset {
@@ -98,18 +96,21 @@ pub fn hashes_present(hash_dir: &Path) -> bool {
 /// Download hash databases from `lmdb-hashes` GitHub releases.
 ///
 /// # Behaviour
-/// - Hits the `releases/latest` endpoint to discover the current tag and asset URLs.
-/// - For each asset, skips the download when the local `data.mdb` exists and its
-///   stored release tag matches the latest — unless `force` is true.
-/// - Downloads `.zst` to a temp file, decompresses to `data.mdb`, then deletes the temp.
-/// - Writes `hashes-meta.json` with the tag + timestamps.
+/// - If `force == false` and both LMDB `data.mdb` files are already on disk,
+///   returns immediately without touching the network — this is the common
+///   case on every startup after the first.
+/// - Otherwise hits `releases/latest` to discover the current tag, then
+///   downloads any missing assets (or re-downloads all when `force == true`).
+/// - Downloads `.zst` into memory, decompresses to `data.mdb.tmp`, then
+///   atomically renames over `data.mdb`.
+/// - Writes `hashes-meta.json` with the tag + timestamp.
 ///
-/// When `force` is `false` and the meta file says we checked within the last
-/// 30 minutes, the GitHub API call is skipped entirely.
+/// Re-checking for a newer tag only happens when the user explicitly clicks
+/// "Reload hashes" (`reload_hashes` / `force_rebuild_hashes` commands).
 pub async fn download_hashes(output_dir: impl AsRef<Path>, force: bool) -> Result<DownloadStats> {
     let output_dir = output_dir.as_ref();
 
-    tracing::info!("Hash dir: {}", output_dir.display());
+    tracing::debug!("Hash dir: {}", output_dir.display());
     fs::create_dir_all(output_dir).await.map_err(|e| {
         tracing::error!("Failed to create hash dir '{}': {}", output_dir.display(), e);
         e
@@ -117,9 +118,11 @@ pub async fn download_hashes(output_dir: impl AsRef<Path>, force: bool) -> Resul
 
     let mut stats = DownloadStats { downloaded: 0, skipped: 0, errors: 0 };
 
-    // Fast path: if meta is fresh and both LMDBs exist, skip the API entirely.
-    if !force && hashes_present(output_dir) && auto_sync_fresh(output_dir).await {
-        tracing::info!("Hash databases are fresh — skipping GitHub check");
+    // Fast path: LMDBs already on disk and caller didn't force a refresh.
+    // Skip the GitHub API entirely — a startup that finds its hashes should
+    // not hit the network. Users can re-check via the reload commands.
+    if !force && hashes_present(output_dir) {
+        tracing::info!("Hash databases already present — skipping check");
         stats.skipped = ASSETS.len();
         return Ok(stats);
     }
@@ -268,14 +271,6 @@ async fn write_meta(hash_dir: &Path, meta: &HashesMeta) {
             tracing::warn!("Failed to write {}: {}", META_FILE_NAME, e);
         }
     }
-}
-
-async fn auto_sync_fresh(hash_dir: &Path) -> bool {
-    let meta = read_meta(hash_dir).await;
-    let Some(ts) = meta.updated_at.as_deref() else { return false };
-    let Ok(updated) = chrono::DateTime::parse_from_rfc3339(ts) else { return false };
-    let age = chrono::Utc::now().signed_duration_since(updated.with_timezone(&chrono::Utc));
-    age.num_seconds().is_positive() && age.num_seconds() <= AUTO_SYNC_FRESHNESS.as_secs() as i64
 }
 
 fn now_iso() -> String {

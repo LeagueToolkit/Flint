@@ -38,6 +38,11 @@ function getActiveTab(state: { activeTabId: string | null; openTabs: Array<{ id:
     return state.openTabs.find(t => t.id === state.activeTabId) || null;
 }
 
+// Module-level guard: React.StrictMode double-mounts in dev, which would run
+// startup effects (hydrate, league detection, update check) twice. This flag
+// ensures the one-shot startup sequence runs exactly once per process.
+let startupRan = false;
+
 export const App: React.FC = () => {
     const { state, openModal, closeModal, setWorking, setReady, showToast } = useAppState();
     const [leftPanelWidth, setLeftPanelWidth] = useState(280);
@@ -90,11 +95,16 @@ export const App: React.FC = () => {
             }
         });
 
-        // Hydrate settings from disk (migrates localStorage if needed), then load data
-        useConfigStore.getState().hydrate().then(() => {
-            loadInitialData();
-            cleanStaleProjects();
-        });
+        // Hydrate settings from disk (migrates localStorage if needed), then load data.
+        // Guarded against StrictMode double-invoke — the second mount must not re-fire
+        // detect_league, hash checks, or update pings if they already ran.
+        if (!startupRan) {
+            startupRan = true;
+            useConfigStore.getState().hydrate().then(() => {
+                loadInitialData();
+                cleanStaleProjects();
+            });
+        }
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Manage file watcher for auto-sync
@@ -252,7 +262,10 @@ export const App: React.FC = () => {
                 pollHashStatus();
             }
 
-            if (!state.leaguePath) {
+            // Read from the store's live state — the React `state` closure was
+            // captured at render time (before `hydrate()` populated leaguePath),
+            // so we'd always detect again. The store has the fresh value.
+            if (!useConfigStore.getState().leaguePath) {
                 try {
                     const leagueResult = await api.detectLeague();
                     if (leagueResult.path) {
