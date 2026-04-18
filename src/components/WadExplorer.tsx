@@ -13,7 +13,7 @@
 import React, {
     useState, useCallback, useEffect, useRef, useMemo,
 } from 'react';
-import { useAppState } from '../lib/stores';
+import { useAppState, useConfigStore } from '../lib/stores';
 import * as api from '../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
 import { getIcon, getFileIcon } from '../lib/fileIcons';
@@ -952,16 +952,27 @@ export const WadExplorer: React.FC = () => {
     // Plain text search filters WADs by name; regex search filters file paths
     const isWadNameSearch = trimmed.length > 0 && !isRegex;
 
+    // ── PBE / Live branch toggle ────────────────────────────────────────────
+    // The store only holds one wads list at a time. We snapshot it per branch
+    // in a ref so toggling between PBE and Live is instant — no rescan, and
+    // already-loaded chunks survive (vfsCacheRef is keyed by absolute WAD path,
+    // so PBE and Live entries coexist there naturally without conflict).
+    const configStore = useConfigStore();
+    const [branch, setBranch] = useState<'live' | 'pbe'>('live');
+    const branchSnapshotRef = useRef<Map<'live' | 'pbe', {
+        wads: WadExplorerWad[];
+        scanStatus: 'idle' | 'scanning' | 'ready' | 'error';
+        scanError: string | null;
+    }>>(new Map());
+
+    const effectiveLeagueRoot = branch === 'pbe' ? configStore.leaguePathPbe : state.leaguePath;
+    const effectiveGamePath = effectiveLeagueRoot ? `${effectiveLeagueRoot}/Game` : null;
+
     // ── Scan on mount if not yet scanned ────────────────────────────────────
     useEffect(() => {
         if (wadExplorer.scanStatus !== 'idle') return;
-
-        const gamePath = state.leaguePath ? `${state.leaguePath}/Game` : null;
-        if (!gamePath) {
-            // Let the user provide the path inline
-            return;
-        }
-        runScan(gamePath);
+        if (!effectiveGamePath) return; // user must pick a folder
+        runScan(effectiveGamePath);
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     const runScan = async (gamePath: string) => {
@@ -980,6 +991,58 @@ export const WadExplorer: React.FC = () => {
         if (!picked) return;
         await runScan(picked as string);
     };
+
+    const handleSwitchBranch = useCallback((next: 'live' | 'pbe') => {
+        if (next === branch) return;
+
+        if (next === 'pbe' && !configStore.leaguePathPbe) {
+            showToast('error', 'No PBE League path configured. Open Settings (Ctrl+,) to set one.');
+            return;
+        }
+
+        // Snapshot the current branch's full state before swapping.
+        branchSnapshotRef.current.set(branch, {
+            wads: wadExplorer.wads,
+            scanStatus: wadExplorer.scanStatus,
+            scanError: wadExplorer.scanError,
+        });
+
+        setBranch(next);
+
+        // Restore cached snapshot for the new branch if we have one — instant swap.
+        const cached = branchSnapshotRef.current.get(next);
+        if (cached && cached.scanStatus === 'ready' && cached.wads.length > 0) {
+            // setScan remaps every wad to {status:'idle', chunks:[]}, so seed the
+            // base list first, then re-apply the cached loaded chunks per WAD.
+            const baseWads = cached.wads.map(w => ({
+                path: w.path,
+                name: w.name,
+                category: w.category,
+            }));
+            dispatch({
+                type: 'SET_WAD_EXPLORER_SCAN',
+                payload: { status: 'ready', wads: baseWads },
+            });
+            const loaded = cached.wads.filter(w => w.status === 'loaded' && w.chunks.length > 0);
+            if (loaded.length > 0) {
+                dispatch({
+                    type: 'BATCH_SET_WAD_STATUSES',
+                    payload: loaded.map(w => ({ wadPath: w.path, status: 'loaded' as const, chunks: w.chunks })),
+                });
+            }
+            return;
+        }
+
+        // No cache for this branch yet — fresh scan against the new path.
+        const nextRoot = next === 'pbe' ? configStore.leaguePathPbe : state.leaguePath;
+        const nextGamePath = nextRoot ? `${nextRoot}/Game` : null;
+        if (!nextGamePath) {
+            dispatch({ type: 'SET_WAD_EXPLORER_SCAN', payload: { status: 'idle' } });
+            return;
+        }
+        runScan(nextGamePath);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [branch, configStore.leaguePathPbe, state.leaguePath, wadExplorer.wads, wadExplorer.scanStatus, wadExplorer.scanError]);
 
     // ── Lazy WAD loading: load on-demand when WAD is expanded ─────────────────
     // This is MUCH faster than bulk-loading all 457 WADs upfront (was 15+ seconds).
@@ -1798,10 +1861,32 @@ export const WadExplorer: React.FC = () => {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
                         <span dangerouslySetInnerHTML={{ __html: getIcon('wad') }} />
                         <span style={{ fontSize: '12px', fontWeight: 600, flex: 1 }}>WAD Explorer</span>
+                        {/* Live / PBE branch toggle. Cached snapshots make swapping instant. */}
+                        <div
+                            className="wad-explorer__branch-toggle"
+                            role="tablist"
+                            aria-label="WAD source branch"
+                            title={configStore.leaguePathPbe
+                                ? 'Switch between Live and PBE game folders. Cached on swap.'
+                                : 'Set a PBE League path in Settings (Ctrl+,) to enable PBE.'}
+                        >
+                            <button
+                                role="tab"
+                                aria-selected={branch === 'live'}
+                                className={`wad-explorer__branch-btn${branch === 'live' ? ' wad-explorer__branch-btn--active' : ''}`}
+                                onClick={() => handleSwitchBranch('live')}
+                            >Live</button>
+                            <button
+                                role="tab"
+                                aria-selected={branch === 'pbe'}
+                                className={`wad-explorer__branch-btn${branch === 'pbe' ? ' wad-explorer__branch-btn--active' : ''}${!configStore.leaguePathPbe ? ' wad-explorer__branch-btn--disabled' : ''}`}
+                                onClick={() => handleSwitchBranch('pbe')}
+                            >PBE</button>
+                        </div>
                         {wadExplorer.scanStatus === 'scanning' && (
                             <span style={{ fontSize: '10px', color: 'var(--text-muted)', opacity: 0.7 }}>Scanning…</span>
                         )}
-                        {wadExplorer.scanStatus === 'idle' && !state.leaguePath && (
+                        {wadExplorer.scanStatus === 'idle' && !effectiveLeagueRoot && (
                             <button className="btn btn--sm" onClick={handlePickGamePath} title="Select game folder" style={{ fontSize: '10px', padding: '2px 6px' }}>
                                 Pick folder
                             </button>
@@ -1863,7 +1948,7 @@ export const WadExplorer: React.FC = () => {
 
                 {/* Tree / scan states */}
                 <div className="file-tree" style={{ flex: 1, overflow: 'hidden', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-                    {wadExplorer.scanStatus === 'idle' && state.leaguePath && (
+                    {wadExplorer.scanStatus === 'idle' && effectiveLeagueRoot && (
                         <div style={{ padding: '16px', color: 'var(--text-muted)', fontSize: '12px' }}>Preparing scan…</div>
                     )}
                     {wadExplorer.scanStatus === 'scanning' && (
@@ -1878,10 +1963,14 @@ export const WadExplorer: React.FC = () => {
                             <button className="btn btn--sm" onClick={handlePickGamePath}>Pick game folder</button>
                         </div>
                     )}
-                    {wadExplorer.scanStatus === 'idle' && !state.leaguePath && (
+                    {wadExplorer.scanStatus === 'idle' && !effectiveLeagueRoot && (
                         <div style={{ padding: '16px' }}>
-                            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' }}>No League path configured.</div>
-                            <button className="btn btn--sm btn--primary" onClick={handlePickGamePath}>Select Game Folder</button>
+                            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                                {branch === 'pbe' ? 'No PBE League path configured.' : 'No League path configured.'}
+                            </div>
+                            <button className="btn btn--sm btn--primary" onClick={handlePickGamePath}>
+                                Select {branch === 'pbe' ? 'PBE ' : ''}Game Folder
+                            </button>
                         </div>
                     )}
 

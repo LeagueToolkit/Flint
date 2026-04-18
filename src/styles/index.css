@@ -2421,6 +2421,53 @@ input.np-search:focus {
   flex: 1 1 auto;
 }
 
+/* ─── WAD Explorer Live/PBE branch toggle ─── */
+.wad-explorer__branch-toggle {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #252525;
+  border-radius: 999px;
+  padding: 1px;
+  background: #0f0f0f;
+  user-select: none;
+}
+
+.wad-explorer__branch-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  font-family: var(--font-sans);
+}
+
+.wad-explorer__branch-btn:hover:not(.wad-explorer__branch-btn--active):not(.wad-explorer__branch-btn--disabled) {
+  color: var(--text-primary);
+}
+
+.wad-explorer__branch-btn--active {
+  background: linear-gradient(135deg, #1a1a1a 0%, #232323 100%);
+  color: var(--text-primary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+.wad-explorer__branch-btn--active[aria-selected="true"]:nth-child(2) {
+  /* PBE active — accent the orange/red Riot-PBE vibe */
+  background: linear-gradient(135deg, #b8431a 0%, #d65a2a 100%);
+  color: #fff;
+}
+
+.wad-explorer__branch-btn--disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 /* ─── PBE Toggle (footer left) ─── */
 .np-pbe-toggle {
   display: inline-flex;
