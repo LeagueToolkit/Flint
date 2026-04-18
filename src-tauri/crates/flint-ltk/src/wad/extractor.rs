@@ -172,6 +172,51 @@ pub fn extract_all(
     Ok(extracted_count)
 }
 
+/// Check whether a champion WAD contains the main skin BIN for the given skin ID.
+///
+/// Riot stores the skin definition at `data/characters/{champion_lower}/skins/skin{ID}.bin`
+/// (or zero-padded `skin{ID:02}.bin`). If neither chunk hash exists in the WAD's TOC,
+/// the local install does not ship this skin — typically because a PBE client is behind
+/// the patch that introduced it. This is fast: only the WAD TOC is read.
+pub fn wad_contains_skin_bin(
+    wad_path: impl AsRef<Path>,
+    champion: &str,
+    skin_id: u32,
+) -> Result<bool> {
+    let wad_path = wad_path.as_ref();
+    let champion_lower = champion.to_lowercase();
+
+    let candidate_paths = [
+        format!("data/characters/{}/skins/skin{}.bin", champion_lower, skin_id),
+        format!("data/characters/{}/skins/skin{:02}.bin", champion_lower, skin_id),
+    ];
+    let candidate_hashes: Vec<u64> = candidate_paths
+        .iter()
+        .map(|p| xxhash_rust::xxh64::xxh64(p.as_bytes(), 0))
+        .collect();
+
+    let file = File::open(wad_path)
+        .map_err(|e| Error::io_with_path(e, wad_path))?;
+    let mmap = unsafe { Mmap::map(&file) }
+        .map_err(|e| Error::Wad {
+            message: format!("Failed to mmap WAD: {}", e),
+            path: Some(wad_path.to_path_buf()),
+        })?;
+    let wad = Wad::mount(Cursor::new(&mmap[..]))
+        .map_err(|e| Error::Wad {
+            message: format!("Failed to mount WAD: {}", e),
+            path: Some(wad_path.to_path_buf()),
+        })?;
+
+    for chunk in wad.chunks().iter() {
+        let h = chunk.path_hash();
+        if candidate_hashes.contains(&h) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// Find the champion WAD file in a League installation
 /// 
 /// # Arguments

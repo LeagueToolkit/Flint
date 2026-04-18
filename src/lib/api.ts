@@ -227,6 +227,7 @@ interface CreateProjectParams {
     leaguePath: string;
     creatorName?: string;
     useJade?: boolean;
+    isPbe?: boolean;
 }
 
 export async function createProject(params: CreateProjectParams): Promise<Project> {
@@ -238,6 +239,7 @@ export async function createProject(params: CreateProjectParams): Promise<Projec
         leaguePath: params.leaguePath,
         creatorName: params.creatorName,
         useJade: params.useJade,
+        isPbe: params.isPbe,
     });
 }
 

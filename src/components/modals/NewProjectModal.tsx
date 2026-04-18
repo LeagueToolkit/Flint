@@ -51,6 +51,9 @@ export const NewProjectModal: React.FC = () => {
     const [splashLoaded, setSplashLoaded] = useState(false);
     const [skinPickerOpen, setSkinPickerOpen] = useState(false);
     const [cacheReady, setCacheReady] = useState(0); // bumped when preload batches finish
+    const [usePbe, setUsePbe] = useState(false);
+    const cdragonBranch: 'pbe' | 'latest' = usePbe ? 'pbe' : 'latest';
+    const effectiveLeaguePath = usePbe ? configStore.leaguePathPbe : state.leaguePath;
 
     // ─── Loading screen state ────────────────────────────────────────────
     const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -87,7 +90,8 @@ export const NewProjectModal: React.FC = () => {
         if (isVisible) {
             loadChampions();
         }
-    }, [isVisible]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isVisible, usePbe]);
 
     useEffect(() => {
         if (selectedChampion) {
@@ -96,7 +100,8 @@ export const NewProjectModal: React.FC = () => {
             setSkins([]);
             setSelectedSkin(null);
         }
-    }, [selectedChampion]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedChampion, usePbe]);
 
     useEffect(() => {
         setSplashLoaded(false);
@@ -180,38 +185,57 @@ export const NewProjectModal: React.FC = () => {
     };
 
     const loadChampions = async () => {
+        let result: datadragon.DDragonChampion[];
         try {
-            setWorking('Loading champions...');
-            const result = await datadragon.fetchChampions();
+            setWorking(usePbe ? 'Loading PBE champions...' : 'Loading champions...');
+            result = await datadragon.fetchChampions(cdragonBranch);
             setChampions(result);
             setReady();
-            // Preload all champion icons in background
-            datadragon.preloadChampionIcons(result).then(() => setCacheReady(v => v + 1));
-        } catch {
-            showToast('error', 'Failed to load champions from DataDragon');
+            console.info(`[NewProject] Loaded ${result.length} champions from CDragon (${cdragonBranch})`);
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.error(`[NewProject] fetchChampions(${cdragonBranch}) failed: ${msg}`, err);
+            showToast('error', `Failed to load ${usePbe ? 'PBE ' : ''}champions — see log panel`);
             setReady();
+            return;
         }
+        // Preload icons — outside try/catch so a preload error doesn't masquerade as a fetch error
+        if (typeof datadragon.preloadChampionIcons !== 'function') {
+            console.warn('[NewProject] datadragon.preloadChampionIcons is missing — likely a stale HMR module. Hard-reload (Ctrl+Shift+R) or restart the dev server.');
+            return;
+        }
+        datadragon.preloadChampionIcons(result, cdragonBranch)
+            .then(() => setCacheReady(v => v + 1))
+            .catch((err) => console.warn(`[NewProject] Champion icon preload (${cdragonBranch}) failed:`, err));
     };
 
     const loadSkins = async (championId: number, alias: string) => {
         let result: datadragon.DDragonSkin[] | null = null;
         try {
             setWorking('Loading skins...');
-            result = await datadragon.fetchChampionSkins(championId, alias);
+            result = await datadragon.fetchChampionSkins(championId, alias, cdragonBranch);
             setSkins(result);
             const baseSkin = result.find(s => s.isBase) || result[0];
             setSelectedSkin(baseSkin);
             setReady();
+            console.info(`[NewProject] Loaded ${result.length} skins for ${alias} (id=${championId}, branch=${cdragonBranch})`);
         } catch (err) {
-            const msg = err instanceof Error ? err.message : 'Unknown error';
-            showToast('error', `Skin fetch failed: ${msg}`);
+            const msg = err instanceof Error ? err.message : String(err);
+            console.error(`[NewProject] fetchChampionSkins(${alias}, id=${championId}, branch=${cdragonBranch}) failed: ${msg}`, err);
+            showToast('error', `Skin fetch failed for ${alias} — see log panel`);
             setSkins([{ id: championId * 1000, name: 'Base', num: 0, isBase: true }]);
             setSelectedSkin({ id: championId * 1000, name: 'Base', num: 0, isBase: true });
             setReady();
         }
         // Preload splashes — outside try/catch so failures don't reset skins
         if (result && result.length > 0) {
-            datadragon.preloadSkinSplashes(championId, result).catch(() => {});
+            if (typeof datadragon.preloadSkinSplashes !== 'function') {
+                console.warn('[NewProject] datadragon.preloadSkinSplashes is missing — likely a stale HMR module. Hard-reload (Ctrl+Shift+R) or restart the dev server.');
+                return;
+            }
+            datadragon.preloadSkinSplashes(championId, result, cdragonBranch).catch((err) => {
+                console.warn(`[NewProject] Splash preload for ${alias} (branch=${cdragonBranch}) failed:`, err);
+            });
         }
     };
 
@@ -344,13 +368,25 @@ export const NewProjectModal: React.FC = () => {
     // ─── Create handlers ─────────────────────────────────────────────────
 
     const handleCreateSkin = async () => {
-        if (!projectName || !projectPath || !selectedChampion || !selectedSkin || !state.leaguePath) {
+        if (!projectName || !projectPath || !selectedChampion || !selectedSkin) {
             showToast('error', 'Please fill in all required fields');
+            return;
+        }
+        if (!effectiveLeaguePath) {
+            showToast('error', usePbe
+                ? 'PBE League path is not configured. Open Settings (Ctrl+,) and set the LoL PBE folder.'
+                : 'League path is not configured. Open Settings (Ctrl+,) and set the LoL folder.');
             return;
         }
 
         setIsCreating(true);
-        setProgress('Creating project...');
+        setProgress(usePbe ? 'Creating project from PBE...' : 'Creating project...');
+
+        // Log context up-front so the panel reads top-down: context → error.
+        // The error itself is logged automatically by invokeCommand in api.ts.
+        console.info(
+            `[NewProject] Creating project: champion=${selectedChampion.alias}, skin=${selectedSkin.num}, pbe=${usePbe}, leaguePath=${effectiveLeaguePath}`
+        );
 
         try {
             const project = await api.createProject({
@@ -358,15 +394,17 @@ export const NewProjectModal: React.FC = () => {
                 champion: selectedChampion.alias,
                 skin: selectedSkin.num,
                 projectPath,
-                leaguePath: state.leaguePath,
+                leaguePath: effectiveLeaguePath,
                 creatorName: state.creatorName || undefined,
                 useJade: configStore.binConverterEngine === 'jade',
+                isPbe: usePbe,
             });
 
             await finishProjectCreation(project, selectedChampion.name, selectedSkin.num);
         } catch (err) {
             const flintError = err as api.FlintError;
-            showToast('error', flintError.getUserMessage?.() || 'Failed to create project');
+            const userMsg = flintError.getUserMessage?.() || 'Failed to create project';
+            showToast('error', `${userMsg} — see log panel for full error`);
         } finally {
             setIsCreating(false);
             setProgress('');
@@ -374,12 +412,21 @@ export const NewProjectModal: React.FC = () => {
     };
 
     const handleCreateLoadingScreen = async () => {
-        if (!projectName || !projectPath || !videoFile || !budget?.fits || !budget.grid || !state.leaguePath) {
+        if (!projectName || !projectPath || !videoFile || !budget?.fits || !budget.grid) {
             showToast('error', 'Please fill in all required fields and ensure spritesheet fits within 16k limit');
+            return;
+        }
+        if (!effectiveLeaguePath) {
+            showToast('error', usePbe
+                ? 'PBE League path is not configured. Open Settings (Ctrl+,) and set the LoL PBE folder.'
+                : 'League path is not configured. Open Settings (Ctrl+,) and set the LoL folder.');
             return;
         }
 
         setIsCreating(true);
+        console.info(
+            `[NewProject] Creating loading-screen project: pbe=${usePbe}, leaguePath=${effectiveLeaguePath}`
+        );
 
         try {
             setProgress('Extracting video frames...');
@@ -401,7 +448,7 @@ export const NewProjectModal: React.FC = () => {
             const project = await api.createLoadingScreenProject({
                 name: projectName,
                 projectPath,
-                leaguePath: state.leaguePath,
+                leaguePath: effectiveLeaguePath,
                 creatorName: state.creatorName || 'SirDexal',
                 spritesheetPngData: pngBytes,
                 frameWidth: budget.frameW,
@@ -417,7 +464,8 @@ export const NewProjectModal: React.FC = () => {
             await finishProjectCreation(project, 'Loading Screen', 0);
         } catch (err) {
             const flintError = err as api.FlintError;
-            showToast('error', flintError.getUserMessage?.() || 'Failed to create loading screen project');
+            const userMsg = flintError.getUserMessage?.() || 'Failed to create loading screen project';
+            showToast('error', `${userMsg} — see log panel for full error`);
         } finally {
             setIsCreating(false);
             setProgress('');
@@ -516,11 +564,24 @@ export const NewProjectModal: React.FC = () => {
 
     const getHeroSplashUrl = () => {
         if (!selectedChampion || !selectedSkin) return '';
-        return cachedUrl(datadragon.getSkinSplashCDragonUrl(selectedChampion.id, selectedSkin.id));
+        // Prefer the centered loading-screen splash from CDragon's per-champion JSON.
+        // (Pattern from preyneyv/lol-skin-explorer — see Skin-Explorer/data/helpers.js `asset()`.)
+        const centered = datadragon.getSkinCenteredSplashUrl(selectedSkin, cdragonBranch);
+        if (centered) return cachedUrl(centered);
+        // No splashPath in the JSON (rare) → uncentered CDragon art as a last resort.
+        return cachedUrl(datadragon.getSkinSplashCDragonUrl(selectedChampion.id, selectedSkin.id, cdragonBranch));
     };
 
     const getHeroSplashFallback = () => {
         if (!selectedChampion || !selectedSkin) return '';
+        // First fallback: uncentered CDragon splash (still on the selected branch).
+        // Second fallback (DDragon, live only) handled below if both fail.
+        return cachedUrl(datadragon.getSkinSplashCDragonUrl(selectedChampion.id, selectedSkin.id, cdragonBranch));
+    };
+
+    const getHeroSplashFinalFallback = () => {
+        if (!selectedChampion || !selectedSkin) return '';
+        // DDragon has no PBE branch — used only when both CDragon attempts fail.
         return cachedUrl(datadragon.getSkinSplashUrl(selectedChampion.alias, selectedSkin.num));
     };
 
@@ -613,16 +674,19 @@ export const NewProjectModal: React.FC = () => {
                         {selectedChampion && selectedSkin && (
                             <div className="np-hero-splash">
                                 <img
-                                    key={`${selectedChampion.id}-${selectedSkin.id}`}
+                                    key={`${selectedChampion.id}-${selectedSkin.id}-${cdragonBranch}`}
                                     src={getHeroSplashUrl()}
                                     alt={selectedSkin.name}
                                     className={`np-hero-splash__img${splashLoaded ? ' np-hero-splash__img--loaded' : ''}`}
                                     onLoad={() => setSplashLoaded(true)}
                                     onError={(e) => {
                                         const img = e.target as HTMLImageElement;
-                                        const fallback = getHeroSplashFallback();
-                                        if (img.src !== fallback) {
-                                            img.src = fallback;
+                                        const fb1 = getHeroSplashFallback();
+                                        const fb2 = getHeroSplashFinalFallback();
+                                        if (img.src !== fb1 && fb1) {
+                                            img.src = fb1;
+                                        } else if (img.src !== fb2 && fb2) {
+                                            img.src = fb2;
                                         } else {
                                             setSplashLoaded(true);
                                         }
@@ -885,6 +949,35 @@ export const NewProjectModal: React.FC = () => {
 
                 {/* Footer */}
                 <div className="np-footer">
+                    {projectType !== 'hud-editor' && (
+                        <label
+                            className={`np-pbe-toggle${usePbe ? ' np-pbe-toggle--on' : ''}`}
+                            title={configStore.leaguePathPbe
+                                ? 'Pull champion list, skin metadata and WAD files from your PBE install instead of Live.'
+                                : 'No PBE League path configured. Open Settings (Ctrl+,) to set one.'}
+                        >
+                            <input
+                                type="checkbox"
+                                className="np-pbe-toggle__input"
+                                checked={usePbe}
+                                onChange={(e) => {
+                                    const next = e.target.checked;
+                                    if (next && !configStore.leaguePathPbe) {
+                                        console.error('[NewProject] PBE toggle blocked: leaguePathPbe is null. Set it in Settings.');
+                                        showToast('error', 'No PBE League path configured. Open Settings (Ctrl+,) to set one.');
+                                        return;
+                                    }
+                                    console.info(`[NewProject] PBE toggle → ${next ? 'PBE' : 'Live'} (path=${next ? configStore.leaguePathPbe : state.leaguePath})`);
+                                    setUsePbe(next);
+                                }}
+                            />
+                            <span className="np-pbe-toggle__track">
+                                <span className="np-pbe-toggle__thumb" />
+                            </span>
+                            <span className="np-pbe-toggle__label">PBE</span>
+                        </label>
+                    )}
+                    <div className="np-footer__spacer" />
                     <button className="np-btn np-btn--ghost" onClick={closeModal}>Cancel</button>
                     <button
                         className="np-btn np-btn--create"

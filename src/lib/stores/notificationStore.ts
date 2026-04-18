@@ -31,8 +31,9 @@ export const useNotificationStore = create<NotificationState>((set) => ({
 
     set((state) => ({ toasts: [...state.toasts, toast] }));
 
-    // Auto-dismiss
-    const duration = options.duration !== undefined ? options.duration : 5000;
+    // Auto-dismiss. Errors stick around longer so users can actually read them.
+    const defaultDuration = type === 'error' ? 12000 : type === 'warning' ? 8000 : 5000;
+    const duration = options.duration !== undefined ? options.duration : defaultDuration;
     if (duration > 0) {
       setTimeout(() => {
         set((state) => ({ toasts: state.toasts.filter(t => t.id !== id) }));

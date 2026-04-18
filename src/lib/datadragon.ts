@@ -5,7 +5,12 @@
  */
 
 const DDRAGON_BASE_URL = "https://ddragon.leagueoflegends.com";
-const CDRAGON_BASE_URL = "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1";
+
+export type CDragonBranch = "latest" | "pbe";
+
+function cdragonBase(branch: CDragonBranch = "latest"): string {
+    return `https://raw.communitydragon.org/${branch}/plugins/rcp-be-lol-game-data/global/default/v1`;
+}
 
 // Types
 export interface DDragonChampion {
@@ -19,13 +24,17 @@ export interface DDragonSkin {
     name: string;
     num: number;
     isBase: boolean;
+    /** CDragon-relative path to the centered loading-screen splash (portrait-ish crop). */
     splashPath?: string;
+    /** CDragon-relative path to the full uncentered splash (wide). */
+    uncenteredSplashPath?: string;
+    /** CDragon-relative path to the square tile. */
     tilePath?: string;
 }
 
-// Cache for API responses
+// Cache for API responses (per CDragon branch)
 let cachedPatch: string | null = null;
-let cachedChampions: DDragonChampion[] | null = null;
+const cachedChampionsByBranch = new Map<CDragonBranch, DDragonChampion[]>();
 
 // Image blob cache — maps URL → blob URL for reuse
 const imageBlobCache = new Map<string, string>();
@@ -74,16 +83,20 @@ export async function preloadImage(url: string): Promise<string> {
 /**
  * Preload all champion icons in the background.
  */
-export async function preloadChampionIcons(champions: DDragonChampion[]): Promise<void> {
-    const batch = champions.map(c => preloadImage(getChampionIconUrl(c.id)));
+export async function preloadChampionIcons(champions: DDragonChampion[], branch: CDragonBranch = "latest"): Promise<void> {
+    const batch = champions.map(c => preloadImage(getChampionIconUrl(c.id, branch)));
     await Promise.allSettled(batch);
 }
 
 /**
  * Preload all skin splashes for a champion (uses CDragon — whitelisted in CSP).
+ * Preloads the centered loading-screen splash (matches what the New Project hero shows).
  */
-export async function preloadSkinSplashes(championId: number, skins: DDragonSkin[]): Promise<void> {
-    const batch = skins.map(s => preloadImage(getSkinSplashCDragonUrl(championId, s.id)));
+export async function preloadSkinSplashes(championId: number, skins: DDragonSkin[], branch: CDragonBranch = "latest"): Promise<void> {
+    const batch = skins.map(s => {
+        const centered = getSkinCenteredSplashUrl(s, branch);
+        return preloadImage(centered ?? getSkinSplashCDragonUrl(championId, s.id, branch));
+    });
     await Promise.allSettled(batch);
 }
 
@@ -125,12 +138,13 @@ export async function getLatestPatch(): Promise<string> {
 /**
  * Fetch all champions from CommunityDragon
  */
-export async function fetchChampions(): Promise<DDragonChampion[]> {
-    if (cachedChampions) return cachedChampions;
+export async function fetchChampions(branch: CDragonBranch = "latest"): Promise<DDragonChampion[]> {
+    const cached = cachedChampionsByBranch.get(branch);
+    if (cached) return cached;
 
     try {
         // Use CommunityDragon champion summary (simpler format)
-        const url = `${CDRAGON_BASE_URL}/champion-summary.json`;
+        const url = `${cdragonBase(branch)}/champion-summary.json`;
         interface ChampionSummary {
             id: number;
             name: string;
@@ -139,7 +153,7 @@ export async function fetchChampions(): Promise<DDragonChampion[]> {
         const champions = await fetchWithRetry<ChampionSummary[]>(url);
 
         // Filter out special entries (id < 0 or Doom Bots) and map to our type
-        cachedChampions = champions
+        const mapped = champions
             .filter(c => c.id > 0 && c.id < 10000)
             .map(c => ({
                 id: c.id,
@@ -148,9 +162,10 @@ export async function fetchChampions(): Promise<DDragonChampion[]> {
             }))
             .sort((a, b) => a.name.localeCompare(b.name));
 
-        return cachedChampions;
+        cachedChampionsByBranch.set(branch, mapped);
+        return mapped;
     } catch (error) {
-        console.error("Failed to fetch champions:", error);
+        console.error(`Failed to fetch champions (${branch}):`, error);
         throw error;
     }
 }
@@ -176,6 +191,7 @@ interface CDragonSkinData {
     name?: string;
     isBase?: boolean;
     splashPath?: string;
+    uncenteredSplashPath?: string;
     tilePath?: string;
 }
 
@@ -186,8 +202,21 @@ function mapCDragonSkins(skins: CDragonSkinData[]): DDragonSkin[] {
         num: skin.id % 1000,
         isBase: skin.isBase || skin.id % 1000 === 0,
         splashPath: skin.splashPath,
+        uncenteredSplashPath: skin.uncenteredSplashPath,
         tilePath: skin.tilePath
     }));
+}
+
+/**
+ * Resolve a CDragon-relative asset path (e.g. `/lol-game-data/assets/ASSETS/...`)
+ * to a full HTTPS URL. Mirrors `asset()` from preyneyv/lol-skin-explorer.
+ *
+ * CDragon serves these paths under `{cdragonBase}/...` lowercased. Some skin
+ * splash entries already arrive lowercased and rooted; this is idempotent.
+ */
+export function resolveCDragonAsset(path: string, branch: CDragonBranch = "latest"): string {
+    const root = `https://raw.communitydragon.org/${branch}/plugins/rcp-be-lol-game-data/global/default`;
+    return path.replace("/lol-game-data/assets", root).toLowerCase();
 }
 
 /**
@@ -195,21 +224,21 @@ function mapCDragonSkins(skins: CDragonSkinData[]): DDragonSkin[] {
  * Tries CommunityDragon first, falls back to DataDragon.
  * Throws on total failure so the caller can show an error.
  */
-export async function fetchChampionSkins(championId: number, alias?: string): Promise<DDragonSkin[]> {
+export async function fetchChampionSkins(championId: number, alias?: string, branch: CDragonBranch = "latest"): Promise<DDragonSkin[]> {
     const errors: string[] = [];
 
     // Try CommunityDragon
     try {
-        const url = `${CDRAGON_BASE_URL}/champions/${championId}.json`;
+        const url = `${cdragonBase(branch)}/champions/${championId}.json`;
         const champion = await fetchWithTimeout<{ skins?: CDragonSkinData[] }>(url);
         if (champion.skins && champion.skins.length > 0) {
             return mapCDragonSkins(champion.skins);
         }
     } catch (err) {
-        errors.push(`CDragon: ${err instanceof Error ? err.message : err}`);
+        errors.push(`CDragon(${branch}): ${err instanceof Error ? err.message : err}`);
     }
 
-    // Fallback: DataDragon
+    // Fallback: DataDragon (live patch only — DDragon has no PBE branch)
     if (alias) {
         try {
             const patch = await getLatestPatch();
@@ -242,22 +271,37 @@ export async function fetchChampionSkins(championId: number, alias?: string): Pr
 /**
  * Get champion icon URL from CommunityDragon
  */
-export function getChampionIconUrl(championId: number): string {
-    return `${CDRAGON_BASE_URL}/champion-icons/${championId}.png`;
+export function getChampionIconUrl(championId: number, branch: CDragonBranch = "latest"): string {
+    return `${cdragonBase(branch)}/champion-icons/${championId}.png`;
 }
 
 /**
- * Get skin splash URL from DataDragon
+ * Get skin splash URL from DataDragon (live only — DDragon has no PBE branch)
  */
 export function getSkinSplashUrl(alias: string, skinNum: number): string {
     return `${DDRAGON_BASE_URL}/cdn/img/champion/splash/${alias}_${skinNum}.jpg`;
 }
 
 /**
- * Get skin splash URL from CommunityDragon (fallback)
+ * Get skin splash URL from CommunityDragon (fallback) — uncentered/wide.
  */
-export function getSkinSplashCDragonUrl(championId: number, skinId: number): string {
-    return `https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/champion-splashes/${championId}/${skinId}.jpg`;
+export function getSkinSplashCDragonUrl(championId: number, skinId: number, branch: CDragonBranch = "latest"): string {
+    return `${cdragonBase(branch)}/champion-splashes/${championId}/${skinId}.jpg`;
+}
+
+/**
+ * Centered loading-screen splash URL for a skin.
+ * Prefers the `splashPath` from the CDragon champion JSON (which already points
+ * at the centered LoadScreen art), falling back to a constructed centered URL.
+ *
+ * The `champion-splashes` endpoint serves the *uncentered* wide art; CDragon's
+ * centered crops live under each champion's loading-screen folder, e.g.
+ *   /game/assets/characters/{champ}/skins/skin{N}/{champ}loadscreen[_{N}].jpg
+ * which is what `splashPath` normally encodes.
+ */
+export function getSkinCenteredSplashUrl(skin: DDragonSkin, branch: CDragonBranch = "latest"): string | null {
+    if (skin.splashPath) return resolveCDragonAsset(skin.splashPath, branch);
+    return null;
 }
 
 /**
@@ -265,7 +309,7 @@ export function getSkinSplashCDragonUrl(championId: number, skinId: number): str
  */
 export function clearCache(): void {
     cachedPatch = null;
-    cachedChampions = null;
+    cachedChampionsByBranch.clear();
     for (const blobUrl of imageBlobCache.values()) {
         URL.revokeObjectURL(blobUrl);
     }

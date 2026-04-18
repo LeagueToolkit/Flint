@@ -10,7 +10,7 @@ use flint_ltk::project::{
 };
 use flint_ltk::repath::{organize_project, OrganizerConfig};
 use flint_ltk::bin::{classify_bin, BinCategory};
-use flint_ltk::wad::extractor::{find_champion_wad, extract_skin_assets};
+use flint_ltk::wad::extractor::{find_champion_wad, extract_skin_assets, wad_contains_skin_bin};
 use flint_ltk::hash::resolve_hashes_lmdb_bulk;
 use crate::state::LmdbCacheState;
 use std::collections::HashMap;
@@ -40,16 +40,26 @@ pub async fn create_project(
     output_path: String,
     creator_name: Option<String>,
     use_jade: Option<bool>,
+    is_pbe: Option<bool>,
     lmdb: tauri::State<'_, LmdbCacheState>,
     app: tauri::AppHandle,
 ) -> Result<Project, String> {
+    let pbe = is_pbe.unwrap_or(false);
+    let source_label = if pbe { "PBE" } else { "Live" };
     tracing::info!(
-        "Frontend requested project creation: {} ({} skin {})",
-        name, champion, skin_id
+        "Frontend requested project creation: {} ({} skin {}) from {} install",
+        name, champion, skin_id, source_label
     );
 
     let league_path_buf = PathBuf::from(&league_path);
     let output_path_buf = PathBuf::from(&output_path);
+
+    if !league_path_buf.exists() {
+        return Err(format!(
+            "[E_PBE_PATH_MISSING] {} League folder does not exist at '{}'. Open Settings (Ctrl+,) and re-detect the {} install path.",
+            source_label, league_path, source_label
+        ));
+    }
 
     // Prime LMDB and open the env (build from .txt files if stale, then mmap)
     let _ = app.emit("project-create-progress", serde_json::json!({
@@ -68,10 +78,41 @@ pub async fn create_project(
 
     // 2. Validate WAD existence before creating project
     let wad_path = find_champion_wad(&league_path_buf, &champion)
-        .ok_or_else(|| format!(
-            "Champion WAD not found for '{}'. Please check League installation.",
-            champion
+        .ok_or_else(|| if pbe {
+            format!(
+                "[E_PBE_CHAMP_NOT_FOUND] Champion '{}' was not found in your local PBE install. The PBE client may not be updated to a patch that ships this champion yet — try logging into the PBE launcher to apply pending updates, or disable the PBE toggle to use the Live client.",
+                champion
+            )
+        } else {
+            format!(
+                "Champion WAD not found for '{}'. Please check League installation.",
+                champion
+            )
+        })?;
+
+    // 2b. Verify the requested skin's main BIN is actually inside the WAD.
+    //
+    // CDragon's PBE branch lists skins as soon as Riot's PBE patch metadata is published,
+    // but the local PBE client only ships those files after the launcher applies the patch.
+    // Without this check, extraction silently succeeds with a partial/empty result and the
+    // organizer ends up scanning all BINs as a fallback (see "No main skin BIN found" warning).
+    let skin_bin_present = wad_contains_skin_bin(&wad_path, &champion, skin_id)
+        .map_err(|e| format!(
+            "Failed to inspect WAD '{}': {}",
+            wad_path.display(), e
         ))?;
+    if !skin_bin_present {
+        let source_label = if pbe { "PBE" } else { "Live" };
+        let hint = if pbe {
+            "Your local PBE install does not have this skin yet — the PBE launcher needs to apply the latest patch. Open the PBE launcher and let it finish updating, or disable the PBE toggle to use the Live client."
+        } else {
+            "Your local League install does not have this skin's BIN. The client may need to repair, or this skin ID is not present in this build."
+        };
+        return Err(format!(
+            "[E_PBE_SKIN_NOT_IN_WAD] {} install is missing data/characters/{}/skins/skin{}.bin (also checked zero-padded skin{:02}.bin). {}",
+            source_label, champion.to_lowercase(), skin_id, skin_id, hint
+        ));
+    }
 
     // 3. Create the project directory structure
     let _ = app.emit("project-create-progress", serde_json::json!({
@@ -130,6 +171,12 @@ pub async fn create_project(
             tracing::info!("Cleaning up project directory due to failure...");
             if let Err(cleanup_err) = std::fs::remove_dir_all(&project.project_path) {
                 tracing::error!("Failed to clean up project directory: {}", cleanup_err);
+            }
+            if pbe {
+                return Err(format!(
+                    "[E_PBE_SKIN_EXTRACT_FAILED] Failed to extract {} skin {} from your PBE install: {}. The skin may not exist in this PBE patch yet — log into the PBE launcher to apply updates, or disable the PBE toggle to use the Live client.",
+                    champion, skin_id, e
+                ));
             }
             return Err(format!("Asset extraction failed: {}. Project creation cancelled.", e));
         }
