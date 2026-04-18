@@ -6,7 +6,7 @@ use tauri::{AppHandle, Emitter};
 use walkdir::WalkDir;
 
 use flint_ltk::bin::ltk_bridge::{get_cached_bin_hashes, read_bin, MAX_BIN_SIZE};
-use flint_ltk::hash::{downloader::get_ritoshark_hash_dir, resolve_hashes_lmdb_bulk};
+use flint_ltk::hash::{get_hash_dir, resolve_hashes_lmdb_bulk};
 use flint_ltk::wad::reader::WadReader;
 use crate::state::LmdbCacheState;
 
@@ -472,7 +472,7 @@ pub async fn aggregate_bin_schema(
     tracing::info!("Schema aggregator: found {} WADs to scan", total_wads);
 
     // 2. Get hash resolution resources
-    let hash_dir = get_ritoshark_hash_dir()
+    let hash_dir = get_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
     let env_opt = lmdb.get_env(&hash_dir);
@@ -651,7 +651,7 @@ pub async fn aggregate_bin_schema(
         let _ = writeln!(output, "}}");
     }
 
-    let output_path = get_ritoshark_hash_dir()
+    let output_path = get_hash_dir()
         .map(|p| {
             p.parent()
                 .unwrap_or(&p)

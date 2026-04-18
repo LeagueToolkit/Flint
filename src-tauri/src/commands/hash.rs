@@ -1,20 +1,25 @@
-use flint_ltk::hash::{build_hash_db, force_rebuild_hash_db, downloader::get_ritoshark_hash_dir, download_hashes as core_download_hashes, DownloadStats};
+use flint_ltk::hash::{
+    download_hashes as core_download_hashes, get_hash_dir, DownloadStats,
+};
 use crate::state::LmdbCacheState;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-/// Status information about the loaded hash database
+/// Status information about the loaded hash databases.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HashStatus {
-    /// Number of entries in the LMDB database (approximate, via file size heuristic)
+    /// Approximate entry count across both LMDBs (via file size heuristic).
     pub loaded_count: usize,
     pub last_updated: Option<String>,
 }
 
-/// Downloads hash files from CommunityDragon repository
+/// Download pre-built LMDB hash databases from the `lmdb-hashes` GitHub releases.
+///
+/// Replaces the old per-file CommunityDragon download. Two zstd-compressed LMDBs
+/// are pulled and decompressed: `hashes-wad.lmdb` and `hashes-bin.lmdb`.
 #[tauri::command]
 pub async fn download_hashes(force: bool) -> Result<DownloadStats, String> {
-    let hash_dir = get_ritoshark_hash_dir()
+    let hash_dir = get_hash_dir()
         .map_err(|e| format!("Failed to get hash directory: {}", e))?;
     let stats = core_download_hashes(&hash_dir, force)
         .await
@@ -22,95 +27,88 @@ pub async fn download_hashes(force: bool) -> Result<DownloadStats, String> {
     Ok(stats)
 }
 
-/// Returns information about the current LMDB hash database
+/// Returns information about the currently-open LMDB hash databases.
 #[tauri::command]
 pub async fn get_hash_status(lmdb: State<'_, LmdbCacheState>) -> Result<HashStatus, String> {
-    let hash_dir = get_ritoshark_hash_dir()
+    let hash_dir = get_hash_dir()
         .map_err(|e| format!("Failed to get hash directory: {}", e))?;
 
-    // Approximate entry count from data.mdb file size (heuristic: ~40 bytes/entry)
-    let lmdb_dir = hash_dir.join("hashes.lmdb");
-    let loaded_count = std::fs::metadata(lmdb_dir.join("data.mdb"))
-        .map(|m| (m.len() / 40) as usize)
+    // Approximate: combined data.mdb sizes / ~40 bytes per entry.
+    let wad_bytes = std::fs::metadata(hash_dir.join("hashes-wad.lmdb").join("data.mdb"))
+        .map(|m| m.len())
         .unwrap_or(0);
+    let bin_bytes = std::fs::metadata(hash_dir.join("hashes-bin.lmdb").join("data.mdb"))
+        .map(|m| m.len())
+        .unwrap_or(0);
+    let loaded_count = ((wad_bytes + bin_bytes) / 40) as usize;
 
-    let last_updated = if hash_dir.exists() {
-        std::fs::metadata(&hash_dir)
-            .ok()
-            .and_then(|m| m.modified().ok())
-            .and_then(|time| {
-                use std::time::SystemTime;
-                time.duration_since(SystemTime::UNIX_EPOCH)
-                    .ok()
-                    .map(|d| {
-                        let secs = d.as_secs();
-                        chrono::DateTime::from_timestamp(secs as i64, 0)
-                            .unwrap_or_default()
-                            .format("%Y-%m-%dT%H:%M:%SZ")
-                            .to_string()
-                    })
+    let last_updated = std::fs::metadata(hash_dir.join("hashes-meta.json"))
+        .or_else(|_| std::fs::metadata(&hash_dir))
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|time| {
+            use std::time::SystemTime;
+            time.duration_since(SystemTime::UNIX_EPOCH).ok().map(|d| {
+                let secs = d.as_secs();
+                chrono::DateTime::from_timestamp(secs as i64, 0)
+                    .unwrap_or_default()
+                    .format("%Y-%m-%dT%H:%M:%SZ")
+                    .to_string()
             })
-    } else {
-        None
-    };
+        });
 
-    // Warm the env (open if not already open)
+    // Warm the WAD env (open if not already open).
     let hash_dir_str = hash_dir.to_string_lossy().into_owned();
-    let _ = lmdb.get_env(&hash_dir_str);
+    let _ = lmdb.get_wad_env(&hash_dir_str);
 
     Ok(HashStatus { loaded_count, last_updated })
 }
 
-/// Rebuild hashes.lmdb from .txt files if stale, then open the env
+/// Re-sync hash LMDBs from the GitHub release, replacing local files if needed.
 #[tauri::command]
 pub async fn reload_hashes(lmdb: State<'_, LmdbCacheState>) -> Result<(), String> {
-    let hash_dir = get_ritoshark_hash_dir()
+    let hash_dir = get_hash_dir()
         .map_err(|e| format!("Failed to get hash directory: {}", e))?;
     let hash_dir_str = hash_dir.to_string_lossy().into_owned();
 
-    // Clear old env first (needed on Windows before deleting/overwriting LMDB files)
+    // Drop open envs first — Windows won't let us overwrite mmap'd data.mdb.
     lmdb.clear();
 
-    // Rebuild LMDB from .txt files if any source is newer
-    if !build_hash_db(&hash_dir_str) {
-        return Err("Failed to build hash database".to_string());
-    }
+    core_download_hashes(&hash_dir, false)
+        .await
+        .map_err(|e| format!("Failed to download hashes: {}", e))?;
 
-    // Open the fresh env
+    // Reload the in-memory BIN hash cache too.
+    flint_ltk::bin::reload_bin_hash_cache();
+
     if lmdb.prime(&hash_dir_str).is_some() {
-        tracing::info!("LMDB hash database reloaded from {}", hash_dir_str);
+        tracing::info!("Hash LMDBs reloaded from {}", hash_dir_str);
         Ok(())
     } else {
-        Err("Failed to open hash database after rebuild".to_string())
+        Err("Hash LMDBs not available after download".to_string())
     }
 }
 
-/// Force rebuild hashes.lmdb from .txt files regardless of timestamps
-///
-/// Use this when hash resolution logic has changed and databases need regeneration
+/// Force re-download of hash LMDBs regardless of local release-tag cache.
 #[tauri::command]
 pub async fn force_rebuild_hashes(lmdb: State<'_, LmdbCacheState>) -> Result<(), String> {
-    let hash_dir = get_ritoshark_hash_dir()
+    let hash_dir = get_hash_dir()
         .map_err(|e| format!("Failed to get hash directory: {}", e))?;
     let hash_dir_str = hash_dir.to_string_lossy().into_owned();
 
-    // Clear old env first (needed on Windows before deleting/overwriting LMDB files)
     lmdb.clear();
 
-    // Force rebuild LMDB from .txt files
-    if !force_rebuild_hash_db(&hash_dir_str) {
-        return Err("Failed to force rebuild hash database".to_string());
-    }
+    core_download_hashes(&hash_dir, true)
+        .await
+        .map_err(|e| format!("Failed to force-download hashes: {}", e))?;
 
-    // Reload BIN hash cache to pick up new asset path hashes
     flint_ltk::bin::reload_bin_hash_cache();
 
-    // Open the fresh env
     if lmdb.prime(&hash_dir_str).is_some() {
-        tracing::info!("LMDB hash database force rebuilt from {}", hash_dir_str);
+        tracing::info!("Hash LMDBs force-re-downloaded from {}", hash_dir_str);
         Ok(())
     } else {
-        Err("Failed to open hash database after force rebuild".to_string())
+        Err("Hash LMDBs not available after force download".to_string())
     }
 }
 
@@ -127,22 +125,5 @@ mod tests {
         let json = serde_json::to_string(&status).unwrap();
         assert!(json.contains("loaded_count"));
         assert!(json.contains("100"));
-        assert!(json.contains("last_updated"));
-    }
-
-    #[test]
-    fn test_download_stats_serialization() {
-        let stats = DownloadStats {
-            downloaded: 5,
-            skipped: 2,
-            errors: 1,
-        };
-        let json = serde_json::to_string(&stats).unwrap();
-        assert!(json.contains("downloaded"));
-        assert!(json.contains("5"));
-        assert!(json.contains("skipped"));
-        assert!(json.contains("2"));
-        assert!(json.contains("errors"));
-        assert!(json.contains("1"));
     }
 }

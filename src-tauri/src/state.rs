@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use flint_ltk::heed;
-use flint_ltk::hash::{get_or_open_env, drop_lmdb_cache, build_hash_db};
+use flint_ltk::hash::{drop_lmdb_cache, get_or_open_env, get_wad_env, hashes_present};
 use flint_ltk::wad::cache::WadCache;
 
 /// Global WAD metadata cache for fast repeated access.
@@ -28,41 +28,47 @@ impl WadCacheState {
 // LMDB env cache state
 // =============================================================================
 
-/// Tauri-managed handle to the global LMDB env cache.
+/// Tauri-managed handle to the global LMDB env caches.
 ///
-/// The actual cache is a process-wide static (`LMDB_CACHE` in `lmdb_cache.rs`),
-/// so this struct is a zero-cost wrapper that just exposes the API to Tauri
-/// commands via `tauri::State<LmdbCacheState>`.
+/// Backed by process-wide statics in `flint_ltk::hash::lmdb_cache`; this struct
+/// is a zero-cost wrapper exposing the API to Tauri commands via
+/// `tauri::State<LmdbCacheState>`.
 ///
-/// # Design
-/// - `get_env()` — returns the `Arc<heed::Env>` for the current hash dir,
-///   opening and caching it on first call.
-/// - `build_db()` — rebuilds `hashes.lmdb` from the text files if stale,
-///   then the next `get_env()` call re-opens the fresh DB.
-/// - `clear()` — drops the cached env (call before deleting the LMDB dir).
+/// Two separate LMDBs are managed:
+/// - WAD hashes — `hashes-wad.lmdb` (64-bit xxh64 keys, named DB `"wad"`).
+/// - BIN hashes — `hashes-bin.lmdb` (32-bit FNV1a keys, named DB `"bin"`).
+///
+/// Both are pre-built and downloaded from the `LeagueToolkit/lmdb-hashes`
+/// GitHub release — no local build step.
 #[derive(Clone, Default)]
 pub struct LmdbCacheState;
 
 impl LmdbCacheState {
     pub fn new() -> Self { Self }
 
-    /// Return the `heed::Env` for `hash_dir`, opening it if not already cached.
+    /// Return the WAD env, opening it on first call.
+    pub fn get_wad_env(&self, hash_dir: &str) -> Option<Arc<heed::Env>> {
+        get_wad_env(hash_dir)
+    }
+
+    /// Legacy alias — returns the WAD env. Prefer [`Self::get_wad_env`] in new code.
     pub fn get_env(&self, hash_dir: &str) -> Option<Arc<heed::Env>> {
         get_or_open_env(hash_dir)
     }
 
-    /// Build (or refresh) `hashes.lmdb` from text hash files, then return the env.
+    /// Ensure the WAD env is open and return it.
     ///
-    /// Returns `None` if the build fails or the directory doesn't exist.
+    /// The DB is downloaded as a pre-built zstd-compressed artifact, so priming
+    /// just opens the env. Returns `None` if the LMDB files are missing.
     pub fn prime(&self, hash_dir: &str) -> Option<Arc<heed::Env>> {
-        if build_hash_db(hash_dir) {
-            get_or_open_env(hash_dir)
-        } else {
-            None
+        if !hashes_present(std::path::Path::new(hash_dir)) {
+            tracing::warn!("Hash LMDBs not present at {} — run download_hashes first", hash_dir);
+            return None;
         }
+        get_wad_env(hash_dir)
     }
 
-    /// Drop the cached LMDB env — frees mmap pages and the file handle.
+    /// Drop the cached WAD and BIN envs — frees mmap pages and closes file handles.
     pub fn clear(&self) {
         drop_lmdb_cache();
     }

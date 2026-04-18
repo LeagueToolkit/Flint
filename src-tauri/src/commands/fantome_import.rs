@@ -527,7 +527,7 @@ pub async fn analyze_fantome(
     _lmdb_state: State<'_, LmdbCacheState>,
 ) -> Result<FantomeAnalysis, String> {
     // Get hash directory before spawning blocking task
-    let hash_dir = flint_ltk::hash::downloader::get_ritoshark_hash_dir()
+    let hash_dir = flint_ltk::hash::get_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .map_err(|e| format!("Hash directory not found: {}", e))?;
 
@@ -620,7 +620,7 @@ pub async fn import_fantome_wad(
     _lmdb_state: State<'_, LmdbCacheState>,
 ) -> Result<Project, String> {
     // Get hash directory before spawning blocking task
-    let hash_dir = flint_ltk::hash::downloader::get_ritoshark_hash_dir()
+    let hash_dir = flint_ltk::hash::get_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .map_err(|e| format!("Hash directory not found: {}", e))?;
 

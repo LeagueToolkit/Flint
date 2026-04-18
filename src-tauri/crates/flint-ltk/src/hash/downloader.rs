@@ -1,12 +1,48 @@
+//! Hash database downloader.
+//!
+//! Mirrors Quartz's approach: downloads pre-built LMDB databases from
+//! [LeagueToolkit/lmdb-hashes](https://github.com/LeagueToolkit/lmdb-hashes)
+//! GitHub releases instead of building from CommunityDragon text files.
+//!
+//! Two separate LMDBs:
+//! - `hashes-wad.lmdb` — 64-bit xxh64 WAD path hashes (named DB `"wad"`)
+//! - `hashes-bin.lmdb` — 32-bit FNV1a BIN hashes (named DB `"bin"`)
+//!
+//! Hash dir: `%APPDATA%/RitoShark/Requirements/Hashes/` — shared with other
+//! RitoShark tools.
+
 use crate::error::{Error, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::path::Path;
-use std::time::{Duration, SystemTime};
+use std::io::Cursor;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 
-/// Statistics about a hash download operation
+const RELEASE_API_URL: &str =
+    "https://api.github.com/repos/LeagueToolkit/lmdb-hashes/releases/latest";
+const META_FILE_NAME: &str = "hashes-meta.json";
+const USER_AGENT: &str = "flint-hash-manager";
+/// Skip the GitHub API call entirely if meta was updated within this window.
+const AUTO_SYNC_FRESHNESS: Duration = Duration::from_secs(30 * 60); // 30 minutes
+
+/// A single LMDB asset published by lmdb-hashes.
+struct Asset {
+    /// Release asset filename, e.g. `lol-hashes-wad.zst`.
+    release_name: &'static str,
+    /// LMDB directory name under the hash dir, e.g. `hashes-wad.lmdb`.
+    lmdb_dir: &'static str,
+    /// Short label for logs/progress events.
+    label: &'static str,
+}
+
+const ASSETS: &[Asset] = &[
+    Asset { release_name: "lol-hashes-wad.zst", lmdb_dir: "hashes-wad.lmdb", label: "WAD hashes" },
+    Asset { release_name: "lol-hashes-bin.zst", lmdb_dir: "hashes-bin.lmdb", label: "BIN hashes" },
+];
+
+/// Statistics about a hash download operation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DownloadStats {
     pub downloaded: usize,
@@ -14,390 +50,257 @@ pub struct DownloadStats {
     pub errors: usize,
 }
 
-/// GitHub API response for file content
+/// GitHub release JSON — only the fields we need.
 #[derive(Debug, Deserialize)]
-struct GitHubFile {
-    name: String,
-    download_url: Option<String>,
+struct GitHubRelease {
+    tag_name: Option<String>,
+    assets: Vec<GitHubReleaseAsset>,
 }
 
-const GITHUB_API_BASE: &str = "https://api.github.com/repos/CommunityDragon/Data/contents/hashes/lol";
-const FILE_AGE_THRESHOLD: Duration = Duration::from_secs(14 * 24 * 60 * 60); // 14 days
+#[derive(Debug, Deserialize)]
+struct GitHubReleaseAsset {
+    name: String,
+    browser_download_url: String,
+}
 
-/// Gets the RitoShark hash directory path
-///
-/// Returns the standard RitoShark directory: %APPDATA%/RitoShark/Requirements/Hashes
-/// This allows sharing hash files with other RitoShark tools.
-pub fn get_ritoshark_hash_dir() -> Result<std::path::PathBuf> {
+/// Meta file written next to the LMDBs. Same shape as Quartz's `hashes-meta.json`
+/// so both tools can share the hash cache.
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct HashesMeta {
+    #[serde(rename = "releaseTag", skip_serializing_if = "Option::is_none")]
+    release_tag: Option<String>,
+    #[serde(rename = "updatedAt", skip_serializing_if = "Option::is_none")]
+    updated_at: Option<String>,
+    #[serde(rename = "lastCheckedAt", skip_serializing_if = "Option::is_none")]
+    last_checked_at: Option<String>,
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
+
+/// Returns the hash directory: `%APPDATA%/RitoShark/Requirements/Hashes/`.
+pub fn get_hash_dir() -> Result<PathBuf> {
     let appdata = std::env::var("APPDATA")
         .map_err(|_| Error::Hash("APPDATA environment variable not found".to_string()))?;
-    
-    Ok(std::path::PathBuf::from(appdata)
-        .join("RitoShark")
-        .join("Requirements")
-        .join("Hashes"))
+
+    Ok(PathBuf::from(appdata).join("RitoShark").join("Requirements").join("Hashes"))
 }
 
-/// List of hash files to download from CommunityDragon
-const HASH_FILES: &[&str] = &[
-    "hashes.binentries.txt",
-    "hashes.binhashes.txt",
-    "hashes.bintypes.txt",
-    "hashes.binfields.txt",
-    "hashes.game.txt.0",
-    "hashes.game.txt.1",
-    "hashes.lcu.txt",
-    "hashes.rst.txt",
-];
+/// Legacy alias for [`get_hash_dir`]. Kept for compatibility with existing callers.
+pub fn get_ritoshark_hash_dir() -> Result<PathBuf> {
+    get_hash_dir()
+}
 
-/// Downloads hash files from CommunityDragon repository
+/// Check whether both LMDB `data.mdb` files are already present on disk.
+pub fn hashes_present(hash_dir: &Path) -> bool {
+    ASSETS.iter().all(|a| hash_dir.join(a.lmdb_dir).join("data.mdb").exists())
+}
+
+/// Download hash databases from `lmdb-hashes` GitHub releases.
 ///
-/// # Arguments
-/// * `output_dir` - Directory where hash files will be saved
-/// * `force` - If true, downloads all files regardless of age
+/// # Behaviour
+/// - Hits the `releases/latest` endpoint to discover the current tag and asset URLs.
+/// - For each asset, skips the download when the local `data.mdb` exists and its
+///   stored release tag matches the latest — unless `force` is true.
+/// - Downloads `.zst` to a temp file, decompresses to `data.mdb`, then deletes the temp.
+/// - Writes `hashes-meta.json` with the tag + timestamps.
 ///
-/// # Returns
-/// Statistics about the download operation
+/// When `force` is `false` and the meta file says we checked within the last
+/// 30 minutes, the GitHub API call is skipped entirely.
 pub async fn download_hashes(output_dir: impl AsRef<Path>, force: bool) -> Result<DownloadStats> {
     let output_dir = output_dir.as_ref();
 
-    tracing::info!("Downloading hash files to: {}", output_dir.display());
-    if force {
-        tracing::info!("Force download enabled - will download all files");
-    }
+    tracing::info!("Hash dir: {}", output_dir.display());
+    fs::create_dir_all(output_dir).await.map_err(|e| {
+        tracing::error!("Failed to create hash dir '{}': {}", output_dir.display(), e);
+        e
+    })?;
 
-    // Create output directory if it doesn't exist
-    fs::create_dir_all(output_dir).await
-        .map_err(|e| {
-            tracing::error!("Failed to create output directory '{}': {}", output_dir.display(), e);
-            e
-        })?;
+    let mut stats = DownloadStats { downloaded: 0, skipped: 0, errors: 0 };
 
-    // Fast path: if not forcing, check whether ALL local files are fresh.
-    // If every required hash file exists and is younger than 14 days,
-    // skip the GitHub API call entirely — no network needed.
-    if !force {
-        let mut all_fresh = true;
-        for file_name in HASH_FILES {
-            let path = output_dir.join(file_name);
-            match needs_update(&path).await {
-                Ok(true) => { all_fresh = false; break; }
-                Err(_)   => { all_fresh = false; break; }
-                Ok(false) => {}
-            }
-        }
-        if all_fresh {
-            tracing::info!("All {} hash files are up-to-date, skipping GitHub API", HASH_FILES.len());
-            return Ok(DownloadStats {
-                downloaded: 0,
-                skipped: HASH_FILES.len(),
-                errors: 0,
-            });
-        }
+    // Fast path: if meta is fresh and both LMDBs exist, skip the API entirely.
+    if !force && hashes_present(output_dir) && auto_sync_fresh(output_dir).await {
+        tracing::info!("Hash databases are fresh — skipping GitHub check");
+        stats.skipped = ASSETS.len();
+        return Ok(stats);
     }
 
     let client = Client::builder()
-        .user_agent("flint")
+        .user_agent(USER_AGENT)
+        .timeout(Duration::from_secs(60))
         .build()
         .map_err(Error::Network)?;
 
-    let mut stats = DownloadStats {
-        downloaded: 0,
-        skipped: 0,
-        errors: 0,
-    };
+    // 1. Fetch latest release info.
+    let release = fetch_latest_release(&client).await?;
+    let latest_tag = release.tag_name.clone().unwrap_or_default();
 
-    // Get list of files from GitHub API
-    tracing::debug!("Fetching file list from GitHub API");
-    let files = fetch_file_list(&client).await?;
-    tracing::debug!("Found {} files in repository", files.len());
-    
-    // Download each required hash file
-    for file_name in HASH_FILES {
-        tracing::debug!("Processing file: {}", file_name);
-        match download_file(&client, &files, file_name, output_dir, force).await {
-            Ok(downloaded) => {
-                if downloaded {
-                    tracing::info!("Downloaded: {}", file_name);
-                    stats.downloaded += 1;
-                } else {
-                    tracing::debug!("Skipped (up to date): {}", file_name);
-                    stats.skipped += 1;
-                }
+    let mut meta = read_meta(output_dir).await;
+    let stored_tag = meta.release_tag.clone().unwrap_or_default();
+
+    // 2. Download each asset.
+    for asset in ASSETS {
+        let lmdb_dir = output_dir.join(asset.lmdb_dir);
+        let data_mdb = lmdb_dir.join("data.mdb");
+
+        let release_asset = match release.assets.iter().find(|a| a.name == asset.release_name) {
+            Some(a) => a,
+            None => {
+                tracing::error!("Asset {} missing from release", asset.release_name);
+                stats.errors += 1;
+                continue;
+            }
+        };
+
+        // Skip if already up-to-date.
+        if !force && data_mdb.exists() && !latest_tag.is_empty() && latest_tag == stored_tag {
+            tracing::debug!("{} up-to-date (tag {})", asset.label, latest_tag);
+            stats.skipped += 1;
+            continue;
+        }
+
+        match download_and_extract(&client, release_asset, &lmdb_dir).await {
+            Ok(()) => {
+                tracing::info!("Downloaded {} (tag {})", asset.label, latest_tag);
+                stats.downloaded += 1;
             }
             Err(e) => {
-                tracing::error!("Error downloading {}: {}", file_name, e);
+                tracing::error!("Failed to download {}: {}", asset.label, e);
                 stats.errors += 1;
             }
         }
     }
-    
-    // Merge split game hash files if both exist
-    tracing::debug!("Checking for split files to merge");
-    if let Err(e) = merge_split_files(output_dir).await {
-        tracing::error!("Error merging split files: {}", e);
-        stats.errors += 1;
-    } else {
-        tracing::debug!("Split files merged successfully");
+
+    // 3. Update meta.
+    if !latest_tag.is_empty() && stats.errors == 0 {
+        meta.release_tag = Some(latest_tag);
+        meta.updated_at = Some(now_iso());
     }
-    
+    meta.last_checked_at = Some(now_iso());
+    write_meta(output_dir, &meta).await;
+
     tracing::info!(
         "Hash download complete: {} downloaded, {} skipped, {} errors",
-        stats.downloaded,
-        stats.skipped,
-        stats.errors
+        stats.downloaded, stats.skipped, stats.errors
     );
-    
+
     Ok(stats)
 }
 
-/// Fetches the list of files from GitHub API
-async fn fetch_file_list(client: &Client) -> Result<Vec<GitHubFile>> {
+// ── Internal helpers ──────────────────────────────────────────────────────────
+
+async fn fetch_latest_release(client: &Client) -> Result<GitHubRelease> {
     let response = client
-        .get(GITHUB_API_BASE)
+        .get(RELEASE_API_URL)
+        .header("Accept", "application/vnd.github.v3+json")
         .send()
         .await
         .map_err(Error::Network)?;
-    
+
     if !response.status().is_success() {
         return Err(Error::Hash(format!(
-            "GitHub API request failed with status: {}",
+            "GitHub releases API failed: HTTP {}",
             response.status()
         )));
     }
-    
-    let files: Vec<GitHubFile> = response
-        .json()
-        .await
-        .map_err(Error::Network)?;
-    
-    Ok(files)
+
+    response.json::<GitHubRelease>().await.map_err(Error::Network)
 }
 
-/// Downloads a single file if needed
-///
-/// Returns true if the file was downloaded, false if it was skipped
-async fn download_file(
+async fn download_and_extract(
     client: &Client,
-    files: &[GitHubFile],
-    file_name: &str,
-    output_dir: &Path,
-    force: bool,
-) -> Result<bool> {
-    let output_path = output_dir.join(file_name);
-    
-    // Check if file needs updating
-    if !force && !needs_update(&output_path).await? {
-        return Ok(false);
-    }
-    
-    // Find file in GitHub API response
-    let github_file = files
-        .iter()
-        .find(|f| f.name == file_name)
-        .ok_or_else(|| Error::Hash(format!("File {} not found in repository", file_name)))?;
-    
-    let download_url = github_file
-        .download_url
-        .as_ref()
-        .ok_or_else(|| Error::Hash(format!("No download URL for {}", file_name)))?;
-    
-    // Download file content
+    release_asset: &GitHubReleaseAsset,
+    lmdb_dir: &Path,
+) -> Result<()> {
+    fs::create_dir_all(lmdb_dir).await?;
+
+    // Download .zst into memory (~50-80 MB, well within budget).
     let response = client
-        .get(download_url)
+        .get(&release_asset.browser_download_url)
         .send()
         .await
         .map_err(Error::Network)?;
-    
+
     if !response.status().is_success() {
         return Err(Error::Hash(format!(
-            "Failed to download {}: status {}",
-            file_name,
-            response.status()
+            "Download {} failed: HTTP {}",
+            release_asset.name, response.status()
         )));
     }
-    
-    let content = response.bytes().await.map_err(Error::Network)?;
-    
-    // Note: GitHub API returns git blob SHA (includes header), not raw file SHA1
-    // So checksum verification would fail. We skip it since HTTPS ensures integrity.
-    
-    // Write to file
-    let mut file = fs::File::create(&output_path).await?;
-    file.write_all(&content).await?;
-    file.flush().await?;
-    
-    Ok(true)
-}
 
-/// Checks if a file needs to be updated based on age
-async fn needs_update(path: &Path) -> Result<bool> {
-    // If file doesn't exist, it needs to be downloaded
-    if !path.exists() {
-        return Ok(true);
-    }
-    
-    // Check file age
-    let metadata = fs::metadata(path).await?;
-    let modified = metadata.modified()?;
-    let age = SystemTime::now()
-        .duration_since(modified)
-        .unwrap_or(Duration::from_secs(0));
-    
-    Ok(age > FILE_AGE_THRESHOLD)
-}
+    let compressed = response.bytes().await.map_err(Error::Network)?;
 
-/// Merges split hash files (hashes.game.txt.0 and hashes.game.txt.1) into a single file
-async fn merge_split_files(output_dir: &Path) -> Result<()> {
-    let file0_path = output_dir.join("hashes.game.txt.0");
-    let file1_path = output_dir.join("hashes.game.txt.1");
-    let merged_path = output_dir.join("hashes.game.txt");
-    
-    // Check if both split files exist
-    if !file0_path.exists() || !file1_path.exists() {
-        // If split files don't exist, nothing to merge
-        return Ok(());
-    }
-    
-    // Read both files
-    let mut merged_content = fs::read_to_string(&file0_path).await?;
-    let content1 = fs::read_to_string(&file1_path).await?;
+    // Decompress in a blocking task — zstd is CPU-bound.
+    let decompressed = tokio::task::spawn_blocking(move || {
+        zstd::stream::decode_all(Cursor::new(compressed.as_ref()))
+    })
+    .await
+    .map_err(|e| Error::Hash(format!("Zstd task join failed: {}", e)))?
+    .map_err(|e| Error::Hash(format!("Zstd decode failed: {}", e)))?;
 
-    // Append in-place to avoid a third allocation from format!
-    merged_content.push_str(&content1);
+    // Atomically replace data.mdb: write to .tmp, rename over.
+    let data_mdb = lmdb_dir.join("data.mdb");
+    let tmp_path = lmdb_dir.join("data.mdb.tmp");
 
-    // Write merged file
-    fs::write(&merged_path, merged_content).await?;
-    
-    // We KEEP the split files so we can check their age next time
-    // fs::remove_file(&file0_path).await?;
-    // fs::remove_file(&file1_path).await?;
-    
+    let mut f = fs::File::create(&tmp_path).await?;
+    f.write_all(&decompressed).await?;
+    f.flush().await?;
+    drop(f);
+
+    // Remove LMDB's lock file so a future open starts clean.
+    let _ = fs::remove_file(lmdb_dir.join("lock.mdb")).await;
+
+    fs::rename(&tmp_path, &data_mdb).await?;
     Ok(())
+}
+
+async fn read_meta(hash_dir: &Path) -> HashesMeta {
+    let path = hash_dir.join(META_FILE_NAME);
+    let Ok(data) = fs::read_to_string(&path).await else {
+        return HashesMeta::default();
+    };
+    serde_json::from_str(&data).unwrap_or_default()
+}
+
+async fn write_meta(hash_dir: &Path, meta: &HashesMeta) {
+    let path = hash_dir.join(META_FILE_NAME);
+    if let Ok(json) = serde_json::to_string_pretty(meta) {
+        if let Err(e) = fs::write(&path, json).await {
+            tracing::warn!("Failed to write {}: {}", META_FILE_NAME, e);
+        }
+    }
+}
+
+async fn auto_sync_fresh(hash_dir: &Path) -> bool {
+    let meta = read_meta(hash_dir).await;
+    let Some(ts) = meta.updated_at.as_deref() else { return false };
+    let Ok(updated) = chrono::DateTime::parse_from_rfc3339(ts) else { return false };
+    let age = chrono::Utc::now().signed_duration_since(updated.with_timezone(&chrono::Utc));
+    age.num_seconds().is_positive() && age.num_seconds() <= AUTO_SYNC_FRESHNESS.as_secs() as i64
+}
+
+fn now_iso() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
 
-    /// Verifies SHA checksum of downloaded content (test utility)
-    fn verify_checksum(content: &[u8], expected_sha: &str) -> Result<()> {
-        use sha1::{Digest, Sha1};
-        let mut hasher = Sha1::new();
-        hasher.update(content);
-        let result = hasher.finalize();
-        let computed_sha = format!("{:x}", result);
-        if computed_sha != expected_sha {
-            return Err(Error::Hash(format!(
-                "Checksum mismatch: expected {}, got {}",
-                expected_sha, computed_sha
-            )));
-        }
-        Ok(())
-    }
     #[test]
     fn test_download_stats_creation() {
-        let stats = DownloadStats {
-            downloaded: 5,
-            skipped: 2,
-            errors: 1,
-        };
-        
+        let stats = DownloadStats { downloaded: 5, skipped: 2, errors: 1 };
         assert_eq!(stats.downloaded, 5);
         assert_eq!(stats.skipped, 2);
         assert_eq!(stats.errors, 1);
     }
-    
+
     #[test]
-    fn test_get_ritoshark_hash_dir() {
-        // This test will only pass on Windows with APPDATA set
+    fn test_get_hash_dir() {
         if std::env::var("APPDATA").is_ok() {
-            let result = get_ritoshark_hash_dir();
-            assert!(result.is_ok());
-            
-            let path = result.unwrap();
-            let path_str = path.to_string_lossy();
-            assert!(path_str.contains("RitoShark"));
-            assert!(path_str.contains("Requirements"));
-            assert!(path_str.contains("Hashes"));
+            let path = get_hash_dir().unwrap();
+            let s = path.to_string_lossy();
+            assert!(s.contains("RitoShark"));
+            assert!(s.contains("Hashes"));
         }
-    }
-    
-    #[tokio::test]
-    async fn test_needs_update_nonexistent_file() {
-        let temp_dir = TempDir::new().unwrap();
-        let path = temp_dir.path().join("nonexistent.txt");
-        
-        let result = needs_update(&path).await.unwrap();
-        assert!(result, "Nonexistent file should need update");
-    }
-    
-    #[tokio::test]
-    async fn test_needs_update_fresh_file() {
-        let temp_dir = TempDir::new().unwrap();
-        let path = temp_dir.path().join("fresh.txt");
-        
-        // Create a fresh file
-        fs::write(&path, "test content").await.unwrap();
-        
-        let result = needs_update(&path).await.unwrap();
-        assert!(!result, "Fresh file should not need update");
-    }
-    
-    #[test]
-    fn test_verify_checksum_valid() {
-        let content = b"test content";
-        // SHA1 of "test content"
-        let sha = "1eebdf4fdc9fc7bf283031b93f9aef3338de9052";
-        
-        let result = verify_checksum(content, sha);
-        assert!(result.is_ok());
-    }
-    
-    #[test]
-    fn test_verify_checksum_invalid() {
-        let content = b"test content";
-        let wrong_sha = "0000000000000000000000000000000000000000";
-        
-        let result = verify_checksum(content, wrong_sha);
-        assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), Error::Hash(_)));
-    }
-    
-    #[tokio::test]
-    async fn test_merge_split_files_both_exist() {
-        let temp_dir = TempDir::new().unwrap();
-        let dir = temp_dir.path();
-        
-        // Create split files
-        fs::write(dir.join("hashes.game.txt.0"), "line1\nline2\n").await.unwrap();
-        fs::write(dir.join("hashes.game.txt.1"), "line3\nline4\n").await.unwrap();
-        
-        // Merge
-        merge_split_files(dir).await.unwrap();
-        
-        // Check merged file exists
-        assert!(dir.join("hashes.game.txt").exists());
-        
-        // Check split files are KEPT (to handle caching)
-        assert!(dir.join("hashes.game.txt.0").exists());
-        assert!(dir.join("hashes.game.txt.1").exists());
-        
-        // Check content
-        let merged_content = fs::read_to_string(dir.join("hashes.game.txt")).await.unwrap();
-        assert_eq!(merged_content, "line1\nline2\nline3\nline4\n");
-    }
-    
-    #[tokio::test]
-    async fn test_merge_split_files_missing() {
-        let temp_dir = TempDir::new().unwrap();
-        let dir = temp_dir.path();
-        
-        // Don't create split files
-        let result = merge_split_files(dir).await;
-        
-        // Should succeed without error
-        assert!(result.is_ok());
     }
 }

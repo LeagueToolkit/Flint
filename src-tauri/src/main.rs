@@ -7,7 +7,7 @@ mod state;
 
 use commands::project_watcher::WatcherState;
 use commands::settings::{initialize_app_home, get_flint_home};
-use flint_ltk::hash::get_ritoshark_hash_dir;
+use flint_ltk::hash::get_hash_dir;
 use core::frontend_log::{FrontendLogLayer, set_app_handle};
 use state::{LmdbCacheState, WadCacheState};
 use tauri::Manager;
@@ -87,42 +87,36 @@ fn main() {
                 tracing::error!("Failed to initialize app home: {}", e);
             }
 
-            // Hash directory stays in shared RitoShark location
-            let hash_dir = get_ritoshark_hash_dir().unwrap_or_else(|e| {
-                tracing::warn!("Failed to get RitoShark hash directory: {}", e);
+            // Hash directory: %APPDATA%/RitoShark/Requirements/Hashes/.
+            let hash_dir = get_hash_dir().unwrap_or_else(|e| {
+                tracing::warn!("Failed to get hash directory: {}", e);
                 app.path().app_data_dir()
                     .unwrap_or_else(|_| std::path::PathBuf::from("./hashes"))
                     .join("hashes")
             });
 
             tracing::info!("Hash directory: {}", hash_dir.display());
-            
-            // Prime LMDB: build hashes.lmdb from .txt files if stale, then mmap it.
-            // This replaces the old in-memory Hashtable load (was 200-400 MB RAM, seconds).
-            // LMDB only pages in what's actually touched — typically 5-20 MB warm.
+
+            // Download pre-built LMDBs from LeagueToolkit/lmdb-hashes releases,
+            // then open them. No local build step — the .mdb files are canonical.
             let hash_dir_str = hash_dir.to_string_lossy().into_owned();
             let lmdb_state = app.state::<LmdbCacheState>().inner().clone();
             tauri::async_runtime::spawn(async move {
                 tracing::info!("Checking for hash updates...");
                 match flint_ltk::hash::download_hashes(&hash_dir, false).await {
                     Ok(stats) => {
-                        if stats.downloaded > 0 {
-                            tracing::info!(
-                                "Hash update: {} downloaded, {} up-to-date",
-                                stats.downloaded, stats.skipped
-                            );
-                        } else {
-                            tracing::debug!("Hashes up-to-date ({} files)", stats.skipped);
-                        }
+                        tracing::info!(
+                            "Hash sync: {} downloaded, {} up-to-date, {} errors",
+                            stats.downloaded, stats.skipped, stats.errors
+                        );
                     }
                     Err(e) => {
-                        tracing::warn!("Failed to update hashes (will use existing): {}", e);
+                        tracing::warn!("Failed to sync hashes (will use existing): {}", e);
                     }
                 }
-                // Prime LMDB after download completes (build if stale, then mmap)
                 match lmdb_state.prime(&hash_dir_str) {
-                    Some(_) => tracing::info!("LMDB hash env ready — point lookups active"),
-                    None    => tracing::warn!("LMDB hash env not available — hashes may not resolve"),
+                    Some(_) => tracing::info!("Hash LMDBs ready — point lookups active"),
+                    None    => tracing::warn!("Hash LMDBs not available — hashes will fall back to hex"),
                 }
             });
             

@@ -155,26 +155,18 @@ pub fn tree_to_text_with_hashes<H: ltk_ritobin::HashProvider>(
         .map_err(|e| BinError(format!("Failed to convert to text: {}", e)))
 }
 
-/// Load BIN-specific hash files into a HashMapProvider
+/// Load BIN hashes from `hashes-bin.lmdb` (named DB `"bin"`, 4-byte BE keys).
 ///
-/// Loads hashes from the RitoShark hash directory:
-/// - hashes.bintypes.txt (type names)
-/// - hashes.binfields.txt (field/property names)
-/// - hashes.binentries.txt (entry/object names)
-/// - hashes.binhashes.txt (generic hashes)
-///
-/// Uses the built-in load_from_directory method which properly maps
-/// each file to its category (entries, fields, hashes, types).
-///
-/// # Returns
-/// A HashMapProvider populated with all loaded hashes
+/// The lmdb-hashes release bundles all 4 BIN hash categories (entries, fields,
+/// hashes, types) into a single DB. We populate all 4 HashMapProvider maps from
+/// the same entries so lookups work regardless of which category the caller queries —
+/// matches Quartz's approach.
 pub fn load_bin_hashes() -> HashMapProvider {
-    use crate::hash::{get_or_open_env, downloader::get_ritoshark_hash_dir};
+    use crate::hash::{downloader::get_hash_dir, get_bin_env};
 
     let mut hashes = HashMapProvider::new();
 
-    // Get the RitoShark hash directory
-    let hash_dir = match get_ritoshark_hash_dir() {
+    let hash_dir = match get_hash_dir() {
         Ok(dir) => dir.to_string_lossy().into_owned(),
         Err(e) => {
             tracing::warn!("Failed to get hash directory: {}", e);
@@ -182,37 +174,38 @@ pub fn load_bin_hashes() -> HashMapProvider {
         }
     };
 
-    // Get LMDB environment
-    let env = match get_or_open_env(&hash_dir) {
+    let env = match get_bin_env(&hash_dir) {
         Some(e) => e,
         None => {
-            tracing::warn!("Failed to open LMDB, cannot load BIN hashes");
+            tracing::warn!("BIN LMDB not found at {}/hashes-bin.lmdb — BIN hashes unavailable", hash_dir);
             return hashes;
         }
     };
 
-    // Read all hashes from LMDB and populate HashMapProvider
     let rtxn = match env.read_txn() {
         Ok(t) => t,
         Err(e) => {
-            tracing::warn!("Failed to open LMDB read transaction: {}", e);
+            tracing::warn!("Failed to open BIN LMDB read txn: {}", e);
             return hashes;
         }
     };
 
-    let db = match env.open_database::<heed::types::Bytes, heed::types::Str>(&rtxn, None) {
+    let db = match env.open_database::<heed::types::Bytes, heed::types::Str>(&rtxn, Some("bin")) {
         Ok(Some(d)) => d,
-        _ => {
-            tracing::warn!("Failed to open LMDB database");
+        Ok(None) => {
+            tracing::warn!("BIN LMDB has no 'bin' named database");
+            return hashes;
+        }
+        Err(e) => {
+            tracing::warn!("Failed to open 'bin' named DB: {}", e);
             return hashes;
         }
     };
 
-    // Iterate all LMDB entries and add to HashMapProvider
     let iter = match db.iter(&rtxn) {
         Ok(i) => i,
         Err(e) => {
-            tracing::warn!("Failed to create LMDB iterator: {}", e);
+            tracing::warn!("Failed to create BIN LMDB iterator: {}", e);
             return hashes;
         }
     };
@@ -221,31 +214,25 @@ pub fn load_bin_hashes() -> HashMapProvider {
     for result in iter {
         match result {
             Ok((key_bytes, path_str)) => {
-                if key_bytes.len() == 8 {
-                    let hash = u64::from_be_bytes([
+                if key_bytes.len() == 4 {
+                    let hash = u32::from_be_bytes([
                         key_bytes[0], key_bytes[1], key_bytes[2], key_bytes[3],
-                        key_bytes[4], key_bytes[5], key_bytes[6], key_bytes[7],
                     ]);
-
-                    // Only load 32-bit hashes into HashMapProvider (BIN files use 32-bit hashes)
-                    if hash < 0x1_0000_0000 {
-                        let hash_32 = hash as u32;
-                        hashes.insert_type(hash_32, path_str.to_string());
-                        hashes.insert_field(hash_32, path_str.to_string());
-                        hashes.insert_entry(hash_32, path_str.to_string());
-                        hashes.insert_hash(hash_32, path_str.to_string());
-                        count += 1;
-                    }
+                    let s = path_str.to_string();
+                    hashes.insert_type(hash, s.clone());
+                    hashes.insert_field(hash, s.clone());
+                    hashes.insert_entry(hash, s.clone());
+                    hashes.insert_hash(hash, s);
+                    count += 1;
                 }
             }
             Err(e) => {
-                tracing::warn!("Error reading LMDB entry: {}", e);
+                tracing::warn!("Error reading BIN LMDB entry: {}", e);
             }
         }
     }
 
-    tracing::info!("Loaded {} hashes from LMDB for BIN resolution", count);
-
+    tracing::info!("Loaded {} BIN hashes from hashes-bin.lmdb", count);
     hashes
 }
 

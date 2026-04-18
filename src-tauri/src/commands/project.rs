@@ -57,11 +57,11 @@ pub async fn create_project(
         "message": "Initializing..."
     }));
 
-    let hash_dir = flint_ltk::hash::downloader::get_ritoshark_hash_dir()
+    let hash_dir = flint_ltk::hash::get_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let env_arc = lmdb.prime(&hash_dir).ok_or_else(|| 
-        "Failed to open hash database. Please check that hash files are available.".to_string()
+    let env_arc = lmdb.prime(&hash_dir).ok_or_else(||
+        "Hash databases not found. Run hash download first.".to_string()
     )?;
 
     tracing::info!("LMDB hash env ready for project creation");
