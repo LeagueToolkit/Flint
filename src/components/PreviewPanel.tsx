@@ -13,6 +13,7 @@ import { TextPreview } from './preview/TextPreview';
 import { BinEditor } from './preview/BinEditor';
 import { ModelPreview } from './preview/ModelPreview';
 import { HUDEditor } from './preview/HUDEditor';
+import { BnkPreview } from './preview/BnkPreview';
 import { JadeIcon } from './icons/JadeIcon';
 import { QuartzIcon } from './icons/QuartzIcon';
 
@@ -61,6 +62,8 @@ const getTypeLabel = (fileType: string, filePath?: string): string => {
         'application/json': 'JSON',
         'text/plain': 'Plain Text',
         'audio': 'Audio',
+        'audio/x-wwise-bnk': 'Wwise Sound Bank',
+        'audio/x-wwise-wpk': 'Wwise Audio Package',
         'model': '3D Model',
         'model/x-lol-skn': 'SKN Skinned Mesh',
         'model/x-lol-skl': 'SKL Skeleton',
@@ -251,6 +254,14 @@ export const PreviewPanel: React.FC = () => {
             fileInfo.extension === 'py'
         ) {
             return <TextPreview key={filePath} filePath={filePath} />;
+        }
+
+        // Wwise audio banks (BNK / WPK)
+        if (
+            fileInfo.extension === 'bnk' || fileInfo.extension === 'wpk' ||
+            fileInfo.file_type === 'audio/x-wwise-bnk' || fileInfo.file_type === 'audio/x-wwise-wpk'
+        ) {
+            return <BnkPreview key={filePath} filePath={filePath} />;
         }
 
         // 3D model preview for SKN files
