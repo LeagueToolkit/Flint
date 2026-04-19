@@ -59,8 +59,8 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
     const [buffer, setBuffer] = useState<AudioBuffer | null>(null);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [selection, setSelection] = useState<{ start: number; end: number }>({ start: 0, end: 0 });
-    const [cursorT, setCursorT] = useState(0);          // user-placed playback start point
-    const [playhead, setPlayhead] = useState(0);        // live position during playback
+    /** Single unified playhead — stays where the user left it; animates during playback. */
+    const [playhead, setPlayhead] = useState(0);
     const [isPlaying, setIsPlaying] = useState(false);
     const [applying, setApplying] = useState(false);
 
@@ -90,10 +90,10 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
     // Refs that mirror state values the keyboard handler reads — avoids
     // stale-closure bugs where rapid Space presses miss state updates.
     const selectionRef = useRef(selection);
-    const cursorTRef = useRef(cursorT);
+    const playheadRef = useRef(playhead);
     const durationRef = useRef(duration);
     useEffect(() => { selectionRef.current = selection; }, [selection]);
-    useEffect(() => { cursorTRef.current = cursorT; }, [cursorT]);
+    useEffect(() => { playheadRef.current = playhead; }, [playhead]);
     useEffect(() => { durationRef.current = duration; }, [duration]);
 
     // -----------------------------------------------------------------------
@@ -134,7 +134,7 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
                 if (cancelled) return;
                 setBuffer(buf);
                 setSelection({ start: 0, end: buf.duration });
-                setCursorT(0);
+                setPlayhead(0);
             } catch (err) {
                 if (!cancelled) setLoadError((err as Error).message || String(err));
             }
@@ -255,28 +255,25 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
         drawHandle(ctx, xStart, h, w, accent, 'start');
         drawHandle(ctx, xEnd, h, w, accent, 'end');
 
-        // Playhead / cursor
-        const cursorPos = isPlaying ? playhead : cursorT;
-        const px = timeToX(cursorPos);
+        // Playhead (single white line — animates during playback, stays put otherwise)
+        const px = timeToX(playhead);
         if (px >= 0 && px <= w) {
-            ctx.strokeStyle = isPlaying ? '#ffffff' : 'rgba(255,255,255,0.75)';
+            ctx.strokeStyle = isPlaying ? '#ffffff' : 'rgba(255,255,255,0.85)';
             ctx.lineWidth = 1.5;
             ctx.beginPath();
             ctx.moveTo(px + 0.5, 0);
             ctx.lineTo(px + 0.5, h);
             ctx.stroke();
-            if (!isPlaying) {
-                // Flag at top so user sees where playback will start
-                ctx.fillStyle = 'rgba(255,255,255,0.75)';
-                ctx.beginPath();
-                ctx.moveTo(px, 0);
-                ctx.lineTo(px + 8, 0);
-                ctx.lineTo(px, 6);
-                ctx.closePath();
-                ctx.fill();
-            }
+            // Flag at top so the idle playhead is easy to spot / grab
+            ctx.fillStyle = isPlaying ? '#ffffff' : 'rgba(255,255,255,0.85)';
+            ctx.beginPath();
+            ctx.moveTo(px, 0);
+            ctx.lineTo(px + 9, 0);
+            ctx.lineTo(px, 7);
+            ctx.closePath();
+            ctx.fill();
         }
-    }, [buffer, selection, cursorT, playhead, isPlaying, canvasSize, layout, timeToX]);
+    }, [buffer, selection, playhead, isPlaying, canvasSize, layout, timeToX]);
 
     // -----------------------------------------------------------------------
     // Draw ruler (time ticks)
@@ -328,14 +325,14 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
             if (!buffer) return null;
             const xStart = timeToX(selection.start);
             const xEnd = timeToX(selection.end);
-            const xCursor = timeToX(cursorT);
+            const xHead = timeToX(playhead);
             if (Math.abs(x - xStart) <= HANDLE_HIT_PX) return 'start';
             if (Math.abs(x - xEnd) <= HANDLE_HIT_PX) return 'end';
-            if (Math.abs(x - xCursor) <= 6) return 'cursor';
+            if (Math.abs(x - xHead) <= 6) return 'cursor';
             if (x > xStart && x < xEnd) return 'selection';
             return 'new';
         },
-        [buffer, selection, cursorT, timeToX],
+        [buffer, selection, playhead, timeToX],
     );
 
     // -----------------------------------------------------------------------
@@ -368,9 +365,15 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
                 kind = 'pan';
             }
 
+            // Any waveform interaction (except pan) stops playback — so the
+            // user can place / drag the playhead without fighting the audio.
+            if (kind !== 'pan' && sourceRef.current) {
+                stopPlayback();
+            }
+
             // For 'new' mode we DON'T touch the selection on mousedown — only
             // on the first meaningful move. That way a plain click places the
-            // playback cursor instead of destroying the existing selection.
+            // playhead instead of destroying the existing selection.
             dragRef.current = {
                 kind,
                 startClientX: e.clientX,
@@ -393,7 +396,7 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
 
     // Global mousemove/up while dragging
     useEffect(() => {
-        const CLICK_THRESHOLD = 3;
+        const CLICK_THRESHOLD = 6;
         const onMove = (e: MouseEvent) => {
             const drag = dragRef.current;
             if (!drag || !buffer) return;
@@ -412,7 +415,7 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
                 const newEnd = Math.max(Math.min(t, duration), drag.origSel.start + 0.005);
                 setSelection({ start: drag.origSel.start, end: newEnd });
             } else if (drag.kind === 'cursor') {
-                setCursorT(Math.max(0, Math.min(duration, t)));
+                setPlayhead(Math.max(0, Math.min(duration, t)));
             } else if (drag.kind === 'new') {
                 if (!drag.moved) return; // wait until we pass threshold
                 const a = Math.min(drag.startTime, t);
@@ -436,10 +439,10 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
         const onUp = () => {
             const drag = dragRef.current;
             if (!drag) return;
-            // Pure click (no drag) inside the waveform places the playback cursor
-            if ((drag.kind === 'new' || drag.kind === 'selection') && !drag.moved) {
+            // Pure click (no drag) inside the waveform → place the playhead there
+            if ((drag.kind === 'new' || drag.kind === 'selection' || drag.kind === 'cursor') && !drag.moved) {
                 const t = Math.max(0, Math.min(duration, drag.startTime));
-                setCursorT(t);
+                setPlayhead(t);
             }
             dragRef.current = null;
             setCursorStyle('default');
@@ -558,22 +561,22 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
     // -----------------------------------------------------------------------
     const isActuallyPlaying = () => sourceRef.current !== null;
 
-    /** "Play all" — plays the full file, using playhead as start if placed. */
+    /** "Play all" — plays from the playhead to the end. Wraps to 0 if at end. */
     const playAll = useCallback(() => {
         const d = durationRef.current;
-        const c = cursorTRef.current;
-        const from = c > 0 && c < d - 0.01 ? c : 0;
+        const p = playheadRef.current;
+        const from = p >= d - 0.01 ? 0 : p;
         startPlayback(from, d);
     }, [startPlayback]);
 
     /**
      * "Play selection" — if the playhead sits inside the selection, start
-     * from the playhead; otherwise play the whole selection.
+     * from the playhead; otherwise play from the selection start.
      */
     const playSelection = useCallback(() => {
         const sel = selectionRef.current;
-        const c = cursorTRef.current;
-        const from = c >= sel.start && c < sel.end - 0.01 ? c : sel.start;
+        const p = playheadRef.current;
+        const from = p >= sel.start && p < sel.end - 0.01 ? p : sel.start;
         startPlayback(from, sel.end);
     }, [startPlayback]);
 
