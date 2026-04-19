@@ -41,6 +41,7 @@ interface DragState {
 
 const HANDLE_HIT_PX = 8;
 const RULER_HEIGHT = 22;
+const WAVEFORM_HEIGHT = 220;
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 200;
 
@@ -146,12 +147,12 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
             const rect = el.getBoundingClientRect();
             setCanvasSize({
                 w: Math.max(300, Math.floor(rect.width)),
-                h: 180,
+                h: WAVEFORM_HEIGHT,
             });
         });
         observer.observe(el);
         const rect = el.getBoundingClientRect();
-        setCanvasSize({ w: Math.max(300, Math.floor(rect.width)), h: 180 });
+        setCanvasSize({ w: Math.max(300, Math.floor(rect.width)), h: WAVEFORM_HEIGHT });
         return () => observer.disconnect();
     }, []);
 
@@ -235,9 +236,9 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
             ctx.fillRect(ox, 0, ow, h);
         }
 
-        // Edge handles (red bars)
-        if (xStart >= -2 && xStart <= w + 2) drawHandle(ctx, xStart, h, accent, 'start');
-        if (xEnd >= -2 && xEnd <= w + 2) drawHandle(ctx, xEnd, h, accent, 'end');
+        // Edge handles (red bars) — always drawn if the selection exists, clamped to canvas
+        drawHandle(ctx, xStart, h, w, accent, 'start');
+        drawHandle(ctx, xEnd, h, w, accent, 'end');
 
         // Playhead
         if (isPlaying) {
@@ -580,33 +581,105 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
     }, [buffer, selection, onApply, stopPlayback]);
 
     // -----------------------------------------------------------------------
-    // Scrollbar
+    // Zoom scrollbar (Premiere-style: thumb represents view, drag edges to zoom)
     // -----------------------------------------------------------------------
     const scrollbar = useMemo(() => {
-        if (!buffer || zoom <= 1) return null;
-        const thumbW = Math.max(30, (layout.viewDuration / duration) * canvasSize.w);
+        if (!buffer || duration <= 0) {
+            return { thumbW: canvasSize.w, thumbX: 0, trackW: canvasSize.w };
+        }
+        const thumbW = Math.max(24, (layout.viewDuration / duration) * canvasSize.w);
         const thumbX = (layout.clampedScrollT / duration) * canvasSize.w;
-        return { thumbW, thumbX };
-    }, [buffer, zoom, layout, duration, canvasSize.w]);
+        return { thumbW, thumbX, trackW: canvasSize.w };
+    }, [buffer, duration, layout, canvasSize.w]);
 
-    const onScrollbarDrag = (e: React.MouseEvent<HTMLDivElement>) => {
-        if (!buffer || !scrollbar) return;
+    const SB_EDGE_HIT = 8;
+
+    const scrollbarHitTest = (x: number): 'left' | 'right' | 'middle' | 'track' => {
+        const { thumbX, thumbW } = scrollbar;
+        const leftEdge = thumbX;
+        const rightEdge = thumbX + thumbW;
+        if (Math.abs(x - leftEdge) <= SB_EDGE_HIT) return 'left';
+        if (Math.abs(x - rightEdge) <= SB_EDGE_HIT) return 'right';
+        if (x >= thumbX && x <= rightEdge) return 'middle';
+        return 'track';
+    };
+
+    const [sbCursor, setSbCursor] = useState<string>('default');
+
+    const onScrollbarMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+        if (!buffer || duration <= 0) return;
         const track = e.currentTarget;
         const rect = track.getBoundingClientRect();
-        const updateFromX = (clientX: number) => {
-            const x = clientX - rect.left - scrollbar.thumbW / 2;
-            const ratio = Math.max(0, Math.min(1, x / (canvasSize.w - scrollbar.thumbW)));
-            const maxScroll = Math.max(0, duration - layout.viewDuration);
-            setScrollT(ratio * maxScroll);
+        const startX = e.clientX - rect.left;
+        const origThumbX = scrollbar.thumbX;
+        const origThumbW = scrollbar.thumbW;
+        const trackW = rect.width;
+        const mode = scrollbarHitTest(startX);
+
+        // Clicking outside thumb: recenter thumb at click, stay in pan mode
+        if (mode === 'track') {
+            const targetX = Math.max(0, Math.min(trackW - origThumbW, startX - origThumbW / 2));
+            const ratio = trackW - origThumbW > 0 ? targetX / (trackW - origThumbW) : 0;
+            setScrollT(ratio * Math.max(0, duration - layout.viewDuration));
+        }
+
+        const dragMode: 'left' | 'right' | 'middle' =
+            mode === 'track' ? 'middle' : mode;
+
+        const onMove = (ev: MouseEvent) => {
+            const x = Math.max(0, Math.min(trackW, ev.clientX - rect.left));
+            if (dragMode === 'middle') {
+                let newX = origThumbX + (x - startX);
+                newX = Math.max(0, Math.min(trackW - origThumbW, newX));
+                const maxScroll = Math.max(0, duration - (origThumbW / trackW) * duration);
+                const ratio = trackW - origThumbW > 0 ? newX / (trackW - origThumbW) : 0;
+                setScrollT(ratio * maxScroll);
+            } else if (dragMode === 'left') {
+                const minLeft = 0;
+                const maxLeft = origThumbX + origThumbW - 24;
+                const newLeft = Math.max(minLeft, Math.min(maxLeft, x));
+                const newRight = origThumbX + origThumbW;
+                const newW = newRight - newLeft;
+                const newView = (newW / trackW) * duration;
+                const newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, duration / newView));
+                const newScroll = (newLeft / trackW) * duration;
+                setZoom(newZoom);
+                setScrollT(newScroll);
+            } else if (dragMode === 'right') {
+                const origLeft = origThumbX;
+                const minRight = origLeft + 24;
+                const maxRight = trackW;
+                const newRight = Math.max(minRight, Math.min(maxRight, x));
+                const newW = newRight - origLeft;
+                const newView = (newW / trackW) * duration;
+                const newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, duration / newView));
+                setZoom(newZoom);
+                // scrollT unchanged on right-edge drag
+            }
         };
-        updateFromX(e.clientX);
-        const onMove = (ev: MouseEvent) => updateFromX(ev.clientX);
         const onUp = () => {
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('mouseup', onUp);
+            setSbCursor('default');
         };
         window.addEventListener('mousemove', onMove);
         window.addEventListener('mouseup', onUp);
+        setSbCursor(dragMode === 'middle' ? 'grabbing' : 'ew-resize');
+        e.preventDefault();
+    };
+
+    const onScrollbarMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const m = scrollbarHitTest(x);
+        if (m === 'left' || m === 'right') setSbCursor('ew-resize');
+        else if (m === 'middle') setSbCursor('grab');
+        else setSbCursor('pointer');
+    };
+
+    const onScrollbarDoubleClick = () => {
+        setZoom(1);
+        setScrollT(0);
     };
 
     // -----------------------------------------------------------------------
@@ -676,32 +749,48 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
                     {buffer && (
                         <>
                             <canvas ref={rulerCanvasRef} style={{ display: 'block' }} />
-                            <canvas
-                                ref={canvasRef}
-                                style={{ display: 'block', cursor: cursorStyle, userSelect: 'none' }}
-                                onMouseDown={beginDrag}
-                                onMouseMove={onCanvasMouseMove}
-                                onWheel={onWheel}
-                                onDoubleClick={selectAll}
-                            />
-                            {scrollbar && (
-                                <div style={styles.scrollbarTrack} onMouseDown={onScrollbarDrag}>
-                                    <div
-                                        style={{
-                                            ...styles.scrollbarThumb,
-                                            width: scrollbar.thumbW,
-                                            left: scrollbar.thumbX,
-                                        }}
-                                    />
+                            <div style={{ position: 'relative', height: WAVEFORM_HEIGHT }}>
+                                <canvas
+                                    ref={canvasRef}
+                                    style={{
+                                        display: 'block',
+                                        cursor: cursorStyle,
+                                        userSelect: 'none',
+                                        position: 'absolute',
+                                        inset: 0,
+                                    }}
+                                    onMouseDown={beginDrag}
+                                    onMouseMove={onCanvasMouseMove}
+                                    onWheel={onWheel}
+                                    onDoubleClick={selectAll}
+                                />
+                            </div>
+                            {/* Always-visible zoom scrollbar (Premiere-style) */}
+                            <div
+                                style={{ ...styles.scrollbarTrack, cursor: sbCursor }}
+                                onMouseDown={onScrollbarMouseDown}
+                                onMouseMove={onScrollbarMouseMove}
+                                onDoubleClick={onScrollbarDoubleClick}
+                                title="Drag to pan · Drag edges to zoom · Double-click to reset"
+                            >
+                                <div
+                                    style={{
+                                        ...styles.scrollbarThumb,
+                                        width: scrollbar.thumbW,
+                                        left: scrollbar.thumbX,
+                                    }}
+                                >
+                                    <div style={styles.scrollbarEdgeLeft} />
+                                    <div style={styles.scrollbarEdgeRight} />
                                 </div>
-                            )}
+                            </div>
                         </>
                     )}
                 </div>
 
                 <div style={styles.infoRow}>
                     <div style={styles.subtle}>
-                        Drag red bars to adjust · Click empty area to start new selection · Ctrl+wheel to zoom · Alt+drag to pan
+                        Drag red bars to adjust · Drag scrollbar edges to zoom · Middle to pan · Double-click scrollbar to reset
                     </div>
                 </div>
 
@@ -756,21 +845,24 @@ function drawHandle(
     ctx: CanvasRenderingContext2D,
     x: number,
     h: number,
+    w: number,
     accent: string,
     _kind: 'start' | 'end',
 ) {
     ctx.save();
+    // Keep the grip fully visible: clamp draw x so 6-px grip never clips
+    const gripX = Math.max(3, Math.min(w - 3, x));
     ctx.strokeStyle = accent;
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(x + 0.5, 0);
-    ctx.lineTo(x + 0.5, h);
+    ctx.moveTo(gripX + 0.5, 0);
+    ctx.lineTo(gripX + 0.5, h);
     ctx.stroke();
 
     // Grab grip: two small squares at top/bottom
     ctx.fillStyle = accent;
-    ctx.fillRect(x - 3, 0, 6, 8);
-    ctx.fillRect(x - 3, h - 8, 6, 8);
+    ctx.fillRect(gripX - 3, 0, 6, 10);
+    ctx.fillRect(gripX - 3, h - 10, 6, 10);
     ctx.restore();
 }
 
@@ -896,7 +988,7 @@ const styles: Record<string, React.CSSProperties> = {
         background: 'rgba(0,0,0,0.15)',
     },
     loading: {
-        height: 200,
+        height: WAVEFORM_HEIGHT,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -906,19 +998,40 @@ const styles: Record<string, React.CSSProperties> = {
     },
     scrollbarTrack: {
         position: 'relative',
-        height: 10,
-        marginTop: 6,
-        background: 'rgba(255,255,255,0.04)',
-        borderRadius: 3,
-        cursor: 'pointer',
+        height: 16,
+        marginTop: 8,
+        background: 'rgba(255,255,255,0.05)',
+        borderRadius: 4,
+        userSelect: 'none',
     },
     scrollbarThumb: {
         position: 'absolute',
         top: 1,
         bottom: 1,
+        background: 'color-mix(in srgb, var(--accent-primary) 55%, transparent)',
+        border: '1px solid color-mix(in srgb, var(--accent-primary) 80%, transparent)',
+        borderRadius: 4,
+        boxSizing: 'border-box',
+    },
+    scrollbarEdgeLeft: {
+        position: 'absolute',
+        top: -2,
+        bottom: -2,
+        left: -1,
+        width: 5,
         background: 'var(--accent-primary)',
-        opacity: 0.6,
-        borderRadius: 3,
+        borderRadius: 2,
+        opacity: 0.9,
+    },
+    scrollbarEdgeRight: {
+        position: 'absolute',
+        top: -2,
+        bottom: -2,
+        right: -1,
+        width: 5,
+        background: 'var(--accent-primary)',
+        borderRadius: 2,
+        opacity: 0.9,
     },
     infoRow: {
         padding: '8px 16px',
