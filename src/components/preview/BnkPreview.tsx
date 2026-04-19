@@ -203,6 +203,9 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
     const [saving, setSaving] = useState(false);
     const [busyId, setBusyId] = useState<number | null>(null);
     const undoStackRef = useRef<Uint8Array[]>([]);
+    // Tracks whether a click gesture started ON the modal overlay itself;
+    // prevents drag-then-release-outside from accidentally closing modals.
+    const overlayDownRef = useRef(false);
     const [undoDepth, setUndoDepth] = useState(0);
 
     // Context menu state
@@ -1176,7 +1179,15 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
             {volumeModal && (
                 <div
                     style={panelStyles.modalOverlay}
-                    onClick={() => !volumeModal.busy && setVolumeModal(null)}
+                    onMouseDown={(e) => {
+                        overlayDownRef.current = e.target === e.currentTarget;
+                    }}
+                    onClick={(e) => {
+                        if (!volumeModal.busy && overlayDownRef.current && e.target === e.currentTarget) {
+                            setVolumeModal(null);
+                        }
+                        overlayDownRef.current = false;
+                    }}
                 >
                     <div style={panelStyles.modal} onClick={(e) => e.stopPropagation()}>
                         <div style={panelStyles.modalHeader}>

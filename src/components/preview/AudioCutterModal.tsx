@@ -789,8 +789,24 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
     // -----------------------------------------------------------------------
     // Render
     // -----------------------------------------------------------------------
+    // Only close on a pure click ON the overlay — not a drag that started
+    // inside the modal (e.g. dragging the playhead) and released over the
+    // overlay. Track where the mousedown landed.
+    const overlayDownRef = useRef(false);
+
     return (
-        <div style={styles.overlay} onClick={() => !applying && onClose()}>
+        <div
+            style={styles.overlay}
+            onMouseDown={(e) => {
+                overlayDownRef.current = e.target === e.currentTarget;
+            }}
+            onClick={(e) => {
+                if (!applying && overlayDownRef.current && e.target === e.currentTarget) {
+                    onClose();
+                }
+                overlayDownRef.current = false;
+            }}
+        >
             <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
                 <div style={styles.header}>
                     <span style={{ fontWeight: 600 }}>Audio cutter</span>
