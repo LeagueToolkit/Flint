@@ -732,7 +732,7 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
     useEffect(() => {
         const handler = (e: KeyboardEvent) => {
             const tag = (e.target as HTMLElement | null)?.tagName;
-            if (tag === 'INPUT' || tag === 'TEXTAREA' || volumeModal || ctxMenu) return;
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || volumeModal || ctxMenu || cutterModal) return;
             if (selectedId === null) return;
             const entry = entriesById.get(selectedId);
             if (!entry) return;
@@ -748,7 +748,7 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
         };
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
-    }, [selectedId, entriesById, volumeModal, ctxMenu, handlePlayToggle, handleSilence, handleRemove]);
+    }, [selectedId, entriesById, volumeModal, ctxMenu, cutterModal, handlePlayToggle, handleSilence, handleRemove]);
 
     // -------------------------------------------------------------------
     // Rendering

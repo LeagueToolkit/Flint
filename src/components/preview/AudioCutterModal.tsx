@@ -59,8 +59,10 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
     const [buffer, setBuffer] = useState<AudioBuffer | null>(null);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [selection, setSelection] = useState<{ start: number; end: number }>({ start: 0, end: 0 });
-    /** Single unified playhead — stays where the user left it; animates during playback. */
+    /** User anchor — set only by clicks/drags. Never modified by playback. */
     const [playhead, setPlayhead] = useState(0);
+    /** Live position during playback — driven by rAF, only shown while playing. */
+    const [playbackPos, setPlaybackPos] = useState(0);
     const [isPlaying, setIsPlaying] = useState(false);
     const [applying, setApplying] = useState(false);
 
@@ -255,25 +257,41 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
         drawHandle(ctx, xStart, h, w, accent, 'start');
         drawHandle(ctx, xEnd, h, w, accent, 'end');
 
-        // Playhead (single white line — animates during playback, stays put otherwise)
-        const px = timeToX(playhead);
-        if (px >= 0 && px <= w) {
-            ctx.strokeStyle = isPlaying ? '#ffffff' : 'rgba(255,255,255,0.85)';
+        // User anchor (white flagged line) — always visible, never moves during playback
+        const pxAnchor = timeToX(playhead);
+        if (pxAnchor >= 0 && pxAnchor <= w) {
+            ctx.strokeStyle = 'rgba(255,255,255,0.85)';
             ctx.lineWidth = 1.5;
             ctx.beginPath();
-            ctx.moveTo(px + 0.5, 0);
-            ctx.lineTo(px + 0.5, h);
+            ctx.moveTo(pxAnchor + 0.5, 0);
+            ctx.lineTo(pxAnchor + 0.5, h);
             ctx.stroke();
-            // Flag at top so the idle playhead is easy to spot / grab
-            ctx.fillStyle = isPlaying ? '#ffffff' : 'rgba(255,255,255,0.85)';
+            ctx.fillStyle = 'rgba(255,255,255,0.85)';
             ctx.beginPath();
-            ctx.moveTo(px, 0);
-            ctx.lineTo(px + 9, 0);
-            ctx.lineTo(px, 7);
+            ctx.moveTo(pxAnchor, 0);
+            ctx.lineTo(pxAnchor + 9, 0);
+            ctx.lineTo(pxAnchor, 7);
             ctx.closePath();
             ctx.fill();
         }
-    }, [buffer, selection, playhead, isPlaying, canvasSize, layout, timeToX]);
+
+        // Live playback indicator — only rendered while playing, doesn't affect anchor
+        if (isPlaying) {
+            const pxLive = timeToX(playbackPos);
+            if (pxLive >= 0 && pxLive <= w) {
+                ctx.strokeStyle = 'var(--accent-primary)';
+                const accent2 =
+                    getComputedStyle(document.documentElement).getPropertyValue('--accent-primary').trim() ||
+                    '#EF4444';
+                ctx.strokeStyle = accent2;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(pxLive + 0.5, 0);
+                ctx.lineTo(pxLive + 0.5, h);
+                ctx.stroke();
+            }
+        }
+    }, [buffer, selection, playhead, playbackPos, isPlaying, canvasSize, layout, timeToX]);
 
     // -----------------------------------------------------------------------
     // Draw ruler (time ticks)
@@ -532,7 +550,7 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
                 endAt: end,
             };
             setIsPlaying(true);
-            setPlayhead(start);
+            setPlaybackPos(start);
 
             const tick = () => {
                 const tracker = playTrackerRef.current;
@@ -544,7 +562,7 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
                     stopPlayback();
                     return;
                 }
-                setPlayhead(t);
+                setPlaybackPos(t);
                 rafRef.current = requestAnimationFrame(tick);
             };
             rafRef.current = requestAnimationFrame(tick);
@@ -607,7 +625,9 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
             } else if (e.code === 'Space') {
                 e.preventDefault();
                 e.stopPropagation();
-                // Blur any focused button so Space doesn't re-trigger its click
+                // Critical: stop the parent BnkPreview keydown handler from
+                // ALSO running (both are on window; both would play audio).
+                e.stopImmediatePropagation();
                 if (document.activeElement && document.activeElement !== document.body) {
                     (document.activeElement as HTMLElement).blur();
                 }
@@ -625,8 +645,11 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
                 setScrollT(0);
             }
         };
-        window.addEventListener('keydown', onKey);
-        return () => window.removeEventListener('keydown', onKey);
+        // Capture phase so this handler runs BEFORE BnkPreview's keydown
+        // handler (both live on window); stopImmediatePropagation then cuts
+        // the parent off for the same event.
+        window.addEventListener('keydown', onKey, true);
+        return () => window.removeEventListener('keydown', onKey, true);
     }, [toggleSpace, toggleShiftSpace, applying, onClose]);
     const zoomIn = () => setZoom((z) => Math.min(MAX_ZOOM, z * 1.5));
     const zoomOut = () => setZoom((z) => Math.max(MIN_ZOOM, z / 1.5));
