@@ -803,18 +803,19 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
             >
                 <td style={{ ...panelStyles.td, paddingLeft: 12 + depth * 18, width: 44 }}>
                     <button
-                        className="btn btn--sm"
                         onClick={(e) => { e.stopPropagation(); handlePlayToggle(entry.id); }}
                         disabled={isDecoding || isBusy}
                         title={isPlaying ? 'Stop' : 'Play'}
-                        style={panelStyles.playBtn}
+                        style={{
+                            ...panelStyles.playBtn,
+                            color: isPlaying ? 'var(--accent-primary)' : 'var(--text-primary)',
+                            opacity: isDecoding || isBusy ? 0.5 : 1,
+                        }}
                     >
                         {isDecoding ? (
-                            <div className="spinner" style={{ width: 12, height: 12 }} />
+                            <div className="spinner" style={{ width: 10, height: 10 }} />
                         ) : (
-                            <span style={{ fontSize: 12, lineHeight: 1 }}>
-                                {isPlaying ? STOP_GLYPH : PLAY_GLYPH}
-                            </span>
+                            <span>{isPlaying ? STOP_GLYPH : PLAY_GLYPH}</span>
                         )}
                     </button>
                 </td>
@@ -1465,12 +1466,18 @@ const panelStyles: Record<string, React.CSSProperties> = {
         whiteSpace: 'nowrap',
     },
     playBtn: {
-        width: 28,
-        height: 28,
+        width: 26,
+        height: 26,
         padding: 0,
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
+        background: 'rgba(255,255,255,0.05)',
+        border: '1px solid var(--border)',
+        borderRadius: 4,
+        color: 'var(--text-primary)',
+        fontSize: 11,
+        lineHeight: 1,
     },
     ctxMenu: {
         position: 'fixed',
