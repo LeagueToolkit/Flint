@@ -801,7 +801,7 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                 onDoubleClick={() => handlePlayToggle(entry.id)}
                 onContextMenu={onRowContextMenu}
             >
-                <td style={{ ...panelStyles.td, paddingLeft: 12 + depth * 18, width: 44 }}>
+                <td style={{ ...panelStyles.td, paddingLeft: 8 + depth * 14, paddingRight: 4, width: 64 }}>
                     <button
                         onClick={(e) => { e.stopPropagation(); handlePlayToggle(entry.id); }}
                         disabled={isDecoding || isBusy}
@@ -1066,7 +1066,7 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                 <table style={panelStyles.table}>
                     <thead>
                         <tr>
-                            <th style={{ ...panelStyles.th, width: 44 }}></th>
+                            <th style={{ ...panelStyles.th, width: 64 }}></th>
                             <th style={panelStyles.th}>
                                 {viewMode === 'events' ? 'Event / WEM' : 'WEM ID'}
                             </th>
