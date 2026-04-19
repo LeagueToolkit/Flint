@@ -7436,3 +7436,36 @@ input.np-search:focus {
 .italic {
   font-style: italic;
 }
+
+/* UpdateModal — markdown release notes */
+.update-modal__release-notes h3,
+.update-modal__release-notes h4,
+.update-modal__release-notes h5,
+.update-modal__release-notes h6 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 10px 0 4px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--border-color);
+}
+.update-modal__release-notes h3:first-child,
+.update-modal__release-notes h4:first-child,
+.update-modal__release-notes h5:first-child,
+.update-modal__release-notes h6:first-child { margin-top: 0; }
+.update-modal__release-notes p { margin: 4px 0; }
+.update-modal__release-notes ul { margin: 4px 0; padding-left: 18px; }
+.update-modal__release-notes li { margin: 2px 0; }
+.update-modal__release-notes code {
+  background: var(--bg-tertiary);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+}
+.update-modal__release-notes a {
+  color: var(--accent-primary);
+  text-decoration: none;
+}
+.update-modal__release-notes a:hover { text-decoration: underline; }
+.update-modal__release-notes strong { color: var(--text-primary); }
