@@ -524,13 +524,12 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ meshData, visibleMaterials, wir
         return map;
     }, [meshData, textureCache]);
 
-    // Center camera on mesh (adjusted for floor at Y=0)
+    // Center camera on mesh (use natural bounding-box center so parts below Y=0 stay below the grid)
     useEffect(() => {
         const [[minX, minY, minZ], [maxX, maxY, maxZ]] = meshData.bounding_box;
-        // Calculate center with Y offset so model feet are at Y=0
         const center = new THREE.Vector3(
             (minX + maxX) / 2,
-            (minY + maxY) / 2 - minY, // Offset so minY becomes 0
+            (minY + maxY) / 2,
             (minZ + maxZ) / 2
         );
         const size = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
@@ -542,7 +541,7 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ meshData, visibleMaterials, wir
     }, [meshData.bounding_box, camera]);
 
     return (
-        <group ref={groupRef} position={[0, -meshData.bounding_box[0][1], 0]}>
+        <group ref={groupRef}>
             {materialGroups.map((mat, index) => {
                 if (!mat.visible) return null;
 
