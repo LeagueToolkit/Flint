@@ -217,6 +217,33 @@ function audioBufferToWav(buf: AudioBuffer): Uint8Array {
     return new Uint8Array(out);
 }
 
+/** Slice an AudioBuffer between two times (seconds) into a fresh buffer. */
+function sliceAudioBuffer(buf: AudioBuffer, startSec: number, endSec: number): AudioBuffer {
+    const ctx = new AudioContext();
+    const startFrame = Math.max(0, Math.floor(startSec * buf.sampleRate));
+    const endFrame = Math.min(buf.length, Math.floor(endSec * buf.sampleRate));
+    const length = Math.max(1, endFrame - startFrame);
+    const out = ctx.createBuffer(buf.numberOfChannels, length, buf.sampleRate);
+    for (let c = 0; c < buf.numberOfChannels; c++) {
+        const src = buf.getChannelData(c).subarray(startFrame, endFrame);
+        out.copyToChannel(src, c);
+    }
+    void ctx.close().catch(() => {});
+    return out;
+}
+
+/** Decode WEM bytes into an AudioBuffer (via Rust WEM decoder + Web Audio). */
+async function decodeWemToBuffer(wemBytes: Uint8Array): Promise<AudioBuffer> {
+    const decoded = await api.decodeWem(Array.from(wemBytes));
+    const audioBytes = new Uint8Array(decoded.data);
+    const ctx = new AudioContext();
+    try {
+        return await ctx.decodeAudioData(audioBytes.slice().buffer);
+    } finally {
+        await ctx.close().catch(() => {});
+    }
+}
+
 /**
  * Decode a WEM via Rust, apply a dB gain, re-encode as PCM WAV.
  * Returns bytes ready to feed into `replaceAudioEntry`.
@@ -286,6 +313,9 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
     const [volumeModal, setVolumeModal] = useState<{ entry: AudioEntryInfo; gainDb: number; busy: boolean } | null>(
         null,
     );
+
+    // Audio-cutter modal state
+    const [cutterModal, setCutterModal] = useState<{ entry: AudioEntryInfo } | null>(null);
 
     // -------------------------------------------------------------------
     // Refs
@@ -921,7 +951,7 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                         />
                     </td>
                     <td colSpan={2} style={{ ...panelStyles.td, fontWeight: 500 }}>
-                        <span style={{ color: 'var(--accent, #7dd3fc)' }}>{evt.name}</span>
+                        <span style={{ color: 'var(--accent-primary)' }}>{evt.name}</span>
                         <span style={{ marginLeft: 8, color: 'var(--text-muted)', fontSize: 11 }}>
                             ({evt.wemIds.length} sound{evt.wemIds.length === 1 ? '' : 's'})
                         </span>
@@ -962,7 +992,7 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                         {info.entry_count.toLocaleString()}
                     </span>
                     {info.has_hirc && (
-                        <span style={{ ...panelStyles.badge, background: 'var(--accent-subtle, #1e3a5f)' }}>
+                        <span style={{ ...panelStyles.badge, background: 'color-mix(in srgb, var(--accent-primary) 20%, transparent)' }}>
                             HIRC
                         </span>
                     )}
@@ -1220,6 +1250,13 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                             setCtxMenu(null);
                         }}
                     />
+                    <CtxItem
+                        label="Open in audio cutter..."
+                        onClick={() => {
+                            setCutterModal({ entry: ctxMenu.entry });
+                            setCtxMenu(null);
+                        }}
+                    />
                     <CtxDivider />
                     <CtxItem
                         label="Remove from bank"
@@ -1248,7 +1285,7 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                         <div style={panelStyles.modalBody}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)' }}>
                                 <span>-24 dB</span>
-                                <span style={{ color: 'var(--accent, #7dd3fc)', fontWeight: 600, fontSize: 13 }}>
+                                <span style={{ color: 'var(--accent-primary)', fontWeight: 600, fontSize: 13 }}>
                                     {volumeModal.gainDb > 0 ? '+' : ''}{volumeModal.gainDb.toFixed(1)} dB
                                 </span>
                                 <span>+24 dB</span>
@@ -1307,6 +1344,23 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                     </div>
                 </div>
             )}
+
+            {/* Audio-cutter modal */}
+            {cutterModal && (
+                <AudioCutter
+                    entry={cutterModal.entry}
+                    filePath={filePath}
+                    bankBytes={bankBytes}
+                    onClose={() => setCutterModal(null)}
+                    onApply={async (newWav) => {
+                        const id = cutterModal.entry.id;
+                        setCutterModal(null);
+                        await applyEdit(id, async (curr) =>
+                            api.replaceAudioEntry(curr, id, Array.from(newWav)),
+                        );
+                    }}
+                />
+            )}
         </div>
     );
 };
@@ -1359,6 +1413,288 @@ const CtxDivider: React.FC = () => (
 );
 
 // ---------------------------------------------------------------------------
+// Audio Cutter — waveform + range selection, trim replaces the WEM
+// ---------------------------------------------------------------------------
+
+interface AudioCutterProps {
+    entry: AudioEntryInfo;
+    filePath: string;
+    bankBytes: Uint8Array | null;
+    onClose: () => void;
+    onApply: (newWav: Uint8Array) => Promise<void>;
+}
+
+const AudioCutter: React.FC<AudioCutterProps> = ({ entry, filePath, bankBytes, onClose, onApply }) => {
+    const [buffer, setBuffer] = useState<AudioBuffer | null>(null);
+    const [loadError, setLoadError] = useState<string | null>(null);
+    const [start, setStart] = useState(0);
+    const [end, setEnd] = useState(0);
+    const [applying, setApplying] = useState(false);
+    const [playing, setPlaying] = useState(false);
+
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const ctxRef = useRef<AudioContext | null>(null);
+    const srcRef = useRef<AudioBufferSourceNode | null>(null);
+    const playStopTimer = useRef<number | null>(null);
+
+    // Load + decode
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const wemBytes = bankBytes
+                    ? new Uint8Array(await api.readAudioEntryBytes(Array.from(bankBytes), entry.id))
+                    : new Uint8Array(await api.readAudioEntry(filePath, entry.id));
+                const buf = await decodeWemToBuffer(wemBytes);
+                if (cancelled) return;
+                setBuffer(buf);
+                setStart(0);
+                setEnd(buf.duration);
+            } catch (err) {
+                if (!cancelled) setLoadError((err as Error).message || String(err));
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [entry.id, filePath, bankBytes]);
+
+    // Draw waveform
+    useEffect(() => {
+        if (!buffer || !canvasRef.current) return;
+        const canvas = canvasRef.current;
+        const rect = canvas.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = Math.floor(rect.width * dpr);
+        canvas.height = Math.floor(rect.height * dpr);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.scale(dpr, dpr);
+        ctx.clearRect(0, 0, rect.width, rect.height);
+
+        // Background
+        ctx.fillStyle = 'rgba(255,255,255,0.02)';
+        ctx.fillRect(0, 0, rect.width, rect.height);
+
+        // Mid line
+        ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+        ctx.beginPath();
+        ctx.moveTo(0, rect.height / 2);
+        ctx.lineTo(rect.width, rect.height / 2);
+        ctx.stroke();
+
+        // Mixdown to mono for drawing
+        const channelData = buffer.getChannelData(0);
+        const secondary =
+            buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : null;
+        const samplesPerPixel = Math.max(1, Math.floor(channelData.length / rect.width));
+
+        // Read theme accent for waveform color
+        const accent =
+            getComputedStyle(document.documentElement).getPropertyValue('--accent-primary').trim() ||
+            '#EF4444';
+        ctx.fillStyle = accent;
+        ctx.globalAlpha = 0.9;
+        for (let x = 0; x < rect.width; x++) {
+            let min = 1;
+            let max = -1;
+            const from = x * samplesPerPixel;
+            const to = Math.min(channelData.length, from + samplesPerPixel);
+            for (let i = from; i < to; i++) {
+                const a = channelData[i];
+                const b = secondary ? (channelData[i] + secondary[i]) * 0.5 : a;
+                if (b < min) min = b;
+                if (b > max) max = b;
+            }
+            const y1 = (0.5 - max / 2) * rect.height;
+            const y2 = (0.5 - min / 2) * rect.height;
+            ctx.fillRect(x, y1, 1, Math.max(1, y2 - y1));
+        }
+        ctx.globalAlpha = 1;
+
+        // Selection overlay
+        const xStart = (start / buffer.duration) * rect.width;
+        const xEnd = (end / buffer.duration) * rect.width;
+        ctx.fillStyle = 'rgba(255,255,255,0.07)';
+        ctx.fillRect(xStart, 0, xEnd - xStart, rect.height);
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(xStart + 0.5, 0);
+        ctx.lineTo(xStart + 0.5, rect.height);
+        ctx.moveTo(xEnd - 0.5, 0);
+        ctx.lineTo(xEnd - 0.5, rect.height);
+        ctx.stroke();
+    }, [buffer, start, end]);
+
+    // Cleanup playback on unmount
+    useEffect(() => {
+        return () => {
+            srcRef.current?.stop();
+            srcRef.current?.disconnect();
+            ctxRef.current?.close().catch(() => {});
+            if (playStopTimer.current !== null) window.clearTimeout(playStopTimer.current);
+        };
+    }, []);
+
+    const stopPreview = useCallback(() => {
+        srcRef.current?.stop();
+        srcRef.current?.disconnect();
+        srcRef.current = null;
+        setPlaying(false);
+        if (playStopTimer.current !== null) {
+            window.clearTimeout(playStopTimer.current);
+            playStopTimer.current = null;
+        }
+    }, []);
+
+    const playSelection = useCallback(() => {
+        if (!buffer) return;
+        stopPreview();
+
+        const sliced = sliceAudioBuffer(buffer, start, end);
+        const ctx = new AudioContext();
+        const src = ctx.createBufferSource();
+        src.buffer = sliced;
+        src.connect(ctx.destination);
+        src.onended = () => {
+            setPlaying(false);
+            src.disconnect();
+            ctx.close().catch(() => {});
+        };
+        src.start();
+        ctxRef.current = ctx;
+        srcRef.current = src;
+        setPlaying(true);
+
+        playStopTimer.current = window.setTimeout(() => {
+            stopPreview();
+        }, Math.max(10, (end - start) * 1000 + 100));
+    }, [buffer, start, end, stopPreview]);
+
+    const handleApply = useCallback(async () => {
+        if (!buffer) return;
+        setApplying(true);
+        try {
+            const sliced = sliceAudioBuffer(buffer, start, end);
+            const wav = audioBufferToWav(sliced);
+            await onApply(wav);
+        } finally {
+            setApplying(false);
+        }
+    }, [buffer, start, end, onApply]);
+
+    const duration = buffer?.duration ?? 0;
+    const canApply = buffer && end > start + 0.01;
+
+    return (
+        <div style={panelStyles.modalOverlay} onClick={() => !applying && onClose()}>
+            <div
+                style={{ ...panelStyles.modal, minWidth: 560, maxWidth: 720 }}
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div style={panelStyles.modalHeader}>
+                    <span style={{ fontWeight: 600 }}>Audio cutter</span>
+                    <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+                        WEM {entry.id} · {duration > 0 ? `${duration.toFixed(2)}s` : '—'}
+                    </span>
+                </div>
+                <div style={{ ...panelStyles.modalBody, gap: 14 }}>
+                    {loadError && (
+                        <div style={{ color: '#f87171', fontSize: 12 }}>
+                            Failed to decode: {loadError}
+                        </div>
+                    )}
+                    {!buffer && !loadError && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)' }}>
+                            <div className="spinner" />
+                            <span>Decoding audio...</span>
+                        </div>
+                    )}
+                    {buffer && (
+                        <>
+                            <canvas
+                                ref={canvasRef}
+                                style={{
+                                    width: '100%',
+                                    height: 120,
+                                    background: 'rgba(0,0,0,0.2)',
+                                    borderRadius: 4,
+                                    display: 'block',
+                                }}
+                            />
+                            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                                <label style={{ flex: 1, display: 'flex', gap: 8, alignItems: 'center', fontSize: 11 }}>
+                                    <span style={{ width: 40, color: 'var(--text-muted)' }}>Start</span>
+                                    <input
+                                        type="range"
+                                        min={0}
+                                        max={duration}
+                                        step={0.01}
+                                        value={start}
+                                        onChange={(e) => {
+                                            const v = Number(e.target.value);
+                                            setStart(Math.min(v, end - 0.01));
+                                        }}
+                                        style={{ flex: 1 }}
+                                    />
+                                    <span style={{ width: 60, textAlign: 'right', fontFamily: 'var(--font-mono, monospace)' }}>
+                                        {start.toFixed(2)}s
+                                    </span>
+                                </label>
+                            </div>
+                            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                                <label style={{ flex: 1, display: 'flex', gap: 8, alignItems: 'center', fontSize: 11 }}>
+                                    <span style={{ width: 40, color: 'var(--text-muted)' }}>End</span>
+                                    <input
+                                        type="range"
+                                        min={0}
+                                        max={duration}
+                                        step={0.01}
+                                        value={end}
+                                        onChange={(e) => {
+                                            const v = Number(e.target.value);
+                                            setEnd(Math.max(v, start + 0.01));
+                                        }}
+                                        style={{ flex: 1 }}
+                                    />
+                                    <span style={{ width: 60, textAlign: 'right', fontFamily: 'var(--font-mono, monospace)' }}>
+                                        {end.toFixed(2)}s
+                                    </span>
+                                </label>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: 'var(--text-muted)' }}>
+                                <span>Selection: {(end - start).toFixed(2)}s</span>
+                                <button
+                                    className="btn btn--sm"
+                                    onClick={playing ? stopPreview : playSelection}
+                                    disabled={applying}
+                                >
+                                    {playing ? 'Stop preview' : 'Play selection'}
+                                </button>
+                            </div>
+                        </>
+                    )}
+                </div>
+                <div style={panelStyles.modalFooter}>
+                    <button className="btn btn--sm btn--ghost" onClick={onClose} disabled={applying}>
+                        Cancel
+                    </button>
+                    <button
+                        className="btn btn--sm btn--primary"
+                        onClick={handleApply}
+                        disabled={!canApply || applying}
+                        title="Replace this WEM with the selected range"
+                    >
+                        {applying ? 'Applying...' : 'Apply trim'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ---------------------------------------------------------------------------
 // Inline styles
 // ---------------------------------------------------------------------------
 
@@ -1395,8 +1731,8 @@ const panelStyles: Record<string, React.CSSProperties> = {
         fontWeight: 600,
         padding: '2px 8px',
         borderRadius: 4,
-        background: 'var(--accent-subtle, #2a3444)',
-        color: 'var(--accent, #7dd3fc)',
+        background: 'color-mix(in srgb, var(--accent-primary) 15%, transparent)',
+        color: 'var(--accent-primary)',
         letterSpacing: 0.5,
     },
     metaItem: { fontSize: 12, color: 'var(--text-primary)' },
@@ -1426,7 +1762,7 @@ const panelStyles: Record<string, React.CSSProperties> = {
     },
     binStatus: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', minWidth: 0 },
     sourceChip: { display: 'inline-flex', alignItems: 'center', gap: 6 },
-    sourceLabel: { color: 'var(--accent, #7dd3fc)', fontWeight: 500 },
+    sourceLabel: { color: 'var(--accent-primary)', fontWeight: 500 },
     sourceSep: { color: 'var(--text-muted)', margin: '0 2px' },
     binPath: {
         fontFamily: 'var(--font-mono, monospace)',
@@ -1463,7 +1799,7 @@ const panelStyles: Record<string, React.CSSProperties> = {
         color: 'var(--text-muted)',
         fontSize: 13,
     },
-    table: { width: '100%', borderCollapse: 'collapse', fontSize: 12 },
+    table: { width: '100%', borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed' },
     th: {
         textAlign: 'left',
         padding: '8px 12px',
@@ -1491,6 +1827,9 @@ const panelStyles: Record<string, React.CSSProperties> = {
         padding: '6px 12px',
         borderBottom: '1px solid var(--border-subtle, rgba(255,255,255,0.04))',
         verticalAlign: 'middle',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
     },
     playBtn: {
         width: 28,
