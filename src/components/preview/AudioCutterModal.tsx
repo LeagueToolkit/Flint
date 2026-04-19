@@ -29,7 +29,7 @@ interface AudioCutterModalProps {
     onApply: (newWav: Uint8Array) => Promise<void>;
 }
 
-type DragKind = null | 'start' | 'end' | 'selection' | 'new' | 'pan';
+type DragKind = null | 'start' | 'end' | 'selection' | 'new' | 'pan' | 'cursor';
 
 interface DragState {
     kind: Exclude<DragKind, null>;
@@ -86,6 +86,15 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
     const peaksRef = useRef<{ min: Float32Array; max: Float32Array; pixels: number } | null>(null);
 
     const duration = buffer?.duration ?? 0;
+
+    // Refs that mirror state values the keyboard handler reads — avoids
+    // stale-closure bugs where rapid Space presses miss state updates.
+    const selectionRef = useRef(selection);
+    const cursorTRef = useRef(cursorT);
+    const durationRef = useRef(duration);
+    useEffect(() => { selectionRef.current = selection; }, [selection]);
+    useEffect(() => { cursorTRef.current = cursorT; }, [cursorT]);
+    useEffect(() => { durationRef.current = duration; }, [duration]);
 
     // -----------------------------------------------------------------------
     // Derived layout — how one second maps to pixels, etc.
@@ -319,12 +328,14 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
             if (!buffer) return null;
             const xStart = timeToX(selection.start);
             const xEnd = timeToX(selection.end);
+            const xCursor = timeToX(cursorT);
             if (Math.abs(x - xStart) <= HANDLE_HIT_PX) return 'start';
             if (Math.abs(x - xEnd) <= HANDLE_HIT_PX) return 'end';
+            if (Math.abs(x - xCursor) <= 6) return 'cursor';
             if (x > xStart && x < xEnd) return 'selection';
             return 'new';
         },
-        [buffer, selection, timeToX],
+        [buffer, selection, cursorT, timeToX],
     );
 
     // -----------------------------------------------------------------------
@@ -337,7 +348,7 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
             const rect = canvas.getBoundingClientRect();
             const x = e.clientX - rect.left;
             const kind = hitTest(x);
-            if (kind === 'start' || kind === 'end') setCursorStyle('ew-resize');
+            if (kind === 'start' || kind === 'end' || kind === 'cursor') setCursorStyle('ew-resize');
             else if (kind === 'selection') setCursorStyle('grab');
             else setCursorStyle('crosshair');
         },
@@ -369,7 +380,11 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
                 moved: false,
             };
             setCursorStyle(
-                kind === 'selection' || kind === 'pan' ? 'grabbing' : kind === 'new' ? 'crosshair' : 'ew-resize',
+                kind === 'selection' || kind === 'pan'
+                    ? 'grabbing'
+                    : kind === 'new'
+                    ? 'crosshair'
+                    : 'ew-resize',
             );
             e.preventDefault();
         },
@@ -396,6 +411,8 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
             } else if (drag.kind === 'end') {
                 const newEnd = Math.max(Math.min(t, duration), drag.origSel.start + 0.005);
                 setSelection({ start: drag.origSel.start, end: newEnd });
+            } else if (drag.kind === 'cursor') {
+                setCursorT(Math.max(0, Math.min(duration, t)));
             } else if (drag.kind === 'new') {
                 if (!drag.moved) return; // wait until we pass threshold
                 const a = Math.min(drag.startTime, t);
@@ -536,6 +553,45 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
     useEffect(() => () => stopPlayback(), [stopPlayback]);
 
     // -----------------------------------------------------------------------
+    // Toolbar actions — resolve playback ranges from the current ref values
+    // so they're stable callbacks (don't go stale between renders).
+    // -----------------------------------------------------------------------
+    const isActuallyPlaying = () => sourceRef.current !== null;
+
+    /** "Play all" — plays the full file, using playhead as start if placed. */
+    const playAll = useCallback(() => {
+        const d = durationRef.current;
+        const c = cursorTRef.current;
+        const from = c > 0 && c < d - 0.01 ? c : 0;
+        startPlayback(from, d);
+    }, [startPlayback]);
+
+    /**
+     * "Play selection" — if the playhead sits inside the selection, start
+     * from the playhead; otherwise play the whole selection.
+     */
+    const playSelection = useCallback(() => {
+        const sel = selectionRef.current;
+        const c = cursorTRef.current;
+        const from = c >= sel.start && c < sel.end - 0.01 ? c : sel.start;
+        startPlayback(from, sel.end);
+    }, [startPlayback]);
+
+    const toggleSpace = useCallback(() => {
+        if (isActuallyPlaying()) stopPlayback();
+        else {
+            const sel = selectionRef.current;
+            if (sel.end - sel.start > 0.01) playSelection();
+            else playAll();
+        }
+    }, [stopPlayback, playSelection, playAll]);
+
+    const toggleShiftSpace = useCallback(() => {
+        if (isActuallyPlaying()) stopPlayback();
+        else playAll();
+    }, [stopPlayback, playAll]);
+
+    // -----------------------------------------------------------------------
     // Keyboard
     // -----------------------------------------------------------------------
     useEffect(() => {
@@ -547,15 +603,13 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
                 if (!applying) onClose();
             } else if (e.code === 'Space') {
                 e.preventDefault();
+                e.stopPropagation();
                 // Blur any focused button so Space doesn't re-trigger its click
                 if (document.activeElement && document.activeElement !== document.body) {
                     (document.activeElement as HTMLElement).blur();
                 }
-                if (isPlaying) stopPlayback();
-                else {
-                    const from = cursorT >= duration - 0.01 ? 0 : cursorT;
-                    startPlayback(from, duration);
-                }
+                if (e.shiftKey) toggleShiftSpace();
+                else toggleSpace();
             } else if (e.key === '+' || e.key === '=') {
                 e.preventDefault();
                 setZoom((z) => Math.min(MAX_ZOOM, z * 1.5));
@@ -570,16 +624,7 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [isPlaying, stopPlayback, startPlayback, cursorT, duration, applying, onClose]);
-
-    // -----------------------------------------------------------------------
-    // Toolbar actions
-    // -----------------------------------------------------------------------
-    const playFromCursor = () => {
-        const from = cursorT >= duration - 0.01 ? 0 : cursorT;
-        startPlayback(from, duration);
-    };
-    const playSelection = () => startPlayback(selection.start, selection.end);
+    }, [toggleSpace, toggleShiftSpace, applying, onClose]);
     const zoomIn = () => setZoom((z) => Math.min(MAX_ZOOM, z * 1.5));
     const zoomOut = () => setZoom((z) => Math.max(MIN_ZOOM, z / 1.5));
     const resetZoom = () => {
@@ -735,20 +780,17 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
                 <div style={styles.toolbar}>
                     <button
                         className="btn btn--sm"
-                        onClick={(e) => {
-                            e.currentTarget.blur();
-                            if (isPlaying) stopPlayback();
-                            else playFromCursor();
-                        }}
+                        onClick={(e) => { e.currentTarget.blur(); toggleShiftSpace(); }}
                         disabled={!buffer || applying}
-                        title="Space — play from cursor position"
+                        title="Shift+Space — play whole file"
                     >
-                        {isPlaying ? '■ Stop' : '▶ Play'}
+                        {isPlaying ? '■ Stop' : '▶ Play all'}
                     </button>
                     <button
                         className="btn btn--sm"
-                        onClick={(e) => { e.currentTarget.blur(); playSelection(); }}
+                        onClick={(e) => { e.currentTarget.blur(); toggleSpace(); }}
                         disabled={!buffer || applying || selection.end <= selection.start + 0.001}
+                        title="Space — play selection (from playhead if inside)"
                     >
                         ▶ Play selection
                     </button>
@@ -827,7 +869,7 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
 
                 <div style={styles.infoRow}>
                     <div style={styles.subtle}>
-                        Click to place playhead · Drag to select · Drag red bars to adjust · Scrollbar edges zoom, middle pans · Space plays from playhead
+                        Click or drag the white line to move playhead · Drag elsewhere to select · Drag red bars to adjust selection · Space = play selection · Shift+Space = play all
                     </div>
                 </div>
 
