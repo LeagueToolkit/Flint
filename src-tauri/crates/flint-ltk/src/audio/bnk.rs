@@ -298,6 +298,18 @@ pub fn silence_bnk_entry(data: &[u8], file_id: u32) -> Result<Vec<u8>, String> {
     replace_bnk_entry(data, file_id, SILENCE_WEM)
 }
 
+/// Remove an entry from the bank entirely (rewrites BKHD/DIDX/DATA — HIRC is not preserved).
+pub fn remove_bnk_entry(data: &[u8], file_id: u32) -> Result<Vec<u8>, String> {
+    let bnk = BnkFile::parse(data)?;
+    let mut entries = bnk.read_all_entries(data)?;
+    let before = entries.len();
+    entries.retain(|e| e.id != file_id);
+    if entries.len() == before {
+        return Err(format!("Entry {file_id} not found"));
+    }
+    Ok(write_bnk(&entries))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

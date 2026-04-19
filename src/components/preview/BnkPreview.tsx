@@ -170,6 +170,80 @@ function isRiffWave(bytes: Uint8Array): boolean {
     return magic === 'RIFF' && form === 'WAVE';
 }
 
+// ---------------------------------------------------------------------------
+// Web Audio: gain adjustment (decode → scale → re-encode as PCM WAV)
+// ---------------------------------------------------------------------------
+
+/** Encode an AudioBuffer as a 16-bit PCM WAV file (RIFF container). */
+function audioBufferToWav(buf: AudioBuffer): Uint8Array {
+    const numChannels = buf.numberOfChannels;
+    const sampleRate = buf.sampleRate;
+    const numFrames = buf.length;
+    const bytesPerSample = 2;
+    const dataSize = numFrames * numChannels * bytesPerSample;
+    const out = new ArrayBuffer(44 + dataSize);
+    const view = new DataView(out);
+
+    const writeStr = (off: number, s: string) => {
+        for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i));
+    };
+    writeStr(0, 'RIFF');
+    view.setUint32(4, 36 + dataSize, true);
+    writeStr(8, 'WAVE');
+    writeStr(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);  // PCM
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * numChannels * bytesPerSample, true);
+    view.setUint16(32, numChannels * bytesPerSample, true);
+    view.setUint16(34, 16, true);
+    writeStr(36, 'data');
+    view.setUint32(40, dataSize, true);
+
+    // Interleave channels and write samples
+    const channels: Float32Array[] = [];
+    for (let c = 0; c < numChannels; c++) channels.push(buf.getChannelData(c));
+    let offset = 44;
+    for (let i = 0; i < numFrames; i++) {
+        for (let c = 0; c < numChannels; c++) {
+            let s = channels[c][i];
+            if (s > 1) s = 1;
+            else if (s < -1) s = -1;
+            view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+            offset += 2;
+        }
+    }
+    return new Uint8Array(out);
+}
+
+/**
+ * Decode a WEM via Rust, apply a dB gain, re-encode as PCM WAV.
+ * Returns bytes ready to feed into `replaceAudioEntry`.
+ */
+async function applyGainToWem(wemBytes: Uint8Array, gainDb: number): Promise<Uint8Array> {
+    const decoded = await api.decodeWem(Array.from(wemBytes));
+    const audioBytes = new Uint8Array(decoded.data);
+    const ctx = new AudioContext();
+    try {
+        // decodeAudioData requires a fresh ArrayBuffer copy
+        const audioBuf = await ctx.decodeAudioData(audioBytes.slice().buffer);
+        const factor = Math.pow(10, gainDb / 20);
+        const out = ctx.createBuffer(audioBuf.numberOfChannels, audioBuf.length, audioBuf.sampleRate);
+        for (let c = 0; c < audioBuf.numberOfChannels; c++) {
+            const src = audioBuf.getChannelData(c);
+            const dst = out.getChannelData(c);
+            for (let i = 0; i < src.length; i++) {
+                const s = src[i] * factor;
+                dst[i] = s > 1 ? 1 : s < -1 ? -1 : s;
+            }
+        }
+        return audioBufferToWav(out);
+    } finally {
+        await ctx.close().catch(() => {});
+    }
+}
+
 export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
     // -------------------------------------------------------------------
     // Core bank state
@@ -202,6 +276,16 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
     const [busyId, setBusyId] = useState<number | null>(null);
     const undoStackRef = useRef<Uint8Array[]>([]);
     const [undoDepth, setUndoDepth] = useState(0);
+
+    // Context menu state
+    const [ctxMenu, setCtxMenu] = useState<
+        { x: number; y: number; entry: AudioEntryInfo; eventName?: string } | null
+    >(null);
+
+    // Volume-adjust modal state
+    const [volumeModal, setVolumeModal] = useState<{ entry: AudioEntryInfo; gainDb: number; busy: boolean } | null>(
+        null,
+    );
 
     // -------------------------------------------------------------------
     // Refs
@@ -415,6 +499,24 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
         if (audioRef.current) audioRef.current.volume = volume;
     }, [volume]);
 
+    // Close context menu on outside click / Escape
+    useEffect(() => {
+        if (!ctxMenu) return;
+        const close = () => setCtxMenu(null);
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setCtxMenu(null);
+        };
+        window.addEventListener('click', close);
+        window.addEventListener('contextmenu', close);
+        window.addEventListener('keydown', onKey);
+        return () => {
+            window.removeEventListener('click', close);
+            window.removeEventListener('contextmenu', close);
+            window.removeEventListener('keydown', onKey);
+        };
+    }, [ctxMenu]);
+
+
     // -------------------------------------------------------------------
     // Audio playback
     // -------------------------------------------------------------------
@@ -621,6 +723,46 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
         }
     }, [filePath, bankBytes, isDirty]);
 
+    const handleRemove = useCallback(
+        async (entry: AudioEntryInfo) => {
+            await applyEdit(entry.id, async (curr) => api.removeAudioEntry(curr, entry.id));
+        },
+        [applyEdit],
+    );
+
+    const handleCopyName = useCallback(async (entry: AudioEntryInfo, eventName?: string) => {
+        try {
+            const text = eventName ? `${eventName} (${entry.id}.wem)` : `${entry.id}.wem`;
+            await navigator.clipboard.writeText(text);
+        } catch (err) {
+            setError(`Copy failed: ${(err as Error).message || err}`);
+        }
+    }, []);
+
+    const handleApplyVolume = useCallback(async () => {
+        if (!volumeModal) return;
+        const { entry, gainDb } = volumeModal;
+        if (Math.abs(gainDb) < 0.01) {
+            setVolumeModal(null);
+            return;
+        }
+        setVolumeModal((prev) => (prev ? { ...prev, busy: true } : null));
+        try {
+            // Get current WEM bytes
+            const wemBytes = bankBytes
+                ? new Uint8Array(await api.readAudioEntryBytes(Array.from(bankBytes), entry.id))
+                : new Uint8Array(await api.readAudioEntry(filePath, entry.id));
+            const newWav = await applyGainToWem(wemBytes, gainDb);
+            await applyEdit(entry.id, async (curr) =>
+                api.replaceAudioEntry(curr, entry.id, Array.from(newWav)),
+            );
+            setVolumeModal(null);
+        } catch (err) {
+            setError(`Volume adjust failed: ${(err as Error).message || err}`);
+            setVolumeModal((prev) => (prev ? { ...prev, busy: false } : null));
+        }
+    }, [volumeModal, bankBytes, filePath, applyEdit]);
+
     // -------------------------------------------------------------------
     // Derived data
     // -------------------------------------------------------------------
@@ -655,6 +797,28 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
         return info.entries.filter((e) => !mappedIds.has(e.id));
     }, [info, mappedIds]);
 
+    // Keyboard shortcuts (scoped — ignored while typing in inputs / modals)
+    useEffect(() => {
+        const handler = (e: KeyboardEvent) => {
+            const tag = (e.target as HTMLElement | null)?.tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || volumeModal || ctxMenu) return;
+            if (selectedId === null) return;
+            const entry = entriesById.get(selectedId);
+            if (!entry) return;
+
+            if (e.code === 'Space') {
+                e.preventDefault();
+                handlePlayToggle(selectedId);
+            } else if (e.key === 'Delete') {
+                e.preventDefault();
+                if (e.shiftKey) void handleRemove(entry);
+                else void handleSilence(entry);
+            }
+        };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+    }, [selectedId, entriesById, volumeModal, ctxMenu, handlePlayToggle, handleSilence, handleRemove]);
+
     // -------------------------------------------------------------------
     // Rendering
     // -------------------------------------------------------------------
@@ -680,21 +844,29 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
 
     const canUseEventView = mappings !== null && events.length > 0;
 
-    const renderEntryRow = (entry: AudioEntryInfo, depth = 0) => {
+    const renderEntryRow = (entry: AudioEntryInfo, depth = 0, eventName?: string) => {
         const isPlaying = playingId === entry.id;
         const isDecoding = decodingId === entry.id;
         const isSelected = selectedId === entry.id;
         const isBusy = busyId === entry.id;
+        const onRowContextMenu = (e: React.MouseEvent) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setSelectedId(entry.id);
+            setCtxMenu({ x: e.clientX, y: e.clientY, entry, eventName });
+        };
         return (
             <tr
-                key={`row-${entry.id}`}
+                key={`row-${entry.id}-${depth}`}
                 style={{
                     ...panelStyles.tr,
                     background: isSelected ? 'var(--bg-hover, #2a2d35)' : 'transparent',
                 }}
                 onClick={() => setSelectedId(entry.id)}
+                onDoubleClick={() => handlePlayToggle(entry.id)}
+                onContextMenu={onRowContextMenu}
             >
-                <td style={{ ...panelStyles.td, paddingLeft: 12 + depth * 16 }}>
+                <td style={{ ...panelStyles.td, paddingLeft: 12 + depth * 18, width: 44 }}>
                     <button
                         className="btn btn--sm"
                         onClick={(e) => { e.stopPropagation(); handlePlayToggle(entry.id); }}
@@ -709,44 +881,17 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                         )}
                     </button>
                 </td>
-                <td style={{ ...panelStyles.td, fontFamily: 'var(--font-mono, monospace)' }}>{entry.id}</td>
-                <td style={panelStyles.td}>{formatBytes(entry.size)}</td>
-                <td style={panelStyles.td}>
-                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                        <button
-                            className="btn btn--sm btn--ghost"
-                            onClick={(e) => { e.stopPropagation(); handleReplace(entry); }}
-                            disabled={isBusy || saving}
-                            title="Replace with WAV or WEM"
-                        >
-                            {isBusy ? <div className="spinner" style={{ width: 10, height: 10 }} /> : 'Replace'}
-                        </button>
-                        <button
-                            className="btn btn--sm btn--ghost"
-                            onClick={(e) => { e.stopPropagation(); handleSilence(entry); }}
-                            disabled={isBusy || saving}
-                            title="Replace with silence"
-                        >
-                            Silence
-                        </button>
-                        <button
-                            className="btn btn--sm btn--ghost"
-                            onClick={(e) => { e.stopPropagation(); handleExtract(entry, 'wem'); }}
-                            title="Download raw WEM"
-                        >
-                            <span dangerouslySetInnerHTML={{ __html: getIcon('download') }} />
-                            <span style={{ marginLeft: 4 }}>WEM</span>
-                        </button>
-                        <button
-                            className="btn btn--sm btn--ghost"
-                            onClick={(e) => { e.stopPropagation(); handleExtract(entry, 'decoded'); }}
-                            title="Download decoded OGG/WAV"
-                        >
-                            <span dangerouslySetInnerHTML={{ __html: getIcon('download') }} />
-                            <span style={{ marginLeft: 4 }}>OGG/WAV</span>
-                        </button>
-                    </div>
+                <td style={{ ...panelStyles.td, fontFamily: 'var(--font-mono, monospace)' }}>
+                    {isBusy ? (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--text-muted)' }}>
+                            <div className="spinner" style={{ width: 10, height: 10 }} />
+                            {entry.id}.wem
+                        </span>
+                    ) : (
+                        <span>{entry.id}.wem</span>
+                    )}
                 </td>
+                <td style={{ ...panelStyles.td, color: 'var(--text-muted)', textAlign: 'right' }}>{formatBytes(entry.size)}</td>
             </tr>
         );
     };
@@ -775,7 +920,7 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                             dangerouslySetInnerHTML={{ __html: CARET_ICON }}
                         />
                     </td>
-                    <td colSpan={3} style={{ ...panelStyles.td, fontWeight: 500 }}>
+                    <td colSpan={2} style={{ ...panelStyles.td, fontWeight: 500 }}>
                         <span style={{ color: 'var(--accent, #7dd3fc)' }}>{evt.name}</span>
                         <span style={{ marginLeft: 8, color: 'var(--text-muted)', fontSize: 11 }}>
                             ({evt.wemIds.length} sound{evt.wemIds.length === 1 ? '' : 's'})
@@ -788,16 +933,16 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                         if (!entry) {
                             return (
                                 <tr key={`evt-${evt.name}-missing-${id}`} style={panelStyles.tr}>
-                                    <td style={{ ...panelStyles.td, paddingLeft: 28 }} />
-                                    <td style={panelStyles.td} colSpan={3}>
+                                    <td style={{ ...panelStyles.td, paddingLeft: 30 }} />
+                                    <td style={panelStyles.td} colSpan={2}>
                                         <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                                            WEM {id} — not present in this bank
+                                            {id}.wem — not present in this bank
                                         </span>
                                     </td>
                                 </tr>
                             );
                         }
-                        return renderEntryRow(entry, 1);
+                        return renderEntryRow(entry, 1, evt.name);
                     })}
             </React.Fragment>
         );
@@ -983,18 +1128,17 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                 <table style={panelStyles.table}>
                     <thead>
                         <tr>
-                            <th style={{ ...panelStyles.th, width: 48 }}></th>
-                            <th style={{ ...panelStyles.th, width: '30%' }}>
-                                {viewMode === 'events' ? 'Event / WEM ID' : 'WEM ID'}
+                            <th style={{ ...panelStyles.th, width: 44 }}></th>
+                            <th style={panelStyles.th}>
+                                {viewMode === 'events' ? 'Event / WEM' : 'WEM ID'}
                             </th>
-                            <th style={{ ...panelStyles.th, width: '18%' }}>Size</th>
-                            <th style={panelStyles.th}>Actions</th>
+                            <th style={{ ...panelStyles.th, width: 96, textAlign: 'right' }}>Size</th>
                         </tr>
                     </thead>
                     <tbody>
                         {viewMode === 'flat' && filteredFlatEntries.length === 0 && (
                             <tr>
-                                <td colSpan={4} style={panelStyles.empty}>
+                                <td colSpan={3} style={panelStyles.empty}>
                                     {info.entries.length === 0
                                         ? 'No audio entries in this bank.'
                                         : 'No entries match filter.'}
@@ -1005,7 +1149,7 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
 
                         {viewMode === 'events' && filteredEvents.length === 0 && unmappedEntries.length === 0 && (
                             <tr>
-                                <td colSpan={4} style={panelStyles.empty}>No events match filter.</td>
+                                <td colSpan={3} style={panelStyles.empty}>No events match filter.</td>
                             </tr>
                         )}
                         {viewMode === 'events' && filteredEvents.map((evt) => renderEventRow(evt))}
@@ -1013,7 +1157,7 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                         {viewMode === 'events' && unmappedEntries.length > 0 && !filter && (
                             <>
                                 <tr style={panelStyles.sectionHeader}>
-                                    <td colSpan={4} style={{ ...panelStyles.td, color: 'var(--text-muted)' }}>
+                                    <td colSpan={3} style={{ ...panelStyles.td, color: 'var(--text-muted)' }}>
                                         Unmapped WEMs ({unmappedEntries.length})
                                     </td>
                                 </tr>
@@ -1032,9 +1176,187 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                 }}
                 style={{ display: 'none' }}
             />
+
+            {/* Right-click context menu */}
+            {ctxMenu && (
+                <div
+                    style={{
+                        ...panelStyles.ctxMenu,
+                        left: Math.min(ctxMenu.x, (typeof window !== 'undefined' ? window.innerWidth : 9999) - 220),
+                        top: Math.min(ctxMenu.y, (typeof window !== 'undefined' ? window.innerHeight : 9999) - 320),
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    onContextMenu={(e) => e.preventDefault()}
+                >
+                    <CtxItem
+                        label="Play audio"
+                        icon={PLAY_ICON}
+                        onClick={() => { handlePlayToggle(ctxMenu.entry.id); setCtxMenu(null); }}
+                    />
+                    <CtxDivider />
+                    <CtxItem
+                        label="Extract WEM"
+                        icon={getIcon('download')}
+                        onClick={() => { handleExtract(ctxMenu.entry, 'wem'); setCtxMenu(null); }}
+                    />
+                    <CtxItem
+                        label="Extract OGG/WAV"
+                        icon={getIcon('download')}
+                        onClick={() => { handleExtract(ctxMenu.entry, 'decoded'); setCtxMenu(null); }}
+                    />
+                    <CtxDivider />
+                    <CtxItem
+                        label="Replace WEM data..."
+                        onClick={() => { handleReplace(ctxMenu.entry); setCtxMenu(null); }}
+                    />
+                    <CtxItem
+                        label="Make silent"
+                        onClick={() => { handleSilence(ctxMenu.entry); setCtxMenu(null); }}
+                    />
+                    <CtxItem
+                        label="Adjust volume..."
+                        onClick={() => {
+                            setVolumeModal({ entry: ctxMenu.entry, gainDb: 0, busy: false });
+                            setCtxMenu(null);
+                        }}
+                    />
+                    <CtxDivider />
+                    <CtxItem
+                        label="Remove from bank"
+                        danger
+                        onClick={() => { handleRemove(ctxMenu.entry); setCtxMenu(null); }}
+                    />
+                    <CtxDivider />
+                    <CtxItem
+                        label="Copy name"
+                        onClick={() => { handleCopyName(ctxMenu.entry, ctxMenu.eventName); setCtxMenu(null); }}
+                    />
+                </div>
+            )}
+
+            {/* Volume-adjust modal */}
+            {volumeModal && (
+                <div
+                    style={panelStyles.modalOverlay}
+                    onClick={() => !volumeModal.busy && setVolumeModal(null)}
+                >
+                    <div style={panelStyles.modal} onClick={(e) => e.stopPropagation()}>
+                        <div style={panelStyles.modalHeader}>
+                            <span style={{ fontWeight: 600 }}>Adjust volume</span>
+                            <span style={panelStyles.subtle}>WEM {volumeModal.entry.id}</span>
+                        </div>
+                        <div style={panelStyles.modalBody}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)' }}>
+                                <span>-24 dB</span>
+                                <span style={{ color: 'var(--accent, #7dd3fc)', fontWeight: 600, fontSize: 13 }}>
+                                    {volumeModal.gainDb > 0 ? '+' : ''}{volumeModal.gainDb.toFixed(1)} dB
+                                </span>
+                                <span>+24 dB</span>
+                            </div>
+                            <input
+                                type="range"
+                                min={-24}
+                                max={24}
+                                step={0.5}
+                                value={volumeModal.gainDb}
+                                onChange={(e) =>
+                                    setVolumeModal((prev) =>
+                                        prev ? { ...prev, gainDb: Number(e.target.value) } : null,
+                                    )
+                                }
+                                disabled={volumeModal.busy}
+                                style={{ width: '100%' }}
+                            />
+                            <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                                {[-6, -3, 0, 3, 6].map((v) => (
+                                    <button
+                                        key={v}
+                                        className="btn btn--sm btn--ghost"
+                                        onClick={() =>
+                                            setVolumeModal((prev) =>
+                                                prev ? { ...prev, gainDb: v } : null,
+                                            )
+                                        }
+                                        disabled={volumeModal.busy}
+                                    >
+                                        {v > 0 ? `+${v}` : v} dB
+                                    </button>
+                                ))}
+                            </div>
+                            <div style={{ ...panelStyles.subtle, marginTop: 8, fontSize: 11 }}>
+                                Applies gain via Web Audio, re-encodes as PCM WAV, and replaces the entry.
+                                The original Vorbis encoding is not preserved.
+                            </div>
+                        </div>
+                        <div style={panelStyles.modalFooter}>
+                            <button
+                                className="btn btn--sm btn--ghost"
+                                onClick={() => setVolumeModal(null)}
+                                disabled={volumeModal.busy}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                className="btn btn--sm btn--primary"
+                                onClick={handleApplyVolume}
+                                disabled={volumeModal.busy}
+                            >
+                                {volumeModal.busy ? 'Applying...' : 'Apply'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
+
+// ---------------------------------------------------------------------------
+// Context menu item components
+// ---------------------------------------------------------------------------
+
+const CtxItem: React.FC<{
+    label: string;
+    icon?: string;
+    danger?: boolean;
+    onClick: () => void;
+    disabled?: boolean;
+}> = ({ label, icon, danger, onClick, disabled }) => {
+    const [hover, setHover] = useState(false);
+    return (
+        <div
+            style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '6px 12px',
+                cursor: disabled ? 'default' : 'pointer',
+                color: disabled
+                    ? 'var(--text-muted)'
+                    : danger
+                    ? '#f87171'
+                    : 'var(--text-primary)',
+                background: hover && !disabled ? 'var(--bg-hover, #2a2d35)' : 'transparent',
+                fontSize: 12,
+                opacity: disabled ? 0.5 : 1,
+                userSelect: 'none',
+            }}
+            onMouseEnter={() => setHover(true)}
+            onMouseLeave={() => setHover(false)}
+            onClick={disabled ? undefined : onClick}
+        >
+            <span
+                style={{ display: 'inline-flex', width: 14, justifyContent: 'center' }}
+                dangerouslySetInnerHTML={icon ? { __html: icon } : undefined}
+            />
+            <span>{label}</span>
+        </div>
+    );
+};
+
+const CtxDivider: React.FC = () => (
+    <div style={{ height: 1, margin: '4px 0', background: 'var(--border)' }} />
+);
 
 // ---------------------------------------------------------------------------
 // Inline styles
@@ -1177,5 +1499,54 @@ const panelStyles: Record<string, React.CSSProperties> = {
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
+    },
+    ctxMenu: {
+        position: 'fixed',
+        minWidth: 200,
+        background: 'var(--bg-secondary)',
+        border: '1px solid var(--border)',
+        borderRadius: 6,
+        boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+        padding: '4px 0',
+        zIndex: 1000,
+        fontSize: 12,
+    },
+    modalOverlay: {
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.5)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1001,
+    },
+    modal: {
+        background: 'var(--bg-secondary)',
+        border: '1px solid var(--border)',
+        borderRadius: 8,
+        minWidth: 360,
+        maxWidth: 440,
+        boxShadow: '0 12px 32px rgba(0,0,0,0.5)',
+    },
+    modalHeader: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: '12px 16px',
+        borderBottom: '1px solid var(--border)',
+        fontSize: 13,
+    },
+    modalBody: {
+        padding: '16px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+    },
+    modalFooter: {
+        display: 'flex',
+        justifyContent: 'flex-end',
+        gap: 8,
+        padding: '10px 16px',
+        borderTop: '1px solid var(--border)',
     },
 };

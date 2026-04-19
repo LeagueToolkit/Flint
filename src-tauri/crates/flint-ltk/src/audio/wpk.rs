@@ -273,6 +273,18 @@ pub fn replace_wpk_entry(data: &[u8], file_id: u32, new_wem: &[u8]) -> Result<Ve
     Ok(write_wpk(&entries))
 }
 
+/// Remove an entry from the package entirely.
+pub fn remove_wpk_entry(data: &[u8], file_id: u32) -> Result<Vec<u8>, String> {
+    let wpk = WpkFile::parse(data)?;
+    let mut entries = wpk.read_all_entries(data)?;
+    let before = entries.len();
+    entries.retain(|e| e.id != file_id);
+    if entries.len() == before {
+        return Err(format!("Entry {file_id} not found"));
+    }
+    Ok(write_wpk(&entries))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

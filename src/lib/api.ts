@@ -1007,6 +1007,13 @@ export async function silenceAudioEntry(
     return invokeCommand('silence_audio_entry', { bankData, fileId });
 }
 
+export async function removeAudioEntry(
+    bankData: number[],
+    fileId: number
+): Promise<number[]> {
+    return invokeCommand('remove_audio_entry', { bankData, fileId });
+}
+
 export async function writeBnk(
     entries: { id: number; data: number[] }[]
 ): Promise<number[]> {

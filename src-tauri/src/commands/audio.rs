@@ -210,6 +210,19 @@ pub async fn silence_audio_entry(
     }
 }
 
+/// Remove an entry from the bank.
+#[tauri::command]
+pub async fn remove_audio_entry(
+    bank_data: Vec<u8>,
+    file_id: u32,
+) -> Result<Vec<u8>, String> {
+    match detect_format(&bank_data)? {
+        "bnk" => bnk::remove_bnk_entry(&bank_data, file_id),
+        "wpk" => wpk::remove_wpk_entry(&bank_data, file_id),
+        f => Err(format!("Unsupported format: {f}")),
+    }
+}
+
 /// Rebuild a full BNK from a list of audio entries.
 #[tauri::command]
 pub async fn write_bnk(entries: Vec<AudioEntryData>) -> Result<Vec<u8>, String> {
