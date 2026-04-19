@@ -52,8 +52,9 @@ interface EventGroup {
     wemIds: number[];
 }
 
-const PLAY_ICON = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 3l9 5-9 5V3z" fill="currentColor"/></svg>`;
-const PAUSE_ICON = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="3" width="3" height="10" fill="currentColor"/><rect x="9" y="3" width="3" height="10" fill="currentColor"/></svg>`;
+// Unicode glyphs match the Audio Cutter modal toolbar ('▶ Play' / '■ Stop')
+const PLAY_GLYPH = '▶';
+const STOP_GLYPH = '■';
 const CARET_ICON = `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 2l4 3-4 3V2z" fill="currentColor"/></svg>`;
 
 function formatBytes(n: number): string {
@@ -805,13 +806,15 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                         className="btn btn--sm"
                         onClick={(e) => { e.stopPropagation(); handlePlayToggle(entry.id); }}
                         disabled={isDecoding || isBusy}
-                        title={isPlaying ? 'Pause' : 'Play'}
+                        title={isPlaying ? 'Stop' : 'Play'}
                         style={panelStyles.playBtn}
                     >
                         {isDecoding ? (
                             <div className="spinner" style={{ width: 12, height: 12 }} />
                         ) : (
-                            <span dangerouslySetInnerHTML={{ __html: isPlaying ? PAUSE_ICON : PLAY_ICON }} />
+                            <span style={{ fontSize: 12, lineHeight: 1 }}>
+                                {isPlaying ? STOP_GLYPH : PLAY_GLYPH}
+                            </span>
                         )}
                     </button>
                 </td>
@@ -1124,7 +1127,7 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                 >
                     <CtxItem
                         label="Play audio"
-                        icon={PLAY_ICON}
+                        icon={`<span style="font-size:11px">${PLAY_GLYPH}</span>`}
                         onClick={() => { handlePlayToggle(ctxMenu.entry.id); setCtxMenu(null); }}
                     />
                     <CtxDivider />
