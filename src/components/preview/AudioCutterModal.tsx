@@ -37,6 +37,7 @@ interface DragState {
     startTime: number;
     origSel: { start: number; end: number };
     origScrollX: number;
+    moved: boolean;
 }
 
 const HANDLE_HIT_PX = 8;
@@ -58,7 +59,8 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
     const [buffer, setBuffer] = useState<AudioBuffer | null>(null);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [selection, setSelection] = useState<{ start: number; end: number }>({ start: 0, end: 0 });
-    const [playhead, setPlayhead] = useState(0);
+    const [cursorT, setCursorT] = useState(0);          // user-placed playback start point
+    const [playhead, setPlayhead] = useState(0);        // live position during playback
     const [isPlaying, setIsPlaying] = useState(false);
     const [applying, setApplying] = useState(false);
 
@@ -123,6 +125,7 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
                 if (cancelled) return;
                 setBuffer(buf);
                 setSelection({ start: 0, end: buf.duration });
+                setCursorT(0);
             } catch (err) {
                 if (!cancelled) setLoadError((err as Error).message || String(err));
             }
@@ -143,16 +146,19 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
     useEffect(() => {
         const el = containerRef.current;
         if (!el) return;
-        const observer = new ResizeObserver(() => {
-            const rect = el.getBoundingClientRect();
-            setCanvasSize({
-                w: Math.max(300, Math.floor(rect.width)),
-                h: WAVEFORM_HEIGHT,
-            });
-        });
+        const measure = () => {
+            // clientWidth excludes border and scrollbars but INCLUDES padding,
+            // so subtract the computed horizontal padding to get the actual
+            // content box width that our canvases should occupy.
+            const cs = getComputedStyle(el);
+            const padL = parseFloat(cs.paddingLeft) || 0;
+            const padR = parseFloat(cs.paddingRight) || 0;
+            const w = Math.max(300, Math.floor(el.clientWidth - padL - padR));
+            setCanvasSize({ w, h: WAVEFORM_HEIGHT });
+        };
+        const observer = new ResizeObserver(measure);
         observer.observe(el);
-        const rect = el.getBoundingClientRect();
-        setCanvasSize({ w: Math.max(300, Math.floor(rect.width)), h: WAVEFORM_HEIGHT });
+        measure();
         return () => observer.disconnect();
     }, []);
 
@@ -240,19 +246,28 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
         drawHandle(ctx, xStart, h, w, accent, 'start');
         drawHandle(ctx, xEnd, h, w, accent, 'end');
 
-        // Playhead
-        if (isPlaying) {
-            const px = timeToX(playhead);
-            if (px >= 0 && px <= w) {
-                ctx.strokeStyle = '#ffffff';
-                ctx.lineWidth = 1.5;
+        // Playhead / cursor
+        const cursorPos = isPlaying ? playhead : cursorT;
+        const px = timeToX(cursorPos);
+        if (px >= 0 && px <= w) {
+            ctx.strokeStyle = isPlaying ? '#ffffff' : 'rgba(255,255,255,0.75)';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(px + 0.5, 0);
+            ctx.lineTo(px + 0.5, h);
+            ctx.stroke();
+            if (!isPlaying) {
+                // Flag at top so user sees where playback will start
+                ctx.fillStyle = 'rgba(255,255,255,0.75)';
                 ctx.beginPath();
-                ctx.moveTo(px + 0.5, 0);
-                ctx.lineTo(px + 0.5, h);
-                ctx.stroke();
+                ctx.moveTo(px, 0);
+                ctx.lineTo(px + 8, 0);
+                ctx.lineTo(px, 6);
+                ctx.closePath();
+                ctx.fill();
             }
         }
-    }, [buffer, selection, playhead, isPlaying, canvasSize, layout, timeToX]);
+    }, [buffer, selection, cursorT, playhead, isPlaying, canvasSize, layout, timeToX]);
 
     // -----------------------------------------------------------------------
     // Draw ruler (time ticks)
@@ -342,18 +357,16 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
                 kind = 'pan';
             }
 
-            let newSel = selection;
-            if (kind === 'new') {
-                newSel = { start: startT, end: startT };
-                setSelection(newSel);
-            }
-
+            // For 'new' mode we DON'T touch the selection on mousedown — only
+            // on the first meaningful move. That way a plain click places the
+            // playback cursor instead of destroying the existing selection.
             dragRef.current = {
                 kind,
                 startClientX: e.clientX,
                 startTime: startT,
-                origSel: newSel,
+                origSel: selection,
                 origScrollX: layout.clampedScrollT,
+                moved: false,
             };
             setCursorStyle(
                 kind === 'selection' || kind === 'pan' ? 'grabbing' : kind === 'new' ? 'crosshair' : 'ew-resize',
@@ -365,6 +378,7 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
 
     // Global mousemove/up while dragging
     useEffect(() => {
+        const CLICK_THRESHOLD = 3;
         const onMove = (e: MouseEvent) => {
             const drag = dragRef.current;
             if (!drag || !buffer) return;
@@ -373,6 +387,8 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
             const rect = canvas.getBoundingClientRect();
             const x = e.clientX - rect.left;
             const t = xToTime(x);
+            const moved = Math.abs(e.clientX - drag.startClientX) > CLICK_THRESHOLD;
+            if (moved) drag.moved = true;
 
             if (drag.kind === 'start') {
                 const newStart = Math.min(Math.max(t, 0), drag.origSel.end - 0.005);
@@ -381,6 +397,7 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
                 const newEnd = Math.max(Math.min(t, duration), drag.origSel.start + 0.005);
                 setSelection({ start: drag.origSel.start, end: newEnd });
             } else if (drag.kind === 'new') {
+                if (!drag.moved) return; // wait until we pass threshold
                 const a = Math.min(drag.startTime, t);
                 const b = Math.max(drag.startTime, t);
                 setSelection({
@@ -400,7 +417,13 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
             }
         };
         const onUp = () => {
-            if (!dragRef.current) return;
+            const drag = dragRef.current;
+            if (!drag) return;
+            // Pure click (no drag) inside the waveform places the playback cursor
+            if ((drag.kind === 'new' || drag.kind === 'selection') && !drag.moved) {
+                const t = Math.max(0, Math.min(duration, drag.startTime));
+                setCursorT(t);
+            }
             dragRef.current = null;
             setCursorStyle('default');
         };
@@ -524,8 +547,15 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
                 if (!applying) onClose();
             } else if (e.code === 'Space') {
                 e.preventDefault();
+                // Blur any focused button so Space doesn't re-trigger its click
+                if (document.activeElement && document.activeElement !== document.body) {
+                    (document.activeElement as HTMLElement).blur();
+                }
                 if (isPlaying) stopPlayback();
-                else startPlayback(selection.start, selection.end);
+                else {
+                    const from = cursorT >= duration - 0.01 ? 0 : cursorT;
+                    startPlayback(from, duration);
+                }
             } else if (e.key === '+' || e.key === '=') {
                 e.preventDefault();
                 setZoom((z) => Math.min(MAX_ZOOM, z * 1.5));
@@ -540,12 +570,15 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [isPlaying, stopPlayback, startPlayback, selection, applying, onClose]);
+    }, [isPlaying, stopPlayback, startPlayback, cursorT, duration, applying, onClose]);
 
     // -----------------------------------------------------------------------
     // Toolbar actions
     // -----------------------------------------------------------------------
-    const playAll = () => startPlayback(0, duration);
+    const playFromCursor = () => {
+        const from = cursorT >= duration - 0.01 ? 0 : cursorT;
+        startPlayback(from, duration);
+    };
     const playSelection = () => startPlayback(selection.start, selection.end);
     const zoomIn = () => setZoom((z) => Math.min(MAX_ZOOM, z * 1.5));
     const zoomOut = () => setZoom((z) => Math.max(MIN_ZOOM, z / 1.5));
@@ -702,15 +735,19 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
                 <div style={styles.toolbar}>
                     <button
                         className="btn btn--sm"
-                        onClick={isPlaying ? stopPlayback : playAll}
+                        onClick={(e) => {
+                            e.currentTarget.blur();
+                            if (isPlaying) stopPlayback();
+                            else playFromCursor();
+                        }}
                         disabled={!buffer || applying}
-                        title="Space"
+                        title="Space — play from cursor position"
                     >
-                        {isPlaying ? '■ Stop' : '▶ Play all'}
+                        {isPlaying ? '■ Stop' : '▶ Play'}
                     </button>
                     <button
                         className="btn btn--sm"
-                        onClick={playSelection}
+                        onClick={(e) => { e.currentTarget.blur(); playSelection(); }}
                         disabled={!buffer || applying || selection.end <= selection.start + 0.001}
                     >
                         ▶ Play selection
@@ -790,7 +827,7 @@ export const AudioCutterModal: React.FC<AudioCutterModalProps> = ({
 
                 <div style={styles.infoRow}>
                     <div style={styles.subtle}>
-                        Drag red bars to adjust · Drag scrollbar edges to zoom · Middle to pan · Double-click scrollbar to reset
+                        Click to place playhead · Drag to select · Drag red bars to adjust · Scrollbar edges zoom, middle pans · Space plays from playhead
                     </div>
                 </div>
 
