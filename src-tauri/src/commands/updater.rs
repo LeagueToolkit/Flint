@@ -4,7 +4,9 @@ use std::path::PathBuf;
 use std::process::Command;
 use tauri::{AppHandle, Emitter};
 
-const GITHUB_OWNER: &str = "LeagueToolkit";
+// Primary: RitoShark/Flint. Fallback: SirDexal/Flint (personal profile — used if
+// the repo gets moved). Tried in order; first successful 2xx wins.
+const GITHUB_OWNERS: &[&str] = &["RitoShark", "SirDexal"];
 const GITHUB_REPO: &str = "Flint";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,38 +49,53 @@ pub async fn check_for_updates() -> Result<UpdateInfo, String> {
     let current_version = get_current_version();
 
     let client = reqwest::Client::new();
-    let url = format!(
-        "https://api.github.com/repos/{}/{}/releases/latest",
-        GITHUB_OWNER, GITHUB_REPO
-    );
 
-    let response = client
-        .get(&url)
-        .header("User-Agent", format!("Flint/{}", current_version))
-        .header("Accept", "application/vnd.github.v3+json")
-        .send()
-        .await
-        .map_err(|e| format!("Failed to fetch releases: {}", e))?;
+    // Try each owner in order; first 2xx wins. 404 from every owner => no release yet.
+    let mut last_err: Option<String> = None;
+    let mut release: Option<GitHubRelease> = None;
+    for owner in GITHUB_OWNERS {
+        let url = format!(
+            "https://api.github.com/repos/{}/{}/releases/latest",
+            owner, GITHUB_REPO
+        );
+        let response = match client
+            .get(&url)
+            .header("User-Agent", format!("Flint/{}", current_version))
+            .header("Accept", "application/vnd.github.v3+json")
+            .send()
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => { last_err = Some(format!("Failed to fetch releases: {}", e)); continue; }
+        };
 
-    if response.status() == 404 {
-        return Ok(UpdateInfo {
-            available: false,
-            current_version: current_version.clone(),
-            latest_version: current_version,
-            release_notes: String::new(),
-            download_url: String::new(),
-            published_at: String::new(),
-        });
+        if response.status() == 404 { continue; }
+
+        if !response.status().is_success() {
+            last_err = Some(format!("GitHub API error: {}", response.status()));
+            continue;
+        }
+
+        match response.json::<GitHubRelease>().await {
+            Ok(r) => { release = Some(r); break; }
+            Err(e) => { last_err = Some(format!("Failed to parse release: {}", e)); }
+        }
     }
 
-    if !response.status().is_success() {
-        return Err(format!("GitHub API error: {}", response.status()));
-    }
-
-    let release: GitHubRelease = response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse release: {}", e))?;
+    let release = match release {
+        Some(r) => r,
+        None => {
+            if let Some(e) = last_err { return Err(e); }
+            return Ok(UpdateInfo {
+                available: false,
+                current_version: current_version.clone(),
+                latest_version: current_version,
+                release_notes: String::new(),
+                download_url: String::new(),
+                published_at: String::new(),
+            });
+        }
+    };
 
     let latest_version = release.tag_name.trim_start_matches('v').to_string();
 
