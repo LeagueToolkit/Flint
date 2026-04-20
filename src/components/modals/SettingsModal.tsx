@@ -59,6 +59,18 @@ export const SettingsModal: React.FC = () => {
     } | null>(null);
     const [schemaResult, setSchemaResult] = useState<api.SchemaStats | null>(null);
 
+    // Champion schema aggregation state (Dev tab)
+    const [isAggregatingChampion, setIsAggregatingChampion] = useState(false);
+    const [championSchemaProgress, setChampionSchemaProgress] = useState<{
+        phase: string;
+        current: number;
+        total: number;
+        bins_parsed: number;
+        bins_failed: number;
+        classes_found: number;
+    } | null>(null);
+    const [championSchemaResult, setChampionSchemaResult] = useState<api.ChampionSchemaStats | null>(null);
+
     const isVisible = state.activeModal === 'settings';
 
     useEffect(() => {
@@ -91,6 +103,21 @@ export const SettingsModal: React.FC = () => {
             classes_found: number;
         }>('schema-progress', (event) => {
             setSchemaProgress(event.payload);
+        });
+        return () => { unlisten.then((fn) => fn()); };
+    }, []);
+
+    // Listen for champion schema aggregation progress events
+    useEffect(() => {
+        const unlisten = listen<{
+            phase: string;
+            current: number;
+            total: number;
+            bins_parsed: number;
+            bins_failed: number;
+            classes_found: number;
+        }>('champion-schema-progress', (event) => {
+            setChampionSchemaProgress(event.payload);
         });
         return () => { unlisten.then((fn) => fn()); };
     }, []);
@@ -278,6 +305,26 @@ export const SettingsModal: React.FC = () => {
             showToast('error', 'Schema aggregation failed. Check the log for details.');
         } finally {
             setIsAggregating(false);
+        }
+    };
+
+    const handleAggregateChampionSchema = async () => {
+        if (!state.leaguePath) {
+            showToast('error', 'League path not configured. Set it in the Paths tab first.');
+            return;
+        }
+        setIsAggregatingChampion(true);
+        setChampionSchemaProgress(null);
+        setChampionSchemaResult(null);
+        try {
+            const stats = await api.aggregateChampionBinSchema(state.leaguePath);
+            setChampionSchemaResult(stats);
+            showToast('success', `Champion schema built: ${stats.classes_found.toLocaleString()} classes, ${stats.total_fields.toLocaleString()} fields`);
+        } catch (error) {
+            console.error('Champion schema aggregation failed:', error);
+            showToast('error', 'Champion schema aggregation failed. Check the log for details.');
+        } finally {
+            setIsAggregatingChampion(false);
         }
     };
 
@@ -821,6 +868,87 @@ export const SettingsModal: React.FC = () => {
                                             style={{ marginTop: '6px' }}
                                             onClick={() => {
                                                 const dir = schemaResult.output_path.replace(/[\\/][^\\/]+$/, '');
+                                                api.openInExplorer(dir).catch(() => {});
+                                            }}
+                                        >
+                                            <span dangerouslySetInnerHTML={{ __html: getIcon('folder') }} />
+                                            <span>Open in Explorer</span>
+                                        </button>
+                                    </div>
+                                )}
+
+                                <div className="settings-item" style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--color-border)' }}>
+                                    <label className="settings-item__label">Champion BIN Schema Creator</label>
+                                    <div className="settings-item__hint" style={{ marginBottom: '8px' }}>
+                                        Walks only the Champions WAD folder, picks skin BINs and the data BINs they
+                                        link to — excludes champion-root, root.bin, animation, and corrupt BINs.
+                                        Merges every property of every class globally and emits ONE synthetic ritobin
+                                        file in real block syntax (with brackets). Copy any block straight into a
+                                        .ritobin file.
+                                    </div>
+                                    <button
+                                        className="btn btn--secondary"
+                                        onClick={handleAggregateChampionSchema}
+                                        disabled={isAggregatingChampion || !state.leaguePath}
+                                    >
+                                        <span dangerouslySetInnerHTML={{ __html: getIcon('download') }} />
+                                        <span>{isAggregatingChampion ? 'Building...' : 'Build Champion Schema'}</span>
+                                    </button>
+                                    {!state.leaguePath && (
+                                        <div className="settings-item__hint" style={{ color: 'var(--color-warning)', marginTop: '4px' }}>
+                                            Configure League path in the Paths tab first
+                                        </div>
+                                    )}
+                                </div>
+
+                                {isAggregatingChampion && championSchemaProgress && (
+                                    <div className="settings-item">
+                                        <div className="settings-item__label">
+                                            {championSchemaProgress.phase === 'complete'
+                                                ? 'Complete'
+                                                : `Scanning WAD ${championSchemaProgress.current} / ${championSchemaProgress.total}`}
+                                        </div>
+                                        <div style={{
+                                            width: '100%',
+                                            height: '4px',
+                                            background: 'var(--color-surface-2)',
+                                            borderRadius: '2px',
+                                            overflow: 'hidden',
+                                            marginTop: '4px',
+                                        }}>
+                                            <div style={{
+                                                width: `${(championSchemaProgress.current / Math.max(championSchemaProgress.total, 1)) * 100}%`,
+                                                height: '100%',
+                                                background: 'var(--color-accent)',
+                                                transition: 'width 0.2s ease',
+                                            }} />
+                                        </div>
+                                        <div className="settings-item__hint" style={{ marginTop: '4px' }}>
+                                            {championSchemaProgress.bins_parsed.toLocaleString()} BINs parsed
+                                            {championSchemaProgress.bins_failed > 0 && ` (${championSchemaProgress.bins_failed} failed)`}
+                                            {' | '}{championSchemaProgress.classes_found.toLocaleString()} classes found
+                                        </div>
+                                    </div>
+                                )}
+
+                                {championSchemaResult && !isAggregatingChampion && (
+                                    <div className="settings-item">
+                                        <div className="settings-item__label">Result</div>
+                                        <div className="settings-item__hint">
+                                            Built {championSchemaResult.classes_found.toLocaleString()} classes with{' '}
+                                            {championSchemaResult.total_fields.toLocaleString()} fields across{' '}
+                                            {championSchemaResult.bins_parsed.toLocaleString()} LinkedData BINs
+                                            {championSchemaResult.bins_failed > 0 && ` (${championSchemaResult.bins_failed} failed to parse)`}
+                                            {' from '}{championSchemaResult.wads_scanned.toLocaleString()} WADs
+                                        </div>
+                                        <div className="settings-item__hint" style={{ marginTop: '4px' }}>
+                                            Output: {championSchemaResult.output_path}
+                                        </div>
+                                        <button
+                                            className="btn btn--ghost btn--sm"
+                                            style={{ marginTop: '6px' }}
+                                            onClick={() => {
+                                                const dir = championSchemaResult.output_path.replace(/[\\/][^\\/]+$/, '');
                                                 api.openInExplorer(dir).catch(() => {});
                                             }}
                                         >

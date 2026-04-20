@@ -93,6 +93,7 @@ export class FlintError extends Error {
             'save_hud_ritobin_file': 'Failed to save HUD ritobin file.',
             'get_hud_file_stats': 'Failed to get HUD file statistics.',
             'aggregate_bin_schema': 'Failed to aggregate BIN schema.',
+            'aggregate_champion_bin_schema': 'Failed to aggregate champion BIN schema.',
         };
         return messages[this.command] || this.message;
     }
@@ -1287,6 +1288,19 @@ export interface SchemaStats {
 
 export async function aggregateBinSchema(leaguePath: string): Promise<SchemaStats> {
     return invokeCommand('aggregate_bin_schema', { leaguePath });
+}
+
+export interface ChampionSchemaStats {
+    wads_scanned: number;
+    bins_parsed: number;
+    bins_failed: number;
+    classes_found: number;
+    total_fields: number;
+    output_path: string;
+}
+
+export async function aggregateChampionBinSchema(leaguePath: string): Promise<ChampionSchemaStats> {
+    return invokeCommand('aggregate_champion_bin_schema', { leaguePath });
 }
 
 // =============================================================================

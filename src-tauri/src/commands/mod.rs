@@ -21,5 +21,6 @@ pub mod fantome_import;
 pub mod modpkg_import;
 pub mod hud;
 pub mod dev;
+pub mod champion_schema;
 pub mod format_converters;
 pub mod settings;

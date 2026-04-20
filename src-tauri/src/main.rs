@@ -267,6 +267,7 @@ fn main() {
             commands::format_converters::read_wad_troybin,
             // Dev commands (schema aggregation)
             commands::dev::aggregate_bin_schema,
+            commands::champion_schema::aggregate_champion_bin_schema,
             // Settings commands (disk-based settings)
             commands::settings::get_app_home,
             commands::settings::get_settings,
