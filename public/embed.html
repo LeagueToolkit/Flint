@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Flint — League of Legends Modding IDE</title>
+  <meta name="description" content="Extract, preview, and ship League of Legends mods — all in one Rust-powered IDE." />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Flint — League of Legends Modding IDE" />
+  <meta property="og:description" content="Extract, preview, and ship League of Legends mods — all in one Rust-powered IDE." />
+  <meta property="og:image" content="./embed-preview.png" />
+  <meta property="og:site_name" content="Flint" />
+  <meta property="theme-color" content="#EF4444" />
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Flint — League of Legends Modding IDE" />
+  <meta name="twitter:description" content="Extract, preview, and ship League of Legends mods — all in one Rust-powered IDE." />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+
+  <style>
+    :root {
+      --bg-0:         #0D1117;
+      --bg-1:         #161B22;
+      --bg-2:         #21262D;
+      --border:       #30363D;
+      --text:         #E6EDF3;
+      --muted:        #8B949E;
+      --accent:       #EF4444;
+      --accent-hover: #DC2626;
+      --accent-soft:  #F87171;
+      --accent-deep:  #991B1B;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      color: var(--text);
+      background: var(--bg-0);
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ─────────────────────  ANIMATED BACKGROUND  ───────────────────── */
+    .bg {
+      position: fixed;
+      inset: 0;
+      overflow: hidden;
+      z-index: 0;
+      background:
+        radial-gradient(ellipse 80% 60% at 20% 10%, rgba(239,68,68,0.18), transparent 60%),
+        radial-gradient(ellipse 60% 50% at 90% 85%, rgba(248,113,113,0.12), transparent 60%),
+        var(--bg-0);
+    }
+
+    .bg::before {
+      content: '';
+      position: absolute;
+      inset: -20%;
+      background:
+        linear-gradient(90deg, transparent 0, transparent 49.9%, rgba(239,68,68,0.04) 50%, transparent 50.1%, transparent 100%),
+        linear-gradient(0deg,  transparent 0, transparent 49.9%, rgba(239,68,68,0.04) 50%, transparent 50.1%, transparent 100%);
+      background-size: 60px 60px, 60px 60px;
+      animation: drift 40s linear infinite;
+      mask-image: radial-gradient(ellipse at center, black 40%, transparent 80%);
+    }
+
+    @keyframes drift {
+      0%   { transform: translate(0, 0); }
+      100% { transform: translate(60px, 60px); }
+    }
+
+    /* floating sparks */
+    .spark {
+      position: absolute;
+      width: 3px;
+      height: 3px;
+      background: var(--accent-soft);
+      border-radius: 50%;
+      box-shadow: 0 0 8px 2px var(--accent);
+      animation: rise linear infinite;
+      opacity: 0;
+    }
+    @keyframes rise {
+      0%   { transform: translateY(0) scale(1);   opacity: 0; }
+      10%  { opacity: 1; }
+      90%  { opacity: 1; }
+      100% { transform: translateY(-110vh) scale(0.4); opacity: 0; }
+    }
+
+    /* ─────────────────────  CARD  ───────────────────── */
+    .wrap {
+      position: relative;
+      z-index: 1;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 40px 20px;
+    }
+
+    .card {
+      position: relative;
+      width: min(720px, 100%);
+      background: linear-gradient(180deg, rgba(22,27,34,0.92) 0%, rgba(13,17,23,0.92) 100%);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 48px 44px;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      box-shadow:
+        0 0 0 1px rgba(239,68,68,0.06),
+        0 20px 60px -20px rgba(239,68,68,0.25),
+        0 40px 100px -40px rgba(0,0,0,0.6);
+      animation: card-in 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    @keyframes card-in {
+      from { opacity: 0; transform: translateY(16px) scale(0.98); }
+      to   { opacity: 1; transform: translateY(0)    scale(1); }
+    }
+
+    /* glowing border */
+    .card::before {
+      content: '';
+      position: absolute;
+      inset: -1px;
+      border-radius: 20px;
+      padding: 1px;
+      background: conic-gradient(
+        from var(--angle, 0deg),
+        transparent 0deg,
+        var(--accent) 60deg,
+        transparent 120deg,
+        transparent 240deg,
+        var(--accent-soft) 300deg,
+        transparent 360deg
+      );
+      -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+      -webkit-mask-composite: xor;
+              mask-composite: exclude;
+      opacity: 0.6;
+      animation: spin 6s linear infinite;
+      pointer-events: none;
+    }
+    @property --angle {
+      syntax: '<angle>';
+      inherits: false;
+      initial-value: 0deg;
+    }
+    @keyframes spin { to { --angle: 360deg; } }
+
+    /* ─────────────────────  HEADER  ───────────────────── */
+    .head {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      margin-bottom: 28px;
+    }
+
+    .logo {
+      width: 64px;
+      height: 64px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-deep) 100%);
+      display: grid;
+      place-items: center;
+      font-size: 32px;
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,0.06) inset,
+        0 8px 24px -4px rgba(239,68,68,0.5);
+      animation: pulse 2.4s ease-in-out infinite;
+      flex-shrink: 0;
+    }
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 1px rgba(255,255,255,0.06) inset, 0 8px 24px -4px rgba(239,68,68,0.5); }
+      50%      { box-shadow: 0 0 0 1px rgba(255,255,255,0.06) inset, 0 12px 32px -4px rgba(239,68,68,0.8); }
+    }
+
+    h1 {
+      font-size: 44px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      background: linear-gradient(90deg, #fff 0%, var(--accent-soft) 50%, var(--accent) 100%);
+      background-size: 200% 100%;
+      -webkit-background-clip: text;
+              background-clip: text;
+      color: transparent;
+      animation: shimmer 4s ease-in-out infinite;
+    }
+    @keyframes shimmer {
+      0%, 100% { background-position: 0% 50%; }
+      50%      { background-position: 100% 50%; }
+    }
+
+    .tag {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 14px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .tag .dot {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      margin-right: 6px;
+      box-shadow: 0 0 6px var(--accent);
+      animation: blink 1.5s ease-in-out infinite;
+    }
+    @keyframes blink { 50% { opacity: 0.3; } }
+
+    /* ─────────────────────  BODY  ───────────────────── */
+    .lead {
+      font-size: 18px;
+      line-height: 1.55;
+      color: var(--text);
+      margin-bottom: 24px;
+    }
+    .lead strong { color: var(--accent-soft); font-weight: 600; }
+
+    .sub {
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.65;
+      margin-bottom: 32px;
+    }
+
+    /* ─────────────────────  FEATURE PILLS  ───────────────────── */
+    .pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 32px;
+    }
+    .pill {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      font-weight: 500;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      transition: all 0.2s ease;
+    }
+    .pill:hover {
+      border-color: var(--accent);
+      color: var(--accent-soft);
+      background: rgba(239,68,68,0.08);
+    }
+    .pill .ic { color: var(--accent); margin-right: 4px; }
+
+    /* ─────────────────────  STATS BAR  ───────────────────── */
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-bottom: 32px;
+    }
+    .stat {
+      padding: 14px 16px;
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      transition: border-color 0.2s ease, transform 0.2s ease;
+    }
+    .stat:hover { border-color: var(--accent); transform: translateY(-2px); }
+    .stat .n {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--accent-soft);
+    }
+    .stat .l {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-top: 2px;
+    }
+
+    /* ─────────────────────  CTA  ───────────────────── */
+    .cta {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 22px;
+      border-radius: 10px;
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.2s ease;
+      border: 1px solid transparent;
+    }
+    .btn.primary {
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
+      color: #fff;
+      box-shadow: 0 4px 16px -4px rgba(239,68,68,0.5);
+    }
+    .btn.primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px -4px rgba(239,68,68,0.7);
+    }
+    .btn.ghost {
+      background: var(--bg-2);
+      color: var(--text);
+      border-color: var(--border);
+    }
+    .btn.ghost:hover {
+      border-color: var(--accent);
+      color: var(--accent-soft);
+    }
+
+    /* ─────────────────────  FOOTER  ───────────────────── */
+    .foot {
+      margin-top: 32px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .foot .built span { color: var(--accent-soft); }
+
+    @media (max-width: 580px) {
+      .card { padding: 32px 24px; }
+      h1    { font-size: 34px; }
+      .logo { width: 52px; height: 52px; font-size: 26px; }
+      .stats { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="bg"></div>
+
+  <!-- floating sparks -->
+  <div class="bg" aria-hidden="true">
+    <span class="spark" style="left: 10%; animation-duration: 9s;  animation-delay: 0s;"></span>
+    <span class="spark" style="left: 22%; animation-duration: 11s; animation-delay: 2s;"></span>
+    <span class="spark" style="left: 38%; animation-duration: 8s;  animation-delay: 4s;"></span>
+    <span class="spark" style="left: 55%; animation-duration: 12s; animation-delay: 1s;"></span>
+    <span class="spark" style="left: 68%; animation-duration: 10s; animation-delay: 3s;"></span>
+    <span class="spark" style="left: 82%; animation-duration: 9s;  animation-delay: 5s;"></span>
+    <span class="spark" style="left: 92%; animation-duration: 11s; animation-delay: 6s;"></span>
+  </div>
+
+  <div class="wrap">
+    <div class="card">
+
+      <div class="head">
+        <div class="logo">⚡</div>
+        <div>
+          <h1>Flint</h1>
+          <div class="tag"><span class="dot"></span>League of Legends Modding IDE</div>
+        </div>
+      </div>
+
+      <p class="lead">
+        Extract, preview, and ship League mods — all in <strong>one Rust-powered IDE</strong>.
+      </p>
+
+      <p class="sub">
+        Browse the entire game archive with instant WAD exploration. Preview 3D models, textures, BINs, audio, and particles in real time. Validate with Hematite. Export to Fantome, ModPkg, or LTK Manager in one click.
+      </p>
+
+      <div class="pills">
+        <span class="pill"><span class="ic">▸</span>WAD Explorer</span>
+        <span class="pill"><span class="ic">▸</span>3D Preview</span>
+        <span class="pill"><span class="ic">▸</span>BIN Editor</span>
+        <span class="pill"><span class="ic">▸</span>Animated Loadscreens</span>
+        <span class="pill"><span class="ic">▸</span>Hematite v2</span>
+        <span class="pill"><span class="ic">▸</span>Checkpoints</span>
+        <span class="pill"><span class="ic">▸</span>BNK / WPK</span>
+      </div>
+
+      <div class="stats">
+        <div class="stat">
+          <div class="n">4M+</div>
+          <div class="l">Hashes indexed</div>
+        </div>
+        <div class="stat">
+          <div class="n">Rust</div>
+          <div class="l">Tauri 2 backend</div>
+        </div>
+        <div class="stat">
+          <div class="n">MIT</div>
+          <div class="l">Open source</div>
+        </div>
+      </div>
+
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/RitoShark/Flint/releases/latest">
+          ⬇ Download Latest
+        </a>
+        <a class="btn ghost" href="https://github.com/RitoShark/Flint">
+          ⭐ View on GitHub
+        </a>
+      </div>
+
+      <div class="foot">
+        <div class="built">Built with <span>Rust</span> · <span>React</span> · <span>Tauri 2</span></div>
+        <div>v1.9.1</div>
+      </div>
+
+    </div>
+  </div>
+
+</body>
+</html>

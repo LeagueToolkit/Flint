@@ -1,219 +1,201 @@
-<p align="center">
-  <img src="https://img.shields.io/badge/League%20of%20Legends-Modding-C89B3C?style=for-the-badge&logo=riotgames&logoColor=white" alt="League Modding">
-  <img src="https://img.shields.io/badge/Built%20with-Tauri%202.0-24C8D8?style=for-the-badge&logo=tauri&logoColor=white" alt="Tauri">
-  <img src="https://img.shields.io/badge/Rust-Backend-DEA584?style=for-the-badge&logo=rust&logoColor=black" alt="Rust">
-  <img src="https://img.shields.io/badge/React-TypeScript-61DAFB?style=for-the-badge&logo=react&logoColor=black" alt="React">
-</p>
-
-<h1 align="center">🔥 FLINT</h1>
-<h3 align="center">League of Legends Asset Extractor & Modding IDE</h3>
+<!-- ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ -->
+<!--                          F  L  I  N  T                                    -->
+<!-- ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ -->
 
 <p align="center">
-  <em>A powerful, modern tool for extracting and modifying League of Legends champion skins and assets.</em>
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:991B1B,50:EF4444,100:F87171&height=220&section=header&text=FLINT&fontSize=100&fontColor=ffffff&fontAlignY=38&animation=twinkling&desc=League%20of%20Legends%20Modding%20IDE&descAlignY=62&descSize=18" alt="Flint banner"/>
 </p>
 
----
+<p align="center">
+  <a href="https://github.com/RitoShark/Flint/releases/latest">
+    <img src="https://img.shields.io/github/v/release/RitoShark/Flint?style=for-the-badge&color=EF4444&labelColor=0d1117&logo=github" alt="Release"/>
+  </a>
+  <img src="https://img.shields.io/badge/Tauri-2.0-24C8D8?style=for-the-badge&logo=tauri&logoColor=white&labelColor=0d1117" alt="Tauri"/>
+  <img src="https://img.shields.io/badge/Rust-DEA584?style=for-the-badge&logo=rust&logoColor=black&labelColor=0d1117" alt="Rust"/>
+  <img src="https://img.shields.io/badge/React-61DAFB?style=for-the-badge&logo=react&logoColor=black&labelColor=0d1117" alt="React"/>
+  <img src="https://img.shields.io/badge/License-MIT-22c55e?style=for-the-badge&labelColor=0d1117" alt="MIT"/>
+</p>
 
-## What is Flint?
+<p align="center">
+  <a href="https://git.io/typing-svg">
+    <img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=700&size=22&duration=2800&pause=800&color=EF4444&center=true&vCenter=true&width=620&lines=Extract.+Preview.+Edit.+Ship.;One+IDE+for+every+League+mod.;Built+on+Rust+%E2%9A%99+React+%E2%9A%9B+Tauri+2." alt="Typing banner"/>
+  </a>
+</p>
 
-Flint is a desktop application that lets you:
-- **Extract** champion skins and assets from League of Legends game files
-- **Preview** 3D models, textures, BIN files, animations, and particle effects in real-time
-- **Edit** game property files (BIN, LuaBin, TroyBin) with syntax highlighting
-- **Recolor** textures with smart filtering and multiple blending modes
-- **Export** custom mods compatible with popular mod managers (Fantome, ModPkg, LTK Manager)
-- **Browse** the entire game archive with instant lazy loading and background indexing
-- **Validate & Fix** mods with Hematite v2 rule engine integration
+<p align="center">
+  <sub>⚡ instant WAD browsing &nbsp;•&nbsp; 🎮 live 3D previews &nbsp;•&nbsp; 🎞 video-to-loadscreen &nbsp;•&nbsp; 🧠 Hematite auto-fix</sub>
+</p>
 
-Built with **Rust** (Tauri 2) backend for performance and **React** + **TypeScript** frontend for a modern UI.
-
----
-
-## ✨ Key Features
-
-### 🎬 Animated Loading Screen Creator
-Create custom animated loading screens from video files:
-- **Video-to-Spritesheet**: Converts MP4/WebM to optimized spritesheets
-- **16k Texture Budget**: Automatic grid optimization for WebGL limits
-- **Frame Control**: Adjustable FPS, trimming, and scaling
-- **Live Preview**: See your animation before exporting
-- **Auto-injection**: Automatically patches game UI BIN files
-
-### 🌐 WAD Explorer (Enhanced)
-Browse the entire game's WAD archive library in a virtual filesystem with:
-- **Instant Loading**: Lazy chunk loading on folder expand (no upfront indexing)
-- **Background Indexing**: Optional full-game search with multi-threaded bulk processing
-- **Smart Detection**: Magic-byte recognition for LuaBin, TroyBin, BIN, and image formats
-- **Preview Anywhere**: Open any file directly from WAD without extracting
-
-### 🖼️ Asset Preview
-- **3D Models**: SKN/SKL meshes with textures, animations (ANM), and skeleton visualization
-- **Textures**: DDS/TEX decoding with BC1, BC3, BC5, ETC format support
-- **BIN Editor**: VS Code-style Monaco editor with syntax highlighting and bracket matching
-- **LuaBin Preview**: Decompiled Lua scripts with syntax highlighting
-- **TroyBin Preview**: Particle effect definitions with INI syntax highlighting
-- **Hex Viewer**: Binary file inspection with offset display
-
-### 🎨 Texture Recoloring
-Batch recolor textures with **Hue Shift**, **Colorize**, or **Grayscale + Tint** modes. Smart filtering automatically skips distortion maps and preserves transparency.
-
-### 💾 Checkpoint System
-Create named snapshots of your project. Restore to any checkpoint instantly or compare changes between versions.
-
-### 🔧 Hematite v2 Integration
-Built-in mod validation and fixing powered by [Hematite](https://github.com/LeagueToolkit/Hematite):
-- **Rule Engine**: Detects common mod issues (missing shaders, broken references, etc.)
-- **Auto-Fix**: One-click fixes for shader paths, material properties, and more
-- **Remote Config**: Auto-updates validation rules from GitHub
-- **Trait-Based API**: Modular architecture with BinProvider, HashProvider, WadProvider
-
-### 🎨 Jade & Quartz Integration
-Optional integration with external League modding tools:
-- **Jade**: Alternative BIN parser with advanced editing features
-- **Quartz**: Visual paint mode for texture editing via interop messaging
-- **Dual Engine**: Choose between Flint's LTK or Jade for BIN parsing
-- **Seamless Handoff**: JSON-based interop for cross-tool workflows
-
-### 📤 Mod Export
-Export to `.fantome` (cslol-manager), `.modpkg` (League Mod Tools), or sync to **LTK Manager** with:
-- **Refathering**: Custom asset paths (`ASSETS/{creator}/{project}/`) to prevent mod conflicts
-- **BIN Concatenation**: Merge linked BINs for better compatibility
-- **Thumbnail Embedding**: Auto-include custom 256x256 WebP thumbnails
-- **LTK Manager Sync**: One-click install to mod launcher library + auto-profile addition
-
-### 🗂️ Multi-Tab Workspace
-Work on multiple projects simultaneously. Open project tabs, individual WAD sessions, and the WAD Explorer side-by-side without losing state.
-
-### ⚡ High-Performance Hash Resolution
-- **LMDB Cache**: Lightning Memory-Mapped Database stores 4M+ hash mappings
-- **1 GB Virtual Address Space**: Memory-mapped for instant lookups (~5-20 MB real RAM)
-- **Parallel Processing**: Multi-threaded BIN conversion with rayon
-- **DataDragon API**: Auto-fetches champion/skin metadata from Riot's CDN
-
-**[📖 See all features in detail](docs/FEATURES.md)**
+<br/>
 
 ---
+
+## 🎯 What is Flint?
+
+**Flint** is a desktop IDE for building League of Legends mods — from pulling raw assets out of the game, to previewing them, editing them, and shipping a finished `.fantome` / `.modpkg`. Everything lives in one window. No CLI chains, no folder juggling.
+
+```
+  WAD  ─▶  Extract  ─▶  Preview  ─▶  Edit  ─▶  Validate  ─▶  Export
+  (game)   (project)   (3D/2D/BIN)  (Monaco)  (Hematite)    (ship it)
+```
+
+<br/>
+
+## ✨ Features
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### 🗂 **WAD Explorer**
+Lazy-loaded virtual filesystem over the entire game archive. Browse 4M+ files with instant folder expand and optional background indexing.
+
+### 🖼 **Live Previews**
+- **3D** — SKN/SKL/SCB/SCO meshes with animations & skeletons
+- **Textures** — DDS/TEX (BC1/BC3/BC5/ETC)
+- **BIN / LuaBin / TroyBin** — syntax-highlighted
+- **Audio** — BNK/WPK with waveform + zoom
+
+### 🎞 **Animated Loading Screens**
+Drop a video in, get a working loadscreen out. Auto spritesheet packing, 16k texture budget, FPS trim, live preview, UI BIN auto-patch.
+
+### 🎨 **Texture Recolor**
+Batch hue-shift, colorize, or tint. Skips distortion maps, preserves alpha.
+
+</td>
+<td width="50%" valign="top">
+
+### 🧠 **Hematite v2**
+Plugged into [Hematite](https://github.com/LeagueToolkit/Hematite)'s rule engine — detects broken references, missing shaders, bad materials, and fixes them in one click. Rules hot-update from GitHub.
+
+### 💾 **Checkpoints**
+Git-lite for your project. Snapshot, diff, restore. Survives dev restarts.
+
+### 📤 **Export Everywhere**
+Ship to `.fantome`, `.modpkg`, or one-click sync into **LTK Manager**. Refathering, BIN concat, and thumbnail embedding are all built in.
+
+### 🔌 **Jade & Quartz Interop**
+Swap the BIN engine to Jade, or hand a texture off to Quartz paint mode. JSON interop, no file juggling.
+
+### ⚡ **LMDB Hash Cache**
+Memory-mapped 4M+ hash DB. ~5-20 MB RAM, instant lookups, bulk resolve for fast WAD extraction.
+
+</td>
+</tr>
+</table>
+
+<br/>
 
 ## 🚀 Quick Start
 
-### Prerequisites
-- **Rust** 1.75+ ([Install](https://rustup.rs/))
-- **Node.js** v20+ ([Install](https://nodejs.org/))
-- **Windows 10+**
-
-### Installation
-
 ```bash
-# Clone the repository
-git clone https://github.com/LeagueToolkit/Flint
-cd "Flint - Asset Extractor"
+# Clone
+git clone https://github.com/RitoShark/Flint
+cd "Flint/Flint - Asset Extractor"
 
-# Install dependencies
+# Install + run
 npm install
-
-# Run in development mode
 npm run tauri dev
 ```
 
-### Building for Production
+<details>
+<summary><strong>📦 Prerequisites</strong></summary>
+
+| Tool | Version |
+|------|---------|
+| Rust | 1.75+ ([rustup](https://rustup.rs)) |
+| Node | v20+ ([nodejs.org](https://nodejs.org)) |
+| OS   | Windows 10 / 11 |
+
+</details>
+
+<details>
+<summary><strong>📀 Building a release installer</strong></summary>
 
 ```bash
-# Create optimized build with NSIS installer
 npm run tauri build
 ```
+Output: `src-tauri/target/release/bundle/nsis/Flint_{version}_x64-setup.exe`
 
-Installer output: `src-tauri/target/release/bundle/nsis/Flint_{version}_x64-setup.exe`
+</details>
 
----
+<br/>
 
-## 🛠️ Tech Stack
+## 🏗 Architecture
 
-### Architecture
-- **Workspace Crates**: Binary crate (`src-tauri/`) + library crate (`flint-ltk`)
-- **Separation**: Tauri commands in binary, all LTK business logic in `flint-ltk`
-- **Modules**: 14 domain modules (bin, wad, hash, mesh, audio, repath, export, etc.)
+```
+┌─────────────────────────────────────────────────────────────┐
+│  React 18 + TypeScript + Vite  ←→  Zustand stores           │
+└─────────────────────────────────────────────────────────────┘
+                         ▲
+                         │  Tauri 2 IPC
+                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│  src-tauri/  (binary crate)  ─  Tauri commands + state      │
+│  crates/flint-ltk/  (library) ─  14 domain modules:         │
+│     bin · wad · hash · mesh · audio · repath · export       │
+│     champion · league · validation · project · checkpoint   │
+│     hud · error                                             │
+└─────────────────────────────────────────────────────────────┘
+                         ▲
+                         │
+┌─────────────────────────────────────────────────────────────┐
+│  league-toolkit (Rust) · Hematite v2 · LMDB · rayon         │
+└─────────────────────────────────────────────────────────────┘
+```
 
-| Layer | Technology |
-|-------|------------|
-| **Frontend** | React 18, TypeScript, Vite 5 |
-| **State Management** | Zustand 4 ([docs](docs/STATE_MANAGEMENT.md)) |
-| **Backend** | Rust, Tauri 2.0 |
-| **3D Rendering** | Three.js, React Three Fiber |
-| **Hash Resolution** | LMDB (via `heed`), `memmap2` |
-| **Parallel Processing** | `rayon`, `tokio` |
-| **LTK Core** | `league-toolkit` (git rev 6137083, v0.4 API) |
-| **BIN Parsing** | `ltk_ritobin`, `ltk_meta` |
-| **WAD Handling** | `ltk_file`, `memmap2` |
-| **Texture Decoding** | `ltk_texture` (DDS/TEX with BC1/BC3/BC5) |
-| **Mesh Parsing** | `ltk_mesh`, `ltk_anim` |
-| **Mod Export** | `ltk_fantome`, `ltk_modpkg`, `ltk_mod_core` |
-| **Validation** | `hematite-core`, `hematite-ltk` |
-| **Champion Data** | DataDragon/CommunityDragon API |
+| Layer | Stack |
+|-------|-------|
+| Frontend | React 18 · TypeScript · Vite 5 · Zustand 4 |
+| 3D | Three.js · React Three Fiber |
+| Editor | Monaco (custom Ritobin language) |
+| Backend | Rust · Tauri 2 · rayon · tokio |
+| LTK core | `league-toolkit` v0.4 (rev `6137083`) |
+| Hashing | LMDB via `heed` + `memmap2` |
+| Validation | `hematite-core` · `hematite-ltk` |
+| Export | `ltk_fantome` · `ltk_modpkg` · `ltk_mod_core` |
 
-**[🏗️ See full architecture](docs/ARCHITECTURE.md)**
-
----
-
-## 📚 Documentation
-
-- **[Features](docs/FEATURES.md)** - Comprehensive feature documentation
-- **[Architecture](docs/ARCHITECTURE.md)** - Project structure and data flow
-- **[State Management](docs/STATE_MANAGEMENT.md)** - Zustand store architecture
-- **[BNK Editor & Texture Parsing](docs/BNK_EDITOR_AND_TEXTURE_PARSING.md)** - Audio and texture technical details
-
----
-
-## ✅ Status
-
-| Feature | Status |
-|---------|--------|
-| **3D Model Preview** | ✅ Working (SKN/SKL/SCB/SCO) |
-| **Animation Preview** | ✅ Working (ANM) |
-| **Animated Loading Screens** | ✅ Working (Video→spritesheet) |
-| **BIN Editing** | ✅ Working (Full read/write with bracket validation) |
-| **LuaBin Preview** | ✅ Working (Decompiled Lua with syntax highlighting) |
-| **TroyBin Preview** | ✅ Working (Particle effects with INI syntax) |
-| **Refathering** | ✅ Working (Asset path rewriting) |
-| **BIN Concatenation** | ✅ Working (Linked BIN merging) |
-| **WAD Explorer** | ✅ Working (Lazy loading + background indexing) |
-| **LMDB Hash Cache** | ✅ Working (Memory-mapped DB) |
-| **Hematite v2** | ✅ Working (Validation & auto-fix) |
-| **Jade/Quartz Integration** | ✅ Working (Dual BIN engine + interop) |
-| **LTK Manager Sync** | ✅ Working (One-click mod install) |
-| **Sound Bank Editing** | 🔜 Planned (BNK/WPK) |
-
----
+<br/>
 
 ## 🎨 Theming
 
-Flint supports custom color themes! Copy [src/themes/default.css](src/themes/default.css) and modify the CSS variables:
+Flint ships with full CSS-variable theming. Copy [src/themes/default.css](src/themes/default.css) and override:
 
 ```css
 :root {
-  --accent-primary: #your-color;
-  --accent-secondary: #your-secondary-color;
-  /* ... */
+  --accent-primary:   #EF4444;
+  --accent-hover:     #DC2626;
+  --accent-secondary: #F87171;
+  --accent-muted:     #991B1B;
 }
 ```
 
----
+<br/>
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please:
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
+PRs welcome. Keep commits conventional — `feat:`, `fix:`, `perf:`, `refactor:` — they feed the changelog via [git-cliff](cliff.toml).
 
----
+```bash
+git checkout -b feat/your-feature
+# hack hack hack
+git commit -m "feat(scope): short imperative message"
+```
+
+<br/>
 
 ## 📜 License
 
-This project is for educational purposes. League of Legends and all related assets are property of Riot Games.
+[MIT](LICENSE) — do whatever, just don't sue.
 
----
+> League of Legends, all champion art, and all referenced game assets are property of **Riot Games, Inc.** Flint is an unofficial community tool and is not endorsed by Riot Games.
+
+<br/>
 
 <p align="center">
-  <strong>Made with ❤️ for the League modding community</strong>
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:F87171,50:EF4444,100:991B1B&height=100&section=footer&animation=twinkling" alt="footer"/>
+</p>
+
+<p align="center">
+  <sub>🔥 Made for the League modding community · Not affiliated with Riot Games</sub>
 </p>
