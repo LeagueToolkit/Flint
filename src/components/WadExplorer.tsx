@@ -1903,7 +1903,7 @@ export const WadExplorer: React.FC = () => {
                             placeholder={isRegex ? 'Regex filter… (Ctrl+F)' : 'Filter files… (Ctrl+F)'}
                             value={inputValue}
                             onChange={handleInputChange}
-                            style={{ paddingLeft: '26px', paddingRight: '28px', borderColor: regexError ? 'var(--error, #f44)' : undefined }}
+                            style={{ paddingLeft: '26px', paddingRight: '28px', width: '100%', borderColor: regexError ? 'var(--error, #f44)' : undefined }}
                         />
                         <button
                             className={`btn btn--sm ${isRegex ? 'btn--active' : ''}`}
