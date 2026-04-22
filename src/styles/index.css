@@ -7469,3 +7469,166 @@ input.np-search:focus {
 }
 .update-modal__release-notes a:hover { text-decoration: underline; }
 .update-modal__release-notes strong { color: var(--text-primary); }
+
+/* ==========================================================================
+   Tutorial Overlay
+   ========================================================================== */
+
+.tutorial-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  pointer-events: none; /* children opt in individually */
+}
+
+/* Blocks all pointer events so the user can't click the UI during the tour */
+.tutorial-overlay__blocker {
+  position: fixed;
+  inset: 0;
+  pointer-events: all;
+  z-index: 0; /* within overlay stacking context — behind callout */
+}
+
+/*
+ * Spotlight div — the transparent "hole" in the dark overlay.
+ * box-shadow creates the dark curtain; the element itself is the lit area.
+ * Because hole + curtain are the SAME element, top/left/width/height
+ * transitions keep them perfectly in sync (no SVG mask desync).
+ */
+.tutorial-spotlight {
+  position: fixed;
+  border-radius: 6px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.76);
+  pointer-events: none;
+  z-index: 1; /* within overlay stacking context */
+  transition: top    0.28s cubic-bezier(0.4, 0, 0.2, 1),
+              left   0.28s cubic-bezier(0.4, 0, 0.2, 1),
+              width  0.28s cubic-bezier(0.4, 0, 0.2, 1),
+              height 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Animated blue ring drawn around the spotlight via ::after */
+.tutorial-spotlight::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 8px;
+  border: 2px solid var(--accent-secondary);
+  opacity: 1;
+  transition: opacity 0.2s ease;
+  animation: tut-ring-pulse 2.5s ease-in-out infinite;
+}
+
+.tutorial-spotlight--empty::after {
+  opacity: 0;
+}
+
+@keyframes tut-ring-pulse {
+  0%, 100% { opacity: 0.9; }
+  50%       { opacity: 0.35; }
+}
+
+/* Callout slides to new position; content changes instantly */
+.tutorial-callout {
+  pointer-events: all;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  box-shadow: var(--shadow-lg), 0 0 0 1px rgba(0, 122, 204, 0.2);
+  z-index: 2; /* within overlay stacking context — above blocker */
+  transition: top 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+              left 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tutorial-callout__dots {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.tutorial-callout__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--border);
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.tutorial-callout__dot--active {
+  background: var(--accent-secondary);
+  transform: scale(1.3);
+}
+
+.tutorial-callout__title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.tutorial-callout__body {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.65;
+  margin-bottom: 18px;
+}
+
+.tutorial-callout__actions {
+  display: flex;
+  align-items: center;
+  margin-top: 16px;
+}
+
+.tutorial-skip {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  padding: 2px 0;
+  transition: color var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.tutorial-skip:hover { color: var(--text-secondary); }
+
+.tutorial-callout__nav {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+
+.tutorial-nav-btn {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.tutorial-nav-btn:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  border-color: var(--accent-secondary);
+  color: var(--accent-secondary);
+}
+
+.tutorial-nav-btn:disabled { opacity: 0.25; cursor: default; }
+
+.tutorial-nav-btn--next {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: #fff;
+}
+
+.tutorial-nav-btn--next:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: #fff;
+}

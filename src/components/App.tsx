@@ -31,6 +31,7 @@ import { ModConfigEditorModal } from './modals/ModConfigEditorModal';
 import { ThumbnailCropModal } from './modals/ThumbnailCropModal';
 import { CheckpointModal } from './modals/CheckpointModal';
 import { ToastContainer } from './Toast';
+import { TutorialOverlay, isOnboardingDone } from './TutorialOverlay';
 
 // Helper to get active tab from state
 function getActiveTab(state: { activeTabId: string | null; openTabs: Array<{ id: string; project: any; projectPath: string; selectedFile: string | null }> }) {
@@ -46,6 +47,7 @@ let startupRan = false;
 export const App: React.FC = () => {
     const { state, openModal, closeModal, setWorking, setReady, showToast } = useAppState();
     const [leftPanelWidth, setLeftPanelWidth] = useState(280);
+    const [showTutorial, setShowTutorial] = useState(false);
     const resizerRef = useRef<HTMLDivElement>(null);
     const isResizingRef = useRef(false);
 
@@ -114,33 +116,36 @@ export const App: React.FC = () => {
         return activeTab?.projectPath || null;
     }, [state.activeTabId, state.openTabs]);
 
+    // Track whether the watcher is currently running to avoid redundant stop calls
+    const isWatchingRef = React.useRef(false);
+
     useEffect(() => {
-        const shouldWatch = state.autoSyncToLauncher &&
+        const shouldWatch = !!(state.autoSyncToLauncher &&
             state.ltkManagerModPath &&
-            currentProjectPath;
+            currentProjectPath);
 
         if (shouldWatch) {
+            isWatchingRef.current = true;
             console.log('[Auto-sync] Starting watcher for:', currentProjectPath);
-            // Start watcher
             api.startProjectWatcher(currentProjectPath, state.ltkManagerModPath!)
                 .catch(err => {
+                    isWatchingRef.current = false;
                     console.error('[Auto-sync] Failed to start watcher:', err);
                     showToast('error', 'Failed to start auto-sync watcher');
                 });
-        } else {
+        } else if (isWatchingRef.current) {
+            isWatchingRef.current = false;
             console.log('[Auto-sync] Stopping watcher');
-            // Stop watcher
             api.stopProjectWatcher().catch(err => {
-                // Silently ignore if no watcher was running
-                if (!err.toString().includes('No active watcher')) {
-                    console.error('[Auto-sync] Failed to stop watcher:', err);
-                }
+                console.error('[Auto-sync] Failed to stop watcher:', err);
             });
         }
 
-        // Cleanup on unmount
         return () => {
-            api.stopProjectWatcher().catch(() => { });
+            if (isWatchingRef.current) {
+                isWatchingRef.current = false;
+                api.stopProjectWatcher().catch(() => { });
+            }
         };
     }, [currentProjectPath, state.autoSyncToLauncher, state.ltkManagerModPath]);
 
@@ -420,6 +425,15 @@ export const App: React.FC = () => {
         }
     }, [hydrated, state.creatorName, state.activeModal, openModal]);
 
+    // Show tutorial once after first-time setup. Guard with !showTutorial so
+    // opening modals from within the tutorial doesn't re-trigger this effect.
+    useEffect(() => {
+        if (hydrated && state.creatorName && !showTutorial && !state.activeModal && !isOnboardingDone()) {
+            const timer = setTimeout(() => setShowTutorial(true), 350);
+            return () => clearTimeout(timer);
+        }
+    }, [hydrated, state.creatorName, state.activeModal, showTutorial]);
+
     return (
         <>
             <TitleBar />
@@ -474,6 +488,9 @@ export const App: React.FC = () => {
 
             {/* Confirm Dialog */}
             <ConfirmDialog />
+
+            {/* First-run tutorial */}
+            {showTutorial && <TutorialOverlay onDone={() => setShowTutorial(false)} />}
         </>
     );
 };
