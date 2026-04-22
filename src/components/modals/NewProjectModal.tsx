@@ -1246,13 +1246,16 @@ export const NewProjectModal: React.FC = () => {
                                 >
                                     <div className="np-skin-card__img-wrap">
                                         <img
-                                            src={cachedUrl(datadragon.getSkinSplashCDragonUrl(selectedChampion.id, skin.id))}
+                                            src={cachedUrl(
+                                                datadragon.getSkinCenteredSplashUrl(skin, cdragonBranch)
+                                                    ?? datadragon.getSkinSplashCDragonUrl(selectedChampion.id, skin.id, cdragonBranch)
+                                            )}
                                             alt={skin.name}
                                             className="np-skin-card__img"
                                             loading="lazy"
                                             onError={(e) => {
                                                 const img = e.target as HTMLImageElement;
-                                                const fallback = cachedUrl(datadragon.getSkinSplashUrl(selectedChampion.alias, skin.num));
+                                                const fallback = cachedUrl(datadragon.getSkinSplashCDragonUrl(selectedChampion.id, skin.id, cdragonBranch));
                                                 if (img.src !== fallback) {
                                                     img.src = fallback;
                                                 }
