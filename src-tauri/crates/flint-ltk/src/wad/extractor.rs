@@ -418,8 +418,10 @@ pub fn extract_skin_assets(
 }
 
 /// Checks if the full output path exceeds Windows MAX_PATH and falls back to
-/// `{parent_dir}/{hash:016x}.{ext}` when it does. This prevents extraction
-/// failures for files with very long resolved paths.
+/// `{hash:016x}.{ext}` at the root of output_dir when it does. This prevents
+/// extraction failures for files with very long resolved paths. The hashed file
+/// always lands at root to avoid re-introducing path segments (e.g. "data/")
+/// that are already embedded in the original path string.
 fn safe_output_path(output_dir: &Path, resolved: &str, hash: u64) -> PathBuf {
     let candidate = output_dir.join(resolved);
     let total_len = candidate.to_string_lossy().len();
@@ -435,16 +437,8 @@ fn safe_output_path(output_dir: &Path, resolved: &str, hash: u64) -> PathBuf {
         .and_then(|e| e.to_str())
         .unwrap_or("bin");
 
-    // Preserve parent directory so the file lands in the right subfolder
-    let parent = Path::new(resolved)
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty());
-
     let hash_name = format!("{:016x}.{}", hash, ext);
-    let fallback = match parent {
-        Some(p) => output_dir.join(p).join(&hash_name),
-        None => output_dir.join(&hash_name),
-    };
+    let fallback = output_dir.join(&hash_name);
 
     tracing::debug!(
         "Path too long ({} chars), using hashed fallback: {}",

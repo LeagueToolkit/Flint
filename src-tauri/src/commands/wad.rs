@@ -287,21 +287,17 @@ pub async fn extract_wad(
                 let resolved_path = resolve(path_hash);
 
                 // Check if the full output path exceeds Windows MAX_PATH (260).
-                // If so, fall back to {hash}.{ext} in the same parent directory.
+                // If so, fall back to {hash}.{ext} at the root of out_dir.
+                // Dropping the parent avoids re-introducing path segments (e.g.
+                // "data/") that are already encoded in the resolved path string.
                 let candidate = out_dir.join(&resolved_path);
                 let output_path = if candidate.to_string_lossy().len() > 240 {
                     let ext = std::path::Path::new(&resolved_path)
                         .extension()
                         .and_then(|e| e.to_str())
                         .unwrap_or("bin");
-                    let parent = std::path::Path::new(&resolved_path)
-                        .parent()
-                        .filter(|p| !p.as_os_str().is_empty());
                     let hash_name = format!("{:016x}.{}", path_hash, ext);
-                    match parent {
-                        Some(p) => out_dir.join(p).join(&hash_name),
-                        None => out_dir.join(&hash_name),
-                    }
+                    out_dir.join(&hash_name)
                 } else {
                     candidate
                 };
