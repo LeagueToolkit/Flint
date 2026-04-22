@@ -82,11 +82,6 @@ pub fn read_bin(data: &[u8]) -> Result<Bin> {
 
     // catch_unwind to handle OOM panics from ltk_meta
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        // CRITICAL: Print right before the dangerous call - flush to ensure visibility before crash
-        use std::io::Write;
-        println!("[ltk_bridge] Calling Bin::from_reader ({} bytes)...", data.len());
-        let _ = std::io::stdout().flush();
-        
         let mut cursor = Cursor::new(data);
         Bin::from_reader(&mut cursor)
     }));

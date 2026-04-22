@@ -118,6 +118,15 @@ fn main() {
                     Some(_) => tracing::info!("Hash LMDBs ready — point lookups active"),
                     None    => tracing::warn!("Hash LMDBs not available — hashes will fall back to hex"),
                 }
+
+                // Pre-warm BIN hash caches in a blocking thread so first project creation
+                // and first BIN open don't pay the cold-start cost (~3s total).
+                tokio::task::spawn_blocking(|| {
+                    tracing::info!("Pre-warming BIN hash caches...");
+                    let _ = flint_ltk::bin::ltk_bridge::get_cached_bin_hashes();
+                    let _ = flint_ltk::bin::jade::hash_manager::get_cached_hashes();
+                    tracing::info!("BIN hash caches ready");
+                }).await.ok();
             });
             
             Ok(())

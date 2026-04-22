@@ -41,6 +41,11 @@ static SKIN_FOLDER_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)^(skin)(\d+)(/)").expect("Invalid skin folder regex")
 });
 
+/// Static regex for stripping /base/ from middle of paths (compiled once)
+static BASE_MIDDLE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)/base/").expect("Invalid base folder regex")
+});
+
 /// Parsed asset path with structured components (zero-copy where possible)
 ///
 /// This enum provides type-safe path handling and eliminates repeated string parsing.
@@ -769,8 +774,7 @@ fn strip_base_folder(path: &str) -> String {
 
     // Check if path contains "/base/"
     if lower.contains("/base/") {
-        let re = regex::Regex::new(r"(?i)/base/").unwrap();
-        return re.replace_all(path, "/").into_owned();
+        return BASE_MIDDLE_RE.replace_all(path, "/").into_owned();
     }
 
     path.to_string()

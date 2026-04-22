@@ -180,16 +180,12 @@ pub async fn start_project_watcher(
 /// Stop the active project watcher
 #[tauri::command]
 pub async fn stop_project_watcher(app: tauri::AppHandle) -> std::result::Result<(), String> {
-    tracing::info!("Stopping project watcher");
-
     let watcher_state = app.state::<WatcherState>();
     let mut watcher_guard = watcher_state.watcher.lock().unwrap();
 
     if watcher_guard.is_some() {
         *watcher_guard = None;
         tracing::info!("Project watcher stopped");
-    } else {
-        tracing::debug!("No active watcher to stop");
     }
 
     Ok(())
