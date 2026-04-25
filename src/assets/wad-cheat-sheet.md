@@ -66,6 +66,18 @@ League splits minions into "Chaos" and "Order" teams. Both teams usually have a 
 
 ---
 
+### 📝 In-Game Text & Localization
+All in-game text strings — item names, ability descriptions, UI labels, tooltip text — live in language-specific WADs separate from the main champion/map WADs. The WAD name follows the same `name.XX_YY.wad.client` pattern seen elsewhere.
+
+* **All global game text:** `global.en_US.wad.client`
+* **Other locales:** `global.fr_FR.wad.client` / `global.ko_KR.wad.client` / `global.zh_CN.wad.client` etc.
+* **Map-specific text (e.g. objectives, pings):** `Map11.en_US.wad.client` / `Map12.en_US.wad.client`
+* **Champion-specific text (VO subtitles, bios):** `CHAMPION.en_US.wad.client`
+
+> Text files inside these WADs are `.stringtable` format (binary, not plain text). Flint does not currently edit stringtables directly — use a dedicated tool such as [LoL StringTable Editor](https://github.com/LeagueToolkit/lol-string-table) to decode and re-encode them before replacing the file in your mod.
+
+---
+
 ### 🎨 UI, HUD & Items
 
 **Cursor:** `UI.wad.client assets/ux/cursors/`
@@ -131,23 +143,25 @@ The card icons don't follow the usual champion path — they live across multipl
 
 ---
 
-### 🧢 Hats, Wards & Emotes
-
-**Wards:**
-* `map11.wad.client assets/characters/sightward` (support item ward)
-* `map11.wad.client assets/characters/bluetrinket` (blue trinket ward)
-* `map11.wad.client assets/characters/yellowtrinket` (yellow trinket ward)
-* `map11.wad.client assets/characters/jammerdevice` (control ward)
-* `global.wad.client assets/characters/perkszombieward` (zombie ward, RIP)
+### 🪪 Wards
+* `Map11.wad.client assets/characters/sightward/` (support item ward)
+* `Map11.wad.client assets/characters/bluetrinket/` (blue trinket ward)
+* `Map11.wad.client assets/characters/yellowtrinket/` (yellow trinket ward)
+* `Map11.wad.client assets/characters/jammerdevice/` (control ward)
+* `Global.wad.client assets/characters/perkszombieward/` (zombie ward perk, RIP)
 
 > Use [lol-db.com/lol-wards](https://lol-db.com/lol-wards/) to find the correct skin ID for ward skins. Some wards share animations and skeletons.
 
-**Hats (April Fools, events):**
-* `global.wad.client assets/characters/caitlyn/skins/skin11/particles/`
-* `global.wad.client assets/characters/urgot/skins/base/particles/`
-* `global.wad.client assets/items/3181/particles/`
-* `global.wad.client assets/maps/particles/cherry/`
-* Search for `hat` inside `global.wad.client`. Urgot's hat texture is `urgot_base_z_emoteprops.dds`.
+---
+
+### 🧢 Hats (April Fools & Events)
+Seasonal hats are particles attached to champions, not separate models. They're scattered across a few locations:
+* `Global.wad.client assets/characters/caitlyn/skins/skin11/particles/`
+* `Global.wad.client assets/characters/urgot/skins/base/particles/`
+* `Global.wad.client assets/items/3181/particles/`
+* `Global.wad.client assets/maps/particles/cherry/`
+
+Search for `hat` inside `Global.wad.client` to find any event hats not listed above. Urgot's hat texture specifically is `urgot_base_z_emoteprops.dds`.
 
 ---
 
@@ -201,9 +215,9 @@ The card icons don't follow the usual champion path — they live across multipl
 * `xx_YY` = language code (en_US, es_MX, ru_RU…)
 
 To find which sound event to modify for a specific emote:
-1. Search for the emote name in `global.wad.client loadouts/summoneremotes` (it's a `.bin` without extension).
+1. Search for the emote name in `Global.wad.client` under `loadouts/summoneremotes` (it's a `.bin` without extension).
 2. Note the hashed `VfxSystem` value (e.g., `0xb2a1fbb1`).
-3. Search that hash inside `global.wad.client` without the `0x` prefix (e.g., `b2a1fbb1`).
+3. Search that hash inside `Global.wad.client` without the `0x` prefix (e.g., `b2a1fbb1`).
 4. Open the matching `summoneremotes.HASH.bin` and search for `sound`.
 
 ---

@@ -878,18 +878,18 @@ input.search-box__input {
 }
 
 .file-tree__item--highlighted {
-  background-color: rgba(220, 180, 50, 0.18);
-  animation: highlight-pulse 1.6s ease-out forwards;
+  background-color: rgba(79, 195, 247, 0.08);
+  box-shadow: inset 0 0 0 1.5px var(--accent-secondary);
+  animation: highlight-ring-pulse 2s ease-in-out 3;
 }
 
 .file-tree__item--highlighted:hover {
-  background-color: rgba(220, 180, 50, 0.25);
+  background-color: rgba(79, 195, 247, 0.14);
 }
 
-@keyframes highlight-pulse {
-  0%   { background-color: rgba(220, 180, 50, 0.45); }
-  40%  { background-color: rgba(220, 180, 50, 0.25); }
-  100% { background-color: rgba(220, 180, 50, 0.18); }
+@keyframes highlight-ring-pulse {
+  0%, 100% { box-shadow: inset 0 0 0 1.5px var(--accent-secondary); background-color: rgba(79, 195, 247, 0.18); }
+  50%       { box-shadow: inset 0 0 0 1.5px rgba(79, 195, 247, 0.3); background-color: rgba(79, 195, 247, 0.06); }
 }
 
 /* File status indicators (VSCode-style) */

@@ -5,24 +5,17 @@ import CHEAT_SHEET_MD from '../../assets/wad-cheat-sheet.md?raw';
 // ─── Placeholder detection ────────────────────────────────────────────────────
 
 const PLACEHOLDER_TOKENS = ['CHAMPION', 'SKINID', 'MINIONNAME', 'XX', 'YY', 'ZZ'];
+const PLACEHOLDER_RE = new RegExp(PLACEHOLDER_TOKENS.join('|'), 'g');
 
 function hasPlaceholder(text: string): boolean {
     return PLACEHOLDER_TOKENS.some(p => text.includes(p));
 }
 
-function stripToFilterPath(path: string): string {
-    const segs = path.split('/');
-    const result: string[] = [];
-    for (const seg of segs) {
-        const ph = PLACEHOLDER_TOKENS.find(p => seg.includes(p));
-        if (ph) {
-            const cut = seg.indexOf(ph);
-            if (cut > 0) result.push(seg.slice(0, cut));
-            break;
-        }
-        result.push(seg);
-    }
-    return result.join('/');
+/** Converts a path with ALLCAPS placeholders into a regex string usable in WAD Explorer search. */
+function toRegexPattern(path: string): string {
+    return path
+        .replace(/\./g, '\\.')       // escape literal dots
+        .replace(PLACEHOLDER_RE, '[^/]+'); // replace each placeholder with a non-slash wildcard
 }
 
 // ─── Inline token types ───────────────────────────────────────────────────────
@@ -47,12 +40,12 @@ function parseCodeSpan(raw: string): Token & { kind: 'code' } {
             raw,
             wad: wadIsPlaceholder ? undefined : firstWord,
             filePath: (!wadIsPlaceholder && rest && !pathHasPlaceholder) ? rest : undefined,
-            filter: rest ? (pathHasPlaceholder ? stripToFilterPath(rest) || undefined : rest) : undefined,
+            filter: rest ? (pathHasPlaceholder ? toRegexPattern(rest) || undefined : rest) : undefined,
         };
     }
 
     if (raw.startsWith('assets/') || raw.startsWith('data/')) {
-        const filter = stripToFilterPath(raw) || undefined;
+        const filter = toRegexPattern(raw) || undefined;
         return { kind: 'code', raw, filter };
     }
 
@@ -203,19 +196,19 @@ function RenderTokens({ tokens, ctx }: { tokens: Token[]; ctx: RenderCtx }): Rea
                                 {hasWadAction && (
                                     <button
                                         className="cs-pill cs-pill--wad"
-                                        title={tok.filePath ? `Go to this file in ${tok.wad}` : `Open ${tok.wad} in WAD Explorer`}
+                                        title={tok.filePath ? `Navigate to file in ${tok.wad}` : `Open ${tok.wad} in WAD Explorer`}
                                         onClick={() => ctx.onOpenWad(tok.wad!, tok.filePath)}
                                     >
-                                        {tok.filePath ? 'Go to file' : 'Open WAD'}
+                                        {tok.filePath ? 'Show File' : 'Show WAD'}
                                     </button>
                                 )}
                                 {hasFilterAction && (
                                     <button
                                         className="cs-pill cs-pill--filter"
-                                        title={`Filter WAD Explorer to: ${tok.filter}`}
+                                        title={`Search WAD Explorer for: ${tok.filter}`}
                                         onClick={() => ctx.onFilterPath(tok.filter!)}
                                     >
-                                        Filter
+                                        Show Regex
                                     </button>
                                 )}
                             </span>

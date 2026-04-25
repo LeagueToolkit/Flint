@@ -1166,6 +1166,7 @@ export const WadExplorer: React.FC = () => {
     }, [wadExplorer.wads, wadExplorer.expandedWads, handleToggleWad, loadWad, processNavigation]);
 
     const handleCheatSheetFilter = useCallback((path: string) => {
+        setIsRegex(true);
         setInputValue(path);
         dispatch({ type: 'SET_WAD_EXPLORER_SEARCH', payload: path });
         setTimeout(() => searchRef.current?.focus(), 50);
