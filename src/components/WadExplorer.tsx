@@ -21,6 +21,7 @@ import type { WadChunk, WadExplorerWad } from '../lib/types';
 import * as monaco from 'monaco-editor';
 import { RITOBIN_LANGUAGE_ID, RITOBIN_THEME_ID, registerRitobinLanguage, registerRitobinTheme } from '../lib/ritobinLanguage';
 import LazyModelPreview from './preview/LazyModelPreview';
+import { WadCheatSheetModal } from './modals/WadCheatSheetModal';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Inline SVG icons (fallbacks for any missing icon keys)
@@ -546,7 +547,12 @@ interface VirtualizedListProps {
     renderRow: (index: number) => React.ReactNode;
 }
 
-const VirtualizedList: React.FC<VirtualizedListProps> = React.memo(({ totalRows, rowHeight, overscan, renderRow }) => {
+interface VirtualizedListHandle {
+    scrollToIndex: (index: number) => void;
+}
+
+const VirtualizedListInner = React.forwardRef<VirtualizedListHandle, VirtualizedListProps>(
+    ({ totalRows, rowHeight, overscan, renderRow }, ref) => {
     const [scrollTop, setScrollTop] = React.useState(0);
     const [containerHeight, setContainerHeight] = React.useState(600);
     const containerRef = React.useRef<HTMLDivElement>(null);
@@ -568,6 +574,17 @@ const VirtualizedList: React.FC<VirtualizedListProps> = React.memo(({ totalRows,
 
     // Cleanup RAF on unmount
     React.useEffect(() => () => { if (rafRef.current !== null) cancelAnimationFrame(rafRef.current); }, []);
+
+    React.useImperativeHandle(ref, () => ({
+        scrollToIndex: (index: number) => {
+            const el = containerRef.current;
+            if (!el) return;
+            const top = index * rowHeight;
+            if (top < el.scrollTop || top + rowHeight > el.scrollTop + el.clientHeight) {
+                el.scrollTop = Math.max(0, top - Math.floor(el.clientHeight / 3));
+            }
+        },
+    }), [rowHeight]);
 
     const handleScroll = React.useCallback((e: React.UIEvent<HTMLDivElement>) => {
         const target = e.target as HTMLDivElement;
@@ -613,6 +630,8 @@ const VirtualizedList: React.FC<VirtualizedListProps> = React.memo(({ totalRows,
         </div>
     );
 });
+
+const VirtualizedList = React.memo(VirtualizedListInner);
 VirtualizedList.displayName = 'VirtualizedList';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -935,6 +954,14 @@ export const WadExplorer: React.FC = () => {
         });
     }, []);
 
+    const [showCheatSheet, setShowCheatSheet] = useState(false);
+    const [highlightedKey, setHighlightedKey] = useState<string | null>(null);
+    const listRef = useRef<VirtualizedListHandle | null>(null);
+    // { wadPath, filePath?, phase: 'wad'|'file' } — drives async navigation
+    const pendingNavRef = useRef<{ wadPath: string; filePath?: string; phase: 'wad' | 'file' } | null>(null);
+    // Always-fresh mirrors so processNavigation can run without stale closures
+    const flatRowsRef = useRef<FlatRow[] | null>(null);
+
     // Search input (debounced → global state)
     const [inputValue, setInputValue] = useState(wadExplorer.searchQuery);
     const [isRegex, setIsRegex] = useState(false);
@@ -1068,6 +1095,81 @@ export const WadExplorer: React.FC = () => {
             loadWad(wadPath);
         }
     }, [dispatch, loadWad, wadExplorer.wads, wadExplorer.expandedWads]);
+
+    // ── Cheat sheet navigation ────────────────────────────────────────────────
+    // Reads always-fresh data from refs so it can be called from effects and
+    // requestAnimationFrame without stale-closure issues.
+    const processNavigation = useCallback(() => {
+        const nav = pendingNavRef.current;
+        const rows = flatRowsRef.current;
+        if (!nav || !rows) return;
+
+        if (nav.phase === 'wad') {
+            const wadRowIdx = rows.findIndex(r => r.kind === 'wad' && r.wad.path === nav.wadPath);
+            if (wadRowIdx !== -1) {
+                listRef.current?.scrollToIndex(wadRowIdx);
+                if (!nav.filePath) {
+                    setHighlightedKey(nav.wadPath);
+                    pendingNavRef.current = null;
+                    return;
+                }
+                nav.phase = 'file';
+            }
+        }
+
+        if (nav.phase === 'file') {
+            const wad = wadExplorer.wads.find(w => w.path === nav.wadPath);
+            if (wad?.status !== 'loaded') return;
+
+            const filePath = nav.filePath!.replace(/\\/g, '/').toLowerCase();
+            const segs = filePath.split('/');
+            const folderKeys: string[] = [];
+            let cur = '';
+            for (let i = 0; i < segs.length - 1; i++) {
+                cur = cur ? `${cur}/${segs[i]}` : segs[i];
+                folderKeys.push(`${nav.wadPath}::${cur}`);
+            }
+            const unexpanded = folderKeys.filter(k => !wadExplorer.expandedFolders.has(k));
+            if (unexpanded.length > 0) {
+                dispatch({ type: 'BULK_SET_WAD_EXPLORER_FOLDERS', payload: { keys: unexpanded, expand: true } });
+                return;
+            }
+
+            const fileRowIdx = rows.findIndex(r =>
+                r.kind === 'file' &&
+                r.node.wadPath === nav.wadPath &&
+                (r.node.chunk.path?.replace(/\\/g, '/').toLowerCase() ?? '') === filePath
+            );
+            if (fileRowIdx !== -1) {
+                const fileRow = rows[fileRowIdx] as { kind: 'file'; node: VFSFile; depth: number };
+                listRef.current?.scrollToIndex(fileRowIdx);
+                setHighlightedKey(`${fileRow.node.wadPath}::${fileRow.node.chunk.hash}`);
+                pendingNavRef.current = null;
+            }
+        }
+    }, [dispatch, wadExplorer.wads, wadExplorer.expandedFolders]);
+
+    const handleCheatSheetOpenWad = useCallback((wadName: string, filePath?: string) => {
+        const wad = wadExplorer.wads.find(w => w.name.toLowerCase() === wadName.toLowerCase());
+        if (!wad) return;
+
+        pendingNavRef.current = { wadPath: wad.path, filePath, phase: 'wad' };
+
+        if (!wadExplorer.expandedWads.has(wad.path)) {
+            handleToggleWad(wad.path); // expands + starts load → flatRows will update → effect fires
+        } else if (wad.status === 'idle') {
+            loadWad(wad.path);
+        } else {
+            // Already expanded (and loaded/loading) — trigger on next frame since flatRows won't change
+            requestAnimationFrame(() => processNavigation());
+        }
+    }, [wadExplorer.wads, wadExplorer.expandedWads, handleToggleWad, loadWad, processNavigation]);
+
+    const handleCheatSheetFilter = useCallback((path: string) => {
+        setInputValue(path);
+        dispatch({ type: 'SET_WAD_EXPLORER_SEARCH', payload: path });
+        setTimeout(() => searchRef.current?.focus(), 50);
+    }, [dispatch]);
 
     // ── Background bulk indexing for whole-game search (non-blocking) ──────────
     // Loads all WADs in the background so search works across the entire game.
@@ -1497,6 +1599,11 @@ export const WadExplorer: React.FC = () => {
             wadSubtrees,
         );
     }, [isSearching, filteredCategories, categories, collapsedCategories, wadExplorer.expandedWads, wadExplorer.expandedFolders, wadSubtrees]);
+    flatRowsRef.current = flatRows;
+
+    // Re-run navigation whenever flatRows changes (WAD loaded, folders expanded)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    useEffect(() => { processNavigation(); }, [flatRows, processNavigation]);
 
     // ── Memoized flat rows (search mode) ─────────────────────────────────────
     const flatSearchRows = useMemo(() => {
@@ -1667,12 +1774,13 @@ export const WadExplorer: React.FC = () => {
                 case 'search-file': {
                     const isSelected = wadExplorer.selected?.hash === row.chunk.hash && wadExplorer.selected?.wadPath === row.wadPath;
                     const isChecked = wadExplorer.checkedFiles.has(makeFileKey(row.wadPath, row.chunk.hash));
+                    const isHighlighted = highlightedKey === `${row.wadPath}::${row.chunk.hash}`;
                     return (
                         <div
-                            className={`file-tree__item ${isSelected ? 'file-tree__item--selected' : ''}`}
+                            className={`file-tree__item${isSelected ? ' file-tree__item--selected' : ''}${isHighlighted ? ' file-tree__item--highlighted' : ''}`}
                             style={{ paddingLeft: row.folderPath ? '44px' : '22px' }}
                             title={`${row.chunk.path ?? row.chunk.hash}\nSize: ${formatBytes(row.chunk.size)}`}
-                            onClick={() => handleSelectFile(row.wadPath, row.chunk)}
+                            onClick={() => { if (isHighlighted) setHighlightedKey(null); handleSelectFile(row.wadPath, row.chunk); }}
                             onContextMenu={e => { e.preventDefault(); handleContextMenu(row.chunk, row.wadPath, e.clientX, e.clientY); }}
                         >
                             <span
@@ -1719,11 +1827,12 @@ export const WadExplorer: React.FC = () => {
                 case 'wad': {
                     const wad = row.wad;
                     const isExp = wadExplorer.expandedWads.has(wad.path);
+                    const isHighlighted = highlightedKey === wad.path;
                     return (
                         <div
-                            className="file-tree__item"
+                            className={`file-tree__item${isHighlighted ? ' file-tree__item--highlighted' : ''}`}
                             style={{ paddingLeft: '8px' }}
-                            onClick={() => handleToggleWad(wad.path)}
+                            onClick={() => { if (isHighlighted) setHighlightedKey(null); handleToggleWad(wad.path); }}
                             onContextMenu={e => { e.preventDefault(); handleWadContextMenu(wad, e.clientX, e.clientY); }}
                             title={wad.path}
                         >
@@ -1815,15 +1924,16 @@ export const WadExplorer: React.FC = () => {
                     const node = row.node;
                     const isSelected = node.chunk.hash === wadExplorer.selected?.hash && node.wadPath === wadExplorer.selected?.wadPath;
                     const isChecked = wadExplorer.checkedFiles.has(makeFileKey(node.wadPath, node.chunk.hash));
+                    const isHighlighted = highlightedKey === `${node.wadPath}::${node.chunk.hash}`;
                     const tooltip = node.chunk.path
                         ? `${node.chunk.path}\nHash: ${node.chunk.hash}\nSize: ${formatBytes(node.chunk.size)}`
                         : `Hash: ${node.chunk.hash}\nSize: ${formatBytes(node.chunk.size)}`;
                     return (
                         <div
-                            className={`file-tree__item ${isSelected ? 'file-tree__item--selected' : ''}`}
+                            className={`file-tree__item${isSelected ? ' file-tree__item--selected' : ''}${isHighlighted ? ' file-tree__item--highlighted' : ''}`}
                             style={{ paddingLeft: `${8 + indent + 16}px` }}
                             title={tooltip}
-                            onClick={() => handleSelectFile(node.wadPath, node.chunk)}
+                            onClick={() => { if (isHighlighted) setHighlightedKey(null); handleSelectFile(node.wadPath, node.chunk); }}
                             onContextMenu={e => { e.preventDefault(); handleContextMenu(node.chunk, node.wadPath, e.clientX, e.clientY); }}
                         >
                             <span
@@ -1853,6 +1963,7 @@ export const WadExplorer: React.FC = () => {
     // ─────────────────────────────────────────────────────────────────────────
 
     return (
+        <>
         <div style={{ display: 'flex', width: '100%', height: '100%', overflow: 'hidden' }}>
             {/* ── LEFT: VFS tree ── */}
             <div className="left-panel" style={{ width: leftWidth, minWidth: 200, maxWidth: 800, display: 'flex', flexDirection: 'column', overflow: 'hidden', flexShrink: 0 }}>
@@ -1861,6 +1972,12 @@ export const WadExplorer: React.FC = () => {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
                         <span dangerouslySetInnerHTML={{ __html: getIcon('wad') }} />
                         <span style={{ fontSize: '12px', fontWeight: 600, flex: 1 }}>WAD Explorer</span>
+                        <button
+                            className="btn btn--sm"
+                            title="Asset Path Cheat Sheet"
+                            onClick={() => setShowCheatSheet(true)}
+                            style={{ fontSize: '11px', padding: '1px 6px', opacity: 0.7, fontWeight: 600 }}
+                        >?</button>
                         {/* Live / PBE branch toggle. Cached snapshots make swapping instant. */}
                         <div
                             className="wad-explorer__branch-toggle"
@@ -1977,6 +2094,7 @@ export const WadExplorer: React.FC = () => {
                     {/* ── Virtualized tree / search view ─────────────────────── */}
                     {wadExplorer.scanStatus === 'ready' && (
                         <VirtualizedList
+                            ref={listRef}
                             totalRows={totalRows}
                             rowHeight={ROW_HEIGHT}
                             overscan={OVERSCAN}
@@ -2030,5 +2148,14 @@ export const WadExplorer: React.FC = () => {
                 )}
             </div>
         </div>
+
+        {showCheatSheet && (
+            <WadCheatSheetModal
+                onClose={() => setShowCheatSheet(false)}
+                onOpenWad={handleCheatSheetOpenWad}
+                onFilterPath={handleCheatSheetFilter}
+            />
+        )}
+        </>
     );
 };
