@@ -1172,19 +1172,36 @@ export const WadExplorer: React.FC = () => {
         setTimeout(() => searchRef.current?.focus(), 50);
     }, [dispatch]);
 
-    // ── Background bulk indexing for whole-game search (non-blocking) ──────────
-    // Loads all WADs in the background so search works across the entire game.
-    // Uses requestIdleCallback to defer loading until after UI renders (instant UX).
+    // ── Background bulk indexing for whole-game search ─────────────────────────
+    // Loads all WADs so search works across the entire game.
+    //
+    // Previously used `requestIdleCallback` here, which on WebView2 routinely
+    // gave us 8+ seconds of dead air between the WAD list rendering and the
+    // chunk-loading IPC firing. We don't actually need to wait for "idle" —
+    // the WAD list is already painted by the time this effect runs, and the
+    // IPC itself is async. Kick it off immediately on the next microtask so
+    // the user doesn't experience an unexplained pause.
     useEffect(() => {
         if (wadExplorer.scanStatus !== 'ready') return;
         const idlePaths = wadExplorer.wads.filter(w => w.status === 'idle').map(w => w.path);
         if (idlePaths.length === 0) return;
 
-        // Defer bulk load to next idle period (won't block UI rendering)
-        const handle = (window.requestIdleCallback || window.setTimeout)(() => {
-            (async () => {
+        // Split the load into batches so each IPC roundtrip's JSON payload
+        // stays small. A single 450-WAD call returns ~65MB of serialized
+        // chunk metadata; the Tauri IPC serialize/transfer/deserialize round
+        // trip on that one blob freezes the UI for several seconds, even
+        // after the Rust side has finished. Splitting also lets the UI
+        // update incrementally — WADs become "loaded" in the tree as
+        // their batch returns instead of all-at-once at the end.
+        const BATCH_SIZE = 40;
+        let cancelled = false;
+        const handle = window.setTimeout(async () => {
+            for (let i = 0; i < idlePaths.length; i += BATCH_SIZE) {
+                if (cancelled) return;
+                const slice = idlePaths.slice(i, i + BATCH_SIZE);
                 try {
-                    const batches = await api.loadAllWadChunks(idlePaths);
+                    const batches = await api.loadAllWadChunks(slice);
+                    if (cancelled) return;
                     dispatch({
                         type: 'BATCH_SET_WAD_STATUSES',
                         payload: batches.map(b => ({
@@ -1194,17 +1211,19 @@ export const WadExplorer: React.FC = () => {
                             error: b.error ?? undefined,
                         })),
                     });
+                    // Yield to the event loop between batches so the UI can
+                    // paint the newly-loaded WADs instead of staying frozen
+                    // through the entire bulk.
+                    await new Promise(r => setTimeout(r, 0));
                 } catch (e) {
-                    // Silent fail - lazy loading will handle individual WADs if user expands them
-                    console.warn('Background WAD indexing failed:', e);
+                    console.warn('Background WAD indexing batch failed:', e);
                 }
-            })();
-        });
+            }
+        }, 0);
 
         return () => {
-            if (typeof handle === 'number') {
-                (window.cancelIdleCallback || window.clearTimeout)(handle);
-            }
+            cancelled = true;
+            window.clearTimeout(handle);
         };
     }, [wadExplorer.scanStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 
