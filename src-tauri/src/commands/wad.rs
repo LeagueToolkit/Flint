@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Instant;
 use tauri::State;
 use walkdir::WalkDir;
 
@@ -51,23 +52,31 @@ pub async fn get_wad_chunks(
     lmdb: State<'_, LmdbCacheState>,
     wad_cache_state: State<'_, WadCacheState>,
 ) -> Result<Vec<ChunkInfo>, String> {
+    let total_start = Instant::now();
     let cache = wad_cache_state.get();
 
     // WAD metadata cache (avoids re-parsing headers)
+    let cache_hit;
+    let t_open = Instant::now();
     let chunks = if let Some(cached) = cache.get(&path) {
-        tracing::debug!("WAD cache hit: {}", path);
+        cache_hit = true;
         cached
     } else {
-        tracing::debug!("WAD cache miss: {}", path);
+        cache_hit = false;
         let reader = WadReader::open(&path)?;
         let chunks: Vec<_> = reader.chunks().iter().cloned().collect();
         let chunks = Arc::new(chunks);
         let _ = cache.insert(&path, Arc::clone(&chunks));
         chunks
     };
+    let d_open = t_open.elapsed();
 
     // Bulk-resolve all hashes in a single LMDB read txn (microseconds)
+    let t_hashes = Instant::now();
     let hash_u64s: Vec<u64> = chunks.iter().map(|c| c.path_hash()).collect();
+    let d_hash_collect = t_hashes.elapsed();
+
+    let t_resolve = Instant::now();
     let resolved: Vec<String> = if let Some(env) = lmdb.get_env(
         // Determine hash dir from the LMDB cache (uses whatever was last primed)
         &flint_ltk::hash::get_hash_dir()
@@ -78,7 +87,9 @@ pub async fn get_wad_chunks(
     } else {
         hash_u64s.iter().map(|h| format!("{:016x}", h)).collect()
     };
+    let d_resolve = t_resolve.elapsed();
 
+    let t_build = Instant::now();
     let chunk_infos = chunks
         .iter()
         .zip(resolved.into_iter())
@@ -98,7 +109,21 @@ pub async fn get_wad_chunks(
                 size: chunk.uncompressed_size() as u32,
             }
         })
-        .collect();
+        .collect::<Vec<_>>();
+    let d_build = t_build.elapsed();
+    let total = total_start.elapsed();
+
+    tracing::info!(
+        "[TIMING] get_wad_chunks {} chunks ({}, total {:?}): \
+         open/parse {:?}, hash_collect {:?}, lmdb_resolve {:?}, build_response {:?}",
+        chunks.len(),
+        if cache_hit { "cache_hit" } else { "cache_miss" },
+        total,
+        d_open,
+        d_hash_collect,
+        d_resolve,
+        d_build,
+    );
 
     Ok(chunk_infos)
 }

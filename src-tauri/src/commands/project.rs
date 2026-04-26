@@ -15,6 +15,7 @@ use flint_ltk::hash::resolve_hashes_lmdb_bulk;
 use crate::state::LmdbCacheState;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::time::Instant;
 use tauri::Emitter;
 
 /// Create a new project
@@ -51,6 +52,11 @@ pub async fn create_project(
         name, champion, skin_id, source_label
     );
 
+    // Per-phase timing — log every step so we can spot what takes "ages".
+    // Phase totals print at end of project creation.
+    let total_start = Instant::now();
+    let mut phase_timings: Vec<(&'static str, std::time::Duration)> = Vec::new();
+
     let league_path_buf = PathBuf::from(&league_path);
     let output_path_buf = PathBuf::from(&output_path);
 
@@ -70,13 +76,16 @@ pub async fn create_project(
     let hash_dir = flint_ltk::hash::get_hash_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
+    let t = Instant::now();
     let env_arc = lmdb.prime(&hash_dir).ok_or_else(||
         "Hash databases not found. Run hash download first.".to_string()
     )?;
-
-    tracing::info!("LMDB hash env ready for project creation");
+    let d = t.elapsed();
+    tracing::info!("[TIMING] LMDB prime: {:?}", d);
+    phase_timings.push(("lmdb_prime", d));
 
     // 2. Validate WAD existence before creating project
+    let t = Instant::now();
     let wad_path = find_champion_wad(&league_path_buf, &champion)
         .ok_or_else(|| if pbe {
             format!(
@@ -89,6 +98,9 @@ pub async fn create_project(
                 champion
             )
         })?;
+    let d = t.elapsed();
+    tracing::info!("[TIMING] find_champion_wad: {:?}", d);
+    phase_timings.push(("find_champion_wad", d));
 
     // 2b. Verify the requested skin's main BIN is actually inside the WAD.
     //
@@ -96,11 +108,15 @@ pub async fn create_project(
     // but the local PBE client only ships those files after the launcher applies the patch.
     // Without this check, extraction silently succeeds with a partial/empty result and the
     // organizer ends up scanning all BINs as a fallback (see "No main skin BIN found" warning).
+    let t = Instant::now();
     let skin_bin_present = wad_contains_skin_bin(&wad_path, &champion, skin_id)
         .map_err(|e| format!(
             "Failed to inspect WAD '{}': {}",
             wad_path.display(), e
         ))?;
+    let d = t.elapsed();
+    tracing::info!("[TIMING] wad_contains_skin_bin: {:?}", d);
+    phase_timings.push(("wad_contains_skin_bin", d));
     if !skin_bin_present {
         let source_label = if pbe { "PBE" } else { "Live" };
         let hint = if pbe {
@@ -126,12 +142,16 @@ pub async fn create_project(
     let output_clone = output_path_buf.clone();
     let creator_clone = creator_name.clone();
 
+    let t = Instant::now();
     let project = tokio::task::spawn_blocking(move || {
         core_create_project(&name_clone, &champion_clone, skin_id, &league_clone, &output_clone, creator_clone)
     })
     .await
     .map_err(|e| format!("Task failed: {}", e))?
     .map_err(|e| e.to_string())?;
+    let d = t.elapsed();
+    tracing::info!("[TIMING] core_create_project (mkdir + manifest): {:?}", d);
+    phase_timings.push(("core_create_project", d));
     
     // 4. Extract skin assets into the project
     let _ = app.emit("project-create-progress", serde_json::json!({
@@ -144,6 +164,7 @@ pub async fn create_project(
     let assets_path = project.assets_path();
     let champion_for_extract = champion.clone();
 
+    let t = Instant::now();
     let extraction_result = tokio::task::spawn_blocking(move || {
         // Build LMDB resolver closure — point lookups only, no full table load
         let env = env_arc;
@@ -160,6 +181,9 @@ pub async fn create_project(
         ).map_err(|e| e.to_string())
     })
     .await;
+    let extract_elapsed = t.elapsed();
+    tracing::info!("[TIMING] extract_skin_assets: {:?}", extract_elapsed);
+    phase_timings.push(("extract_skin_assets", extract_elapsed));
 
     let extraction_result = match extraction_result {
         Ok(Ok(result)) => {
@@ -212,10 +236,14 @@ pub async fn create_project(
 
             let assets_path_for_repath = project.assets_path();
             let path_mappings = extraction_result.path_mappings.clone();
+            let t = Instant::now();
             let repath_result = tokio::task::spawn_blocking(move || {
                 organize_project(&assets_path_for_repath, &repath_config, &path_mappings)
             })
             .await;
+            let d = t.elapsed();
+            tracing::info!("[TIMING] organize_project (repath + concat): {:?}", d);
+            phase_timings.push(("organize_project", d));
 
             match repath_result {
                 Ok(Ok(result)) => {
@@ -244,6 +272,13 @@ pub async fn create_project(
         "phase": "complete",
         "message": "Project created successfully!"
     }));
+
+    let total = total_start.elapsed();
+    tracing::info!("[TIMING] === Project creation total: {:?} ===", total);
+    for (label, dur) in &phase_timings {
+        let pct = (dur.as_secs_f64() / total.as_secs_f64()) * 100.0;
+        tracing::info!("[TIMING]   {:>22}: {:>10?}  ({:>5.1}%)", label, dur, pct);
+    }
 
     Ok(project)
 }
