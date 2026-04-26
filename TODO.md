@@ -131,29 +131,30 @@ Files: `PreviewPanel.tsx` (folder branch), new `FolderGridView.tsx`, new
 
 ---
 
-## General slowness — profile, then fix
-Promote this. Don't guess at the fix.
+## General slowness — partially addressed
+**Cut 1 (DONE):** `useAppState()` was the biggest known offender. It
+called every store's bare hook with no selector, subscribing all 22
+consumers to the full snapshot of nine stores. A new log line, a toast,
+or any field change re-rendered every component using it (incl.
+TitleBar/StatusBar which are always mounted). Fixed by switching to
+`useShallow` selectors that pick only the fields the legacy `state`
+object surfaces. Action methods are read once per render off
+`getState()` since their refs are stable.
 
-**Step 1 — measure.**
-- Frontend: run a "do a thing, wait, do another thing" session with the
-  React DevTools Profiler recording. Export the flame graph.
-- Rust: add `tracing-flame` layer behind a `--features profile` cargo
-  flag. Run a session, dump `flame.folded`, render with `inferno` to SVG.
+**Remaining suspects (not yet measured):**
+- BIN editor reparses on every keystroke — should debounce + diff-parse.
+- Tree build via per-folder IPC roundtrip — bulk listing could help
+  (similar to the LMDB bulk-resolve win logged in MEMORY.md).
+- Image cache eviction policy under heavy preview load.
+- `setState` cascades in the file watcher path on bulky refreshes.
 
-**Step 2 — known suspects to confirm or rule out.**
-- `useAppState()` in any component still subscribing to the whole store
-  (per `MEMORY.md` → `store-render-performance.md`) — re-render cascades.
-- BIN editor reparses on every keystroke — already known, may be the
-  biggest single hit.
-- Tauri IPC roundtrip overhead for many small calls (e.g. building the
-  tree by listing each folder). Bulk equivalents help; we did this for
-  hash resolution, may need it elsewhere.
-- Image cache size and eviction policy.
-
-**Step 3 — fix the top 3 hotspots only.** Don't refactor anything not
-backed by the profile.
-
-No new files until profiling lands.
+Next step here is to *measure* before more code changes:
+- Add `tracing-flame` behind a `--features profile` cargo flag for the
+  Rust side.
+- Run a typical "open project, click around, save a few BINs" session
+  with the React DevTools Profiler recording.
+- Pick the top 3 hotspots from the flame graphs and address them
+  individually. No more speculative perf changes until that data exists.
 
 ---
 
