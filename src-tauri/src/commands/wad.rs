@@ -203,7 +203,7 @@ pub async fn load_all_wad_chunks(
 
     // Phase 3: single LMDB read txn for ALL unique hashes (deduped)
     let unique_vec: Vec<u64> = unique_hashes.into_iter().collect();
-    tracing::info!(
+    tracing::debug!(
         "Resolving {} unique hashes across {} WADs (single LMDB txn)",
         unique_vec.len(),
         wad_chunks.len()
@@ -264,7 +264,7 @@ pub async fn load_all_wad_chunks(
         entry.1 += batch.chunks.len();
     }
     for (cat, (wads, chunks)) in &category_stats {
-        tracing::info!("Loaded \"{}\" folder: {} wads, {} chunks", cat, wads, chunks);
+        tracing::debug!("Loaded \"{}\" folder: {} wads, {} chunks", cat, wads, chunks);
     }
 
     Ok(batches)
