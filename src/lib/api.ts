@@ -1140,6 +1140,30 @@ export async function importExternalFiles(
 }
 
 // =============================================================================
+// Folder grid (custom file explorer)
+// =============================================================================
+
+export interface FolderEntry {
+    name: string;
+    relative_path: string;
+    absolute_path: string;
+    is_directory: boolean;
+    size: number;
+    extension: string;
+}
+
+export async function isDirectory(path: string): Promise<boolean> {
+    return invokeCommand('is_directory', { path });
+}
+
+export async function listFolderContents(
+    projectPath: string,
+    folderPath: string,
+): Promise<FolderEntry[]> {
+    return invokeCommand('list_folder_contents', { projectPath, folderPath });
+}
+
+// =============================================================================
 // BIN split (right-click "Split VFX to separate BIN")
 // =============================================================================
 

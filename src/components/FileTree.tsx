@@ -180,13 +180,18 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
     }), [dropTargetPath]);
 
     const handleItemClick = useCallback((path: string, isFolder: boolean) => {
+        if (!activeTab) return;
         if (isFolder) {
-            if (activeTab) toggleFolder(activeTab.id, path);
+            // Toggle expand AND select — selecting routes the right-side
+            // PreviewPanel to its folder grid view, the "custom file
+            // explorer". Toggling still happens so the tree responds the
+            // way users expect.
+            toggleFolder(activeTab.id, path);
+            setSelectedFile(activeTab.id, path);
+            useNavigationStore.getState().setView('preview');
         } else {
-            if (activeTab) {
-                setSelectedFile(activeTab.id, path);
-                useNavigationStore.getState().setView('preview');
-            }
+            setSelectedFile(activeTab.id, path);
+            useNavigationStore.getState().setView('preview');
         }
     }, [activeTab, toggleFolder, setSelectedFile]);
 

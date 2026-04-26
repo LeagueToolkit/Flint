@@ -14,6 +14,7 @@ import { BinEditor } from './preview/BinEditor';
 import { ModelPreview } from './preview/ModelPreview';
 import { HUDEditor } from './preview/HUDEditor';
 import { BnkPreview } from './preview/BnkPreview';
+import { FolderGridView } from './preview/FolderGridView';
 import { JadeIcon } from './icons/JadeIcon';
 import { QuartzIcon } from './icons/QuartzIcon';
 
@@ -120,6 +121,12 @@ export const PreviewPanel: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [imageZoom, setImageZoom] = useState<'fit' | number>('fit');
+    /**
+     * When the active selection is a folder, this drops the file-preview
+     * pipeline and routes to the folder grid view instead. Set in the
+     * effect below after a cheap `is_directory` IPC.
+     */
+    const [isFolderSelection, setIsFolderSelection] = useState(false);
 
     // Track previous file type to detect 3D→non-3D transitions
     // When leaving a 3D preview, we add a brief cooldown to let R3F
@@ -137,6 +144,7 @@ export const PreviewPanel: React.FC = () => {
     useEffect(() => {
         if (!selectedFile || !projectPath) {
             setFileInfo(null);
+            setIsFolderSelection(false);
             setLoading(false);
             return;
         }
@@ -147,6 +155,7 @@ export const PreviewPanel: React.FC = () => {
         // Clear stale info IMMEDIATELY to prevent wrong preview routing
         // (e.g. old SKN file info causing JSON file to be sent to ModelPreview)
         setFileInfo(null);
+        setIsFolderSelection(false);
         setLoading(true);
         setError(null);
 
@@ -157,6 +166,7 @@ export const PreviewPanel: React.FC = () => {
         }
 
         const filePath = `${projectPath}/${selectedFile}`;
+        let cancelled = false;
 
         const loadFileInfo = async () => {
             // If transitioning from 3D, wait a frame for WebGL cleanup
@@ -164,7 +174,7 @@ export const PreviewPanel: React.FC = () => {
                 await new Promise<void>(resolve => {
                     requestAnimationFrame(() => {
                         requestAnimationFrame(() => {
-                            setWebglCooldown(false);
+                            if (!cancelled) setWebglCooldown(false);
                             resolve();
                         });
                     });
@@ -172,18 +182,30 @@ export const PreviewPanel: React.FC = () => {
             }
 
             try {
+                // Cheap dir check first — folders skip the file pipeline.
+                const isDir = await api.isDirectory(filePath);
+                if (cancelled) return;
+                if (isDir) {
+                    setIsFolderSelection(true);
+                    setLoading(false);
+                    prevFileInfoRef.current = null;
+                    return;
+                }
                 const info = await api.readFileInfo(filePath);
+                if (cancelled) return;
                 setFileInfo(info as unknown as FileInfo);
                 prevFileInfoRef.current = info as unknown as FileInfo;
             } catch (err) {
+                if (cancelled) return;
                 console.error('[PreviewPanel] Error:', err);
                 setError((err as Error).message || 'Failed to load file');
             } finally {
-                setLoading(false);
+                if (!cancelled) setLoading(false);
             }
         };
 
         loadFileInfo();
+        return () => { cancelled = true; };
     }, [selectedFile, projectPath]);
 
     if (!selectedFile || !projectPath) {
@@ -197,6 +219,22 @@ export const PreviewPanel: React.FC = () => {
     const filePath = `${projectPath}/${selectedFile}`;
     const fileName = filePath.split('\\').pop() || filePath.split('/').pop() || filePath;
     const isImage = fileInfo?.file_type?.startsWith('image/');
+
+    // Folder selection short-circuits the entire file-preview pipeline.
+    // The grid view owns its own header and reads the folder contents
+    // directly via Rust; we just give it the absolute path and it handles
+    // the rest, including the "up" button.
+    if (isFolderSelection) {
+        return (
+            <div className="preview-panel">
+                <FolderGridView
+                    folderAbsPath={filePath}
+                    projectPath={projectPath}
+                    folderRelPath={selectedFile}
+                />
+            </div>
+        );
+    }
 
     const renderPreview = () => {
         if (loading || webglCooldown) {

@@ -119,21 +119,31 @@ until that lands.
 
 ---
 
-## Custom file explorer (re-scoped)
-Don't build a second app inside the app. Extend `PreviewPanel`:
-- When the selection is a folder, switch the preview to a thumbnail-grid
-  view: each immediate child rendered with the existing image/model/text
-  preview at small size (use the LRU cache).
-- Double-click a thumbnail in the grid → enters that file's full preview.
-- Double-click a texture → opens a full-resolution modal (just the
-  existing image preview at native resolution + pan/zoom, no transform).
+## Custom file explorer — partially DONE
+Folder grid view shipped. Click any folder in the project tree → the
+right-side preview panel routes to a grid of cards for the immediate
+children. Texture cards get a thumbnail decoded once (cached via existing
+`imageCache.ts`); other files show their type icon. Click a child to
+navigate into / open it. "↑ Up" button on the breadcrumb walks back to
+the parent.
 
-This way we reuse: `imageCache.ts`, `ModelPreview.tsx`, `TextPreview.tsx`,
-`ImagePreview.tsx`. New code is the grid container + the full-res modal,
-both small.
+Implementation:
+- Rust commands: `is_directory`, `list_folder_contents` in
+  `commands/file.rs`. The list command sorts directories first, files
+  second (alphabetical inside each), and skips `.ritobin` sidecars.
+- `FolderGridView.tsx` — grid container + per-entry card. Reuses the
+  existing image cache + Rust DDS/TEX decoder for thumbnails.
+- `PreviewPanel.tsx` — directory check before `read_file_info`; folder
+  selection short-circuits the file-preview pipeline.
+- `FileTree.tsx` — folder click now also sets `selectedFile` and
+  navigates to the preview view (still toggles expansion).
 
-Files: `PreviewPanel.tsx` (folder branch), new `FolderGridView.tsx`, new
-`FullResImageModal.tsx`.
+**Still TODO:**
+- Full-res modal for double-clicking a texture (zero-transform native
+  resolution + pan/zoom).
+- Lazy thumbnail decoding via IntersectionObserver — currently the grid
+  starts every visible texture's decode at once on mount, which can
+  spike CPU on folders with hundreds of textures.
 
 ---
 

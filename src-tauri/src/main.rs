@@ -196,6 +196,8 @@ fn main() {
             commands::file::duplicate_file,
             commands::file::move_file,
             commands::file::import_external_files,
+            commands::file::is_directory,
+            commands::file::list_folder_contents,
             commands::bin_split::analyze_bin_for_split,
             commands::bin_split::split_bin_entries,
             commands::bin_split::analyze_folder_for_split,

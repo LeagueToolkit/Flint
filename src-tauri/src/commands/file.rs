@@ -1050,6 +1050,108 @@ pub async fn move_file(
     Ok(new_rel)
 }
 
+/// One entry in a folder listing produced by [`list_folder_contents`].
+/// The frontend uses this to render the folder thumbnail grid.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FolderEntry {
+    /// Filename only (no parent path).
+    pub name: String,
+    /// Project-relative path (forward slashes), useful for the frontend's
+    /// VFS state so the user can navigate back into the file tree.
+    pub relative_path: String,
+    /// Absolute path on disk — what the preview pipeline reads.
+    pub absolute_path: String,
+    pub is_directory: bool,
+    /// Size in bytes. 0 for directories.
+    pub size: u64,
+    /// Lowercase extension without dot (e.g. `"dds"`). Empty for
+    /// directories and extensionless files.
+    pub extension: String,
+}
+
+/// Cheap directory check used by the preview panel to decide whether to
+/// route a selection to the folder grid view or the file preview pipeline.
+#[tauri::command]
+pub async fn is_directory(path: String) -> bool {
+    std::path::Path::new(&path).is_dir()
+}
+
+/// Return immediate children of `folder_path`. Entries are split into
+/// directories first then files, both alphabetically. Hidden files
+/// (starting with `.`) are included so users can see what's in their
+/// project root, but `.ritobin` sidecars are skipped — those are derived
+/// content and clutter the grid view.
+#[tauri::command]
+pub async fn list_folder_contents(
+    project_path: String,
+    folder_path: String,
+) -> Result<Vec<FolderEntry>, String> {
+    let folder = PathBuf::from(&folder_path);
+    if !folder.is_dir() {
+        return Err(format!("Not a folder: {}", folder_path));
+    }
+
+    let project_root = PathBuf::from(&project_path);
+
+    let mut entries: Vec<FolderEntry> = Vec::new();
+    let read_dir = fs::read_dir(&folder)
+        .map_err(|e| format!("Failed to read folder: {}", e))?;
+
+    for entry in read_dir.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        let metadata = match entry.metadata() {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        let name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(s) => s.to_string(),
+            None => continue,
+        };
+        let lower = name.to_lowercase();
+
+        // Skip ritobin sidecars — they're cache artifacts of the BIN editor,
+        // not user-editable content.
+        if lower.ends_with(".ritobin") {
+            continue;
+        }
+
+        let is_directory = metadata.is_dir();
+        let size = if is_directory { 0 } else { metadata.len() };
+        let extension = if is_directory {
+            String::new()
+        } else {
+            path.extension()
+                .and_then(|e| e.to_str())
+                .map(|s| s.to_lowercase())
+                .unwrap_or_default()
+        };
+        let relative_path = path
+            .strip_prefix(&project_root)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .replace('\\', "/");
+
+        entries.push(FolderEntry {
+            name,
+            relative_path,
+            absolute_path: path.to_string_lossy().into_owned(),
+            is_directory,
+            size,
+            extension,
+        });
+    }
+
+    // Directories first, then files; within each group, sorted by name
+    // case-insensitively for a stable, expected order.
+    entries.sort_by(|a, b| match (a.is_directory, b.is_directory) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+    });
+
+    Ok(entries)
+}
+
 /// Import (copy) external files/folders from the OS into a destination folder
 /// inside the project. Used by drag-and-drop from Windows Explorer.
 /// Returns the list of relative paths (project-relative, forward slashes) that
