@@ -31,6 +31,6 @@ pub use concat::{classify_bin, BinCategory};
 
 // Re-export split utilities (right-click "Split VFX to separate BIN")
 pub use split::{
-    analyze_multi, classify_vfx_objects, group_by_class, split_bin, split_bin_multi,
-    MultiAnalysis, MultiSourceInfo, SplitResult, VFX_CLASS_NAMES,
+    analyze_multi, classify_vfx_objects, group_by_class, organize_vfx_in_folder, split_bin,
+    split_bin_multi, MultiAnalysis, MultiSourceInfo, OrganizeResult, SplitResult, VFX_CLASS_NAMES,
 };

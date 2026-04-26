@@ -7,7 +7,8 @@
 //!   parent dependencies, removes moved objects from parent).
 
 use flint_ltk::bin::{
-    analyze_multi, classify_vfx_objects, group_by_class, read_bin, split_bin, split_bin_multi,
+    analyze_multi, classify_vfx_objects, group_by_class, organize_vfx_in_folder, read_bin,
+    split_bin, split_bin_multi,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -326,5 +327,144 @@ pub async fn split_bin_entries(
     Ok(BinSplitResult {
         moved: result.moved,
         link_added: result.link_added,
+    })
+}
+
+// =============================================================================
+// BIN organizer — auto-consolidate VFX vs main
+// =============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BinOrganizePreview {
+    pub sources: Vec<BinSplitSourceInfo>,
+    pub vfx_objects_estimate: usize,
+    pub main_objects_estimate: usize,
+    pub suggested_owner: String,
+    pub vfx_filename: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BinOrganizeResult {
+    pub vfx_objects_moved: usize,
+    pub main_objects_merged: usize,
+    pub sources_deleted: Vec<String>,
+    pub links_pruned: usize,
+    pub vfx_link_added: String,
+}
+
+/// Walk a folder, classify every object across every BIN, and report what an
+/// organize pass would do. The frontend can show this preview in a confirm
+/// dialog before running the actual write.
+#[tauri::command]
+pub async fn preview_organize_vfx(folder_path: String) -> Result<BinOrganizePreview, String> {
+    tracing::info!("preview_organize_vfx: scanning {}", folder_path);
+    let folder = PathBuf::from(&folder_path);
+    if !folder.is_dir() {
+        return Err(format!("Not a folder: {}", folder_path));
+    }
+    let bins = collect_folder_bins(&folder);
+    if bins.is_empty() {
+        return Err(format!("No .bin files found under {}", folder_path));
+    }
+
+    let folder_for_strip = folder.clone();
+    let multi = tokio::task::spawn_blocking(move || analyze_multi(&bins))
+        .await
+        .map_err(|e| format!("Task panicked: {}", e))?;
+
+    let owner = pick_owner_bin(
+        &multi
+            .sources
+            .iter()
+            .map(|s| (s.bin_path.clone(), s.object_count))
+            .collect::<Vec<_>>(),
+    )
+    .map(|p| p.to_string_lossy().into_owned())
+    .unwrap_or_default();
+
+    let vfx_set = &multi.vfx_class_hashes;
+    let mut vfx_estimate = 0usize;
+    let mut main_estimate = 0usize;
+    for (class_hash, hashes) in &multi.groups {
+        if vfx_set.contains(class_hash) {
+            vfx_estimate += hashes.len();
+        } else {
+            main_estimate += hashes.len();
+        }
+    }
+
+    let sources: Vec<BinSplitSourceInfo> = multi
+        .sources
+        .iter()
+        .map(|s| BinSplitSourceInfo {
+            path: s.bin_path.to_string_lossy().into_owned(),
+            rel_path: s
+                .bin_path
+                .strip_prefix(&folder_for_strip)
+                .unwrap_or(&s.bin_path)
+                .to_string_lossy()
+                .replace('\\', "/"),
+            object_count: s.object_count,
+        })
+        .collect();
+
+    Ok(BinOrganizePreview {
+        sources,
+        vfx_objects_estimate: vfx_estimate,
+        main_objects_estimate: main_estimate,
+        suggested_owner: owner,
+        vfx_filename: "VFX.bin".to_string(),
+    })
+}
+
+/// Run the organize pass. Pulls every VFX-class object from every source
+/// (incl. owner) into a consolidated `<wad_root>/data/<vfx_filename>`,
+/// merges every non-owner non-VFX object into the owner BIN, deletes any
+/// source BIN that ends up empty, and prunes dead dependency links.
+#[tauri::command]
+pub async fn organize_bins_vfx(
+    folder_path: String,
+    owner_path: String,
+    vfx_filename: String,
+) -> Result<BinOrganizeResult, String> {
+    tracing::info!(
+        "organize_bins_vfx: folder={}, owner={}, output={}",
+        folder_path, owner_path, vfx_filename
+    );
+    if vfx_filename.contains('/') || vfx_filename.contains('\\') {
+        return Err("vfx_filename must be a bare filename, no slashes".to_string());
+    }
+    if !vfx_filename.to_lowercase().ends_with(".bin") {
+        return Err("vfx_filename must end with .bin".to_string());
+    }
+
+    let folder = PathBuf::from(&folder_path);
+    if !folder.is_dir() {
+        return Err(format!("Not a folder: {}", folder_path));
+    }
+    let bins = collect_folder_bins(&folder);
+    if bins.is_empty() {
+        return Err(format!("No .bin files found under {}", folder_path));
+    }
+    let owner = PathBuf::from(&owner_path);
+    let project_root = find_wad_root(&folder);
+
+    let result = tokio::task::spawn_blocking(move || {
+        organize_vfx_in_folder(&bins, &owner, &project_root, &vfx_filename)
+    })
+    .await
+    .map_err(|e| format!("Task panicked: {}", e))?
+    .map_err(|e| e.to_string())?;
+
+    Ok(BinOrganizeResult {
+        vfx_objects_moved: result.vfx_objects_moved,
+        main_objects_merged: result.main_objects_merged,
+        sources_deleted: result
+            .sources_deleted
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect(),
+        links_pruned: result.links_pruned,
+        vfx_link_added: result.vfx_link_added,
     })
 }

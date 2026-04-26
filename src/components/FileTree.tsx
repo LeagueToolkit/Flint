@@ -463,6 +463,59 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
                         defaultOutputName: 'VFX.bin',
                     }),
                 });
+
+                // Organizer — one-shot auto-consolidate. Confirms with a
+                // preview that lists what will move where.
+                options.push({
+                    label: 'Organize VFX (auto-consolidate)…',
+                    icon: getIcon('texture'),
+                    onClick: async () => {
+                        const folderAbs = fullPath.replace(/\//g, '\\');
+                        try {
+                            const preview = await api.previewOrganizeVfx(folderAbs);
+                            const ownerRel = preview.suggested_owner
+                                ? preview.suggested_owner.split(/[\\/]/).slice(-3).join('/')
+                                : '(none — cannot run)';
+                            const deletedEstimate = preview.sources.length > 1
+                                ? `up to ${preview.sources.length - 1} non-owner BIN${preview.sources.length - 1 === 1 ? '' : 's'} may be removed`
+                                : 'no other BINs to merge';
+
+                            openConfirmDialog({
+                                title: 'Organize VFX',
+                                message:
+                                    `Pull ${preview.vfx_objects_estimate} VFX object${preview.vfx_objects_estimate === 1 ? '' : 's'} into ` +
+                                    `data/${preview.vfx_filename} and merge ${preview.main_objects_estimate} non-VFX object${preview.main_objects_estimate === 1 ? '' : 's'} ` +
+                                    `into the main BIN (${ownerRel}). ${deletedEstimate}. Continue?`,
+                                confirmLabel: 'Organize',
+                                onConfirm: async () => {
+                                    if (!preview.suggested_owner) {
+                                        showToast('error', 'No main skin BIN found in this folder — cannot organize');
+                                        return;
+                                    }
+                                    try {
+                                        const result = await api.organizeBinsVfx(
+                                            folderAbs,
+                                            preview.suggested_owner,
+                                            preview.vfx_filename,
+                                        );
+                                        const msg =
+                                            `${result.vfx_objects_moved} VFX → ${preview.vfx_filename}, ` +
+                                            `${result.main_objects_merged} merged into main, ` +
+                                            `${result.sources_deleted.length} BIN${result.sources_deleted.length === 1 ? '' : 's'} removed`;
+                                        showToast('success', msg);
+                                        await refreshFileTree();
+                                    } catch (e) {
+                                        const m = (e as { message?: string })?.message ?? String(e);
+                                        showToast('error', `Organize failed: ${m}`);
+                                    }
+                                },
+                            });
+                        } catch (e) {
+                            const m = (e as { message?: string })?.message ?? String(e);
+                            showToast('error', `Preview failed: ${m}`);
+                        }
+                    },
+                });
             }
 
             options.push({

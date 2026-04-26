@@ -417,3 +417,223 @@ pub fn split_bin_multi(
         link_added: link_rel,
     })
 }
+
+// =============================================================================
+// BIN organizer — auto-consolidate VFX vs main
+// =============================================================================
+
+/// Result of an [`organize_vfx_in_folder`] run.
+#[derive(Debug, Clone)]
+pub struct OrganizeResult {
+    /// VFX-class objects pulled into the consolidated VFX BIN.
+    pub vfx_objects_moved: usize,
+    /// Non-VFX objects merged from non-owner sources into the main skin
+    /// BIN. The owner's own non-VFX objects are not counted (they stay
+    /// where they were).
+    pub main_objects_merged: usize,
+    /// Source BINs that were deleted because they ended up empty.
+    pub sources_deleted: Vec<PathBuf>,
+    /// Number of dead dependency entries pruned from the owner BIN.
+    pub links_pruned: usize,
+    /// The link path appended to the owner's `dependencies` (empty string
+    /// if no VFX objects were moved — no new file was created).
+    pub vfx_link_added: String,
+}
+
+/// Auto-consolidate VFX vs non-VFX content across every BIN in a folder.
+///
+/// All VFX-class objects (matching one of [`VFX_CLASS_NAMES`]) from every
+/// source — including the owner — are pulled into a single new file at
+/// `<project_root>/data/<vfx_filename>`. All non-VFX objects from non-owner
+/// sources are merged into the owner's objects (skip-on-collision so the
+/// owner's existing version of any duplicated hash wins). Source BINs that
+/// end up empty are deleted, and the owner's dependency list is pruned of
+/// any entry pointing at a deleted file.
+///
+/// Restrictions:
+/// - `source_paths` must NOT include animation BINs or other format-specific
+///   files; the caller filters upstream.
+/// - The owner must be one of the source paths.
+/// - Reads happen up front; if a parse fails the project is untouched.
+pub fn organize_vfx_in_folder(
+    source_paths: &[PathBuf],
+    owner_path: &Path,
+    project_root: &Path,
+    vfx_filename: &str,
+) -> Result<OrganizeResult> {
+    if source_paths.is_empty() {
+        return Err(Error::InvalidInput(
+            "organize_vfx_in_folder: no source BINs provided".to_string(),
+        ));
+    }
+
+    let vfx_class_set: HashSet<u32> = VFX_CLASS_NAMES.iter().map(|n| fnv1a_lower(n)).collect();
+
+    // 1. Read every source BIN. Bail before any write if anything fails.
+    struct Source {
+        path: PathBuf,
+        bin: Bin,
+        is_owner: bool,
+    }
+    let mut sources: Vec<Source> = Vec::with_capacity(source_paths.len());
+    for path in source_paths {
+        let data = std::fs::read(path).map_err(|e| Error::io_with_path(e, path))?;
+        let bin = crate::bin::read_bin(&data)
+            .map_err(|e| Error::InvalidInput(format!("Failed to parse {}: {}", path.display(), e)))?;
+        let is_owner = paths_match(path, owner_path);
+        sources.push(Source { path: path.clone(), bin, is_owner });
+    }
+    if !sources.iter().any(|s| s.is_owner) {
+        return Err(Error::InvalidInput(format!(
+            "Owner BIN {} is not in the source list",
+            owner_path.display()
+        )));
+    }
+
+    // 2. Bucket sort: pull VFX from every source into one bucket; pull
+    //    non-VFX from NON-OWNER sources into another. Owner's non-VFX stays
+    //    in place — it's already where we want it.
+    let mut vfx_bucket: Vec<BinObject> = Vec::new();
+    let mut main_bucket: Vec<BinObject> = Vec::new();
+    for src in sources.iter_mut() {
+        let mut keep: indexmap::IndexMap<u32, BinObject> = indexmap::IndexMap::new();
+        let drained = std::mem::take(&mut src.bin.objects);
+        for (path_hash, obj) in drained {
+            if vfx_class_set.contains(&obj.class_hash) {
+                vfx_bucket.push(obj);
+            } else if src.is_owner {
+                keep.insert(path_hash, obj);
+            } else {
+                main_bucket.push(obj);
+            }
+        }
+        src.bin.objects = keep;
+    }
+
+    let vfx_count = vfx_bucket.len();
+    let main_count = main_bucket.len();
+    if vfx_count == 0 && main_count == 0 {
+        return Err(Error::InvalidInput(
+            "Nothing to consolidate — no VFX objects and no non-owner spillover".to_string(),
+        ));
+    }
+
+    // 3. Merge main_bucket into the owner. Skip-on-collision.
+    let owner_idx = sources.iter().position(|s| s.is_owner).unwrap();
+    for obj in main_bucket {
+        let key = obj.path_hash;
+        sources[owner_idx].bin.objects.entry(key).or_insert(obj);
+    }
+
+    // 4. Decide where the new VFX BIN lives. Refuse to overwrite, refuse
+    //    to collide with a source path.
+    let data_dir = project_root.join("data");
+    std::fs::create_dir_all(&data_dir).map_err(|e| Error::io_with_path(e, &data_dir))?;
+    let vfx_path = data_dir.join(vfx_filename);
+    if vfx_count > 0 {
+        if vfx_path.exists() {
+            return Err(Error::InvalidInput(format!(
+                "VFX output already exists: {} — pick a different filename",
+                vfx_path.display()
+            )));
+        }
+        if sources.iter().any(|s| paths_match(&s.path, &vfx_path)) {
+            return Err(Error::InvalidInput(
+                "VFX output filename collides with one of the source BINs".to_string(),
+            ));
+        }
+    }
+
+    let vfx_link_rel = vfx_path
+        .strip_prefix(project_root)
+        .map_err(|_| {
+            Error::InvalidInput(format!(
+                "VFX output {} is not inside project root {}",
+                vfx_path.display(),
+                project_root.display()
+            ))
+        })?
+        .to_string_lossy()
+        .replace('\\', "/")
+        .to_lowercase();
+
+    // 5. Determine which sources end up deleted (non-owner with no objects
+    //    left). Track their relative paths so we can prune dead links.
+    let mut to_delete: Vec<PathBuf> = Vec::new();
+    let mut deleted_links: HashSet<String> = HashSet::new();
+    for src in sources.iter() {
+        if src.is_owner { continue; }
+        if src.bin.objects.is_empty() {
+            to_delete.push(src.path.clone());
+            if let Ok(rel) = src.path.strip_prefix(project_root) {
+                deleted_links.insert(rel.to_string_lossy().replace('\\', "/").to_lowercase());
+            }
+        }
+    }
+
+    // 6. Update owner deps: prune dead links, append the new VFX link.
+    let dep_count_before = sources[owner_idx].bin.dependencies.len();
+    sources[owner_idx]
+        .bin
+        .dependencies
+        .retain(|d| !deleted_links.contains(&d.to_lowercase()));
+    let links_pruned = dep_count_before - sources[owner_idx].bin.dependencies.len();
+    if vfx_count > 0
+        && !sources[owner_idx]
+            .bin
+            .dependencies
+            .iter()
+            .any(|d| d.eq_ignore_ascii_case(&vfx_link_rel))
+    {
+        sources[owner_idx].bin.dependencies.push(vfx_link_rel.clone());
+    }
+
+    // 7. Write the consolidated VFX BIN first (only if non-empty).
+    if vfx_count > 0 {
+        let vfx_bin = Bin::builder().objects(vfx_bucket).build();
+        let vfx_bytes = crate::bin::write_bin(&vfx_bin)
+            .map_err(|e| Error::InvalidInput(format!("Failed to serialize VFX BIN: {}", e)))?;
+        std::fs::write(&vfx_path, &vfx_bytes).map_err(|e| Error::io_with_path(e, &vfx_path))?;
+    }
+
+    // 8. Write the owner BIN.
+    {
+        let owner_bytes = crate::bin::write_bin(&sources[owner_idx].bin)
+            .map_err(|e| Error::InvalidInput(format!("Failed to serialize owner BIN: {}", e)))?;
+        std::fs::write(&sources[owner_idx].path, &owner_bytes)
+            .map_err(|e| Error::io_with_path(e, &sources[owner_idx].path))?;
+    }
+
+    // 9. Write any non-empty non-owner sources (in case any of them had
+    //    only some objects move out). Then delete the empty ones.
+    for src in sources.iter() {
+        if src.is_owner { continue; }
+        if src.bin.objects.is_empty() { continue; } // gets deleted below
+        let bytes = crate::bin::write_bin(&src.bin).map_err(|e| {
+            Error::InvalidInput(format!("Failed to serialize {}: {}", src.path.display(), e))
+        })?;
+        std::fs::write(&src.path, &bytes).map_err(|e| Error::io_with_path(e, &src.path))?;
+    }
+    for path in &to_delete {
+        if let Err(e) = std::fs::remove_file(path) {
+            tracing::warn!("organize_vfx: failed to delete empty {}: {}", path.display(), e);
+        }
+    }
+
+    Ok(OrganizeResult {
+        vfx_objects_moved: vfx_count,
+        main_objects_merged: main_count,
+        sources_deleted: to_delete,
+        links_pruned,
+        vfx_link_added: if vfx_count > 0 { vfx_link_rel } else { String::new() },
+    })
+}
+
+/// Two paths are "the same" if canonicalize matches. Falls back to lexical
+/// equality when canonicalize fails (e.g. one input doesn't exist).
+fn paths_match(a: &Path, b: &Path) -> bool {
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(ca), Ok(cb)) => ca == cb,
+        _ => a == b,
+    }
+}

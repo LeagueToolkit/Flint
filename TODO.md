@@ -69,29 +69,36 @@ Files: `flint-ltk/src/bin/split.rs` (`classify_vfx_objects`,
 
 ---
 
-## BIN organizer — auto-consolidate (NEW)
-Right-click on `data/` (or a project root menu item) → "Organize VFX".
-One-shot action that:
-- Walks every `.bin` under the folder, skipping animation BINs
-  (`/animations/`) and any BIN whose path or filename marks it as a
-  non-mergeable type (e.g. SFX BINs, audio events).
-- Pulls every VFX-class object from every source into one consolidated
-  `data/{creator}_{project}__VFX.bin`.
-- Pulls every non-VFX object back into the main skin BIN
-  (`/data/characters/<champ>/skins/skinNN.bin`) so non-VFX content lives
-  in one place again.
-- Updates the main skin BIN's `dependencies` to link the new VFX BIN.
-- Deletes any source BIN that becomes empty after consolidation.
+## BIN organizer — auto-consolidate — DONE
+Right-click `data/` → "Organize VFX (auto-consolidate)…". Confirm dialog
+shows the preview (VFX object count, non-VFX merge count, owner BIN,
+deletion estimate); confirm runs the pass.
 
-Implementation sketch:
-- Reuse the VFX classifier in `flint-ltk/src/bin/split.rs`.
-- New function `organize_vfx(folder, owner, output_name) -> { moved_to_vfx,
-  moved_to_main, removed_files }` — same building blocks as `split_bin_multi`,
-  just two destination buckets instead of one.
-- Tauri command `organize_bins_vfx`, frontend confirms via a small modal
-  that previews the file list + counts before running.
-- Add a "skip list" config (probably on the project) for any BIN paths
-  the user wants left alone.
+Action:
+- Walks every `.bin` under the folder, skipping `/animations/`.
+- Pulls every VFX-class object from every source (incl. owner) into a
+  consolidated `<wad_root>/data/VFX.bin`.
+- Merges every non-owner non-VFX object into the owner BIN
+  (skip-on-collision — owner's existing version of any duplicate hash
+  wins).
+- Updates owner's `dependencies` to link the new VFX BIN.
+- Deletes any non-owner source BIN that ends up empty.
+- Prunes dead links from owner's dependency list (entries pointing at
+  files we just deleted).
+
+Reads happen up front; if a parse fails the project is untouched. Refuses
+to overwrite an existing `data/VFX.bin` — pick a different name to retry.
+
+Files: `flint-ltk/src/bin/split.rs` (`organize_vfx_in_folder`,
+`OrganizeResult`), `commands/bin_split.rs` (`preview_organize_vfx`,
+`organize_bins_vfx`), `FileTree.tsx` (right-click handler with confirm
+dialog), `api.ts` (wrappers).
+
+**Follow-ups (not done):**
+- Per-project skip list for BIN paths the user explicitly wants left
+  alone (e.g. `data/SFX.bin` if they hand-curated it).
+- Allow specifying a custom output filename in the confirm dialog
+  (currently hardcoded to `VFX.bin` — collision triggers a clear error).
 
 ---
 

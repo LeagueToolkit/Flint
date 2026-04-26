@@ -200,6 +200,8 @@ fn main() {
             commands::bin_split::split_bin_entries,
             commands::bin_split::analyze_folder_for_split,
             commands::bin_split::split_folder_entries,
+            commands::bin_split::preview_organize_vfx,
+            commands::bin_split::organize_bins_vfx,
             // External apps commands (Jade/Quartz integration)
             commands::external_apps::detect_jade_installation,
             commands::external_apps::detect_quartz_installation,

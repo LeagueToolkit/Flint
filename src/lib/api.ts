@@ -1201,6 +1201,34 @@ export async function splitFolderEntries(
     });
 }
 
+export interface BinOrganizePreview {
+    sources: BinSplitSourceInfo[];
+    vfx_objects_estimate: number;
+    main_objects_estimate: number;
+    suggested_owner: string;
+    vfx_filename: string;
+}
+
+export interface BinOrganizeResult {
+    vfx_objects_moved: number;
+    main_objects_merged: number;
+    sources_deleted: string[];
+    links_pruned: number;
+    vfx_link_added: string;
+}
+
+export async function previewOrganizeVfx(folderPath: string): Promise<BinOrganizePreview> {
+    return invokeCommand('preview_organize_vfx', { folderPath });
+}
+
+export async function organizeBinsVfx(
+    folderPath: string,
+    ownerPath: string,
+    vfxFilename: string,
+): Promise<BinOrganizeResult> {
+    return invokeCommand('organize_bins_vfx', { folderPath, ownerPath, vfxFilename });
+}
+
 // =============================================================================
 // Fantome Import Commands
 // =============================================================================
