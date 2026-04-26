@@ -235,6 +235,15 @@ pub async fn start_preview_watcher(
                     };
 
                     for path in &event.paths {
+                        // Drop events that match a self-write the app just
+                        // made (e.g. saving a .bin from the editor). Without
+                        // this, every save bounces back as a "file changed
+                        // externally" and resets the editor.
+                        if crate::core::write_echo::consume(path) {
+                            tracing::debug!("Suppressed self-write echo: {}", path.display());
+                            continue;
+                        }
+
                         if let Ok(relative_path) = path.strip_prefix(&content_path_for_closure) {
                             let file_path = format!(
                                 "{}/content/{}",

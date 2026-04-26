@@ -503,7 +503,9 @@ pub async fn read_or_convert_bin(
     };
     tracing::info!("[BIN_READ] Converted to {} chars of text", text.len());
 
-    // Cache the result
+    // Cache the result. Mark as a self-write first so the watcher doesn't
+    // surface the implicit sidecar generation as a user-visible change.
+    crate::core::write_echo::mark(&ritobin_path);
     if let Err(e) = fs::write(&ritobin_path, &text) {
         tracing::warn!("[BIN_READ] Failed to cache .ritobin file: {}", e);
     } else {
@@ -552,6 +554,12 @@ pub async fn save_ritobin_to_bin(
             .map_err(|e| format!("Failed to convert to binary: {}", e))?
     };
 
+    // Mark both paths as expected self-writes so the project watcher does
+    // not bounce them back into the editor as "external modifications".
+    let ritobin_path = format!("{}.ritobin", bin_path);
+    crate::core::write_echo::mark(&bin_path);
+    crate::core::write_echo::mark(&ritobin_path);
+
     // Write the .bin file
     fs::write(&bin_path, &binary_data)
         .map_err(|e| format!("Failed to write .bin file: {}", e))?;
@@ -559,7 +567,6 @@ pub async fn save_ritobin_to_bin(
     tracing::info!("Saved .bin file: {} ({} bytes)", bin_path, binary_data.len());
 
     // Update the .ritobin cache
-    let ritobin_path = format!("{}.ritobin", bin_path);
     if let Err(e) = fs::write(&ritobin_path, &content) {
         tracing::warn!("Failed to update .ritobin cache: {}", e);
     } else {
