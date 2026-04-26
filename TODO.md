@@ -131,8 +131,15 @@ Files: `PreviewPanel.tsx` (folder branch), new `FolderGridView.tsx`, new
 
 ---
 
-## General slowness — partially addressed
-**Cut 1 (DONE):** `useAppState()` was the biggest known offender. It
+## General slowness — partially addressed (clarified by user 2026-04-26)
+
+User clarified the actual pain: **project creation and WAD explorer
+indexing are ~50% slower than the old version of Flint**. The frontend
+re-render fix is unrelated to this — those are heavy Rust-side ops, not
+React renders.
+
+**Cut 1 (DONE — adjacent):** `useAppState()` was the biggest known
+frontend offender. It
 called every store's bare hook with no selector, subscribing all 22
 consumers to the full snapshot of nine stores. A new log line, a toast,
 or any field change re-rendered every component using it (incl.
@@ -141,20 +148,37 @@ TitleBar/StatusBar which are always mounted). Fixed by switching to
 object surfaces. Action methods are read once per render off
 `getState()` since their refs are stable.
 
-**Remaining suspects (not yet measured):**
-- BIN editor reparses on every keystroke — should debounce + diff-parse.
-- Tree build via per-folder IPC roundtrip — bulk listing could help
-  (similar to the LMDB bulk-resolve win logged in MEMORY.md).
-- Image cache eviction policy under heavy preview load.
-- `setState` cascades in the file watcher path on bulky refreshes.
+**Cut 2 (DONE — instrumentation):** added phase-timing logs to the two
+paths the user called out as slow:
+- `create_project` logs every phase (LMDB prime, find_champion_wad,
+  wad_contains_skin_bin, core_create_project mkdir, extract_skin_assets,
+  organize_project) plus a total summary with per-phase percentages.
+- `get_wad_chunks` logs open/parse, hash collect, LMDB resolve, and
+  build-response timings, plus cache hit/miss state and chunk count.
 
-Next step here is to *measure* before more code changes:
-- Add `tracing-flame` behind a `--features profile` cargo flag for the
-  Rust side.
-- Run a typical "open project, click around, save a few BINs" session
-  with the React DevTools Profiler recording.
-- Pick the top 3 hotspots from the flame graphs and address them
-  individually. No more speculative perf changes until that data exists.
+User to run the slow ops once and copy the `[TIMING]` lines from the
+console / log panel. Next cut targets whichever phase actually dominates.
+
+**Suspects worth confirming once timings come back:**
+- `wad_contains_skin_bin` (project creation step 2b) opens AND mounts the
+  champion WAD just to scan the TOC for one of two hashes. The full mount
+  parses the entire chunk table — probably 10-100ms wasted per project
+  create. Could be fused into `extract_skin_assets`'s mount.
+- `WadReader::open` uses a `File` handle, not mmap. `Wad::mount(file)`
+  reads TOC via syscalls. By contrast `extract_skin_assets` uses
+  `Mmap::map(...)` then `Wad::mount(Cursor::new(&mmap[..]))`. Switching
+  `WadReader` to mmap would mostly help repeated reads — likely small win
+  for cold opens.
+- 3000-chunk LMDB resolve loop in `resolve_hashes_lmdb` is ~3000 individual
+  heed `db.get` calls in one read txn. heed serialization overhead per call
+  may matter at this scale.
+- Tauri IPC serialization of 3000 `ChunkInfo` structs per WAD load.
+  Per-WAD payload is ~150KB JSON — adds up if explorer loads many.
+
+**Remaining frontend suspects (separate from the user's main complaint):**
+- BIN editor reparses on every keystroke — debounce + diff-parse.
+- Tree build via per-folder IPC roundtrip — bulk listing could help.
+- Image cache eviction policy under heavy preview load.
 
 ---
 
