@@ -39,6 +39,15 @@ const formatBytes = (bytes: number): string => {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
+/**
+ * Card sizing — bumped up from the original 120px so the icons aren't
+ * tiny. Ctrl+scroll inside the grid scales this between MIN and MAX.
+ */
+const CARD_SIZE_DEFAULT = 160;
+const CARD_SIZE_MIN = 96;
+const CARD_SIZE_MAX = 320;
+const CARD_SIZE_STEP = 16;
+
 export const FolderGridView: React.FC<FolderGridViewProps> = ({
     folderAbsPath,
     projectPath,
@@ -47,11 +56,24 @@ export const FolderGridView: React.FC<FolderGridViewProps> = ({
     const [entries, setEntries] = useState<api.FolderEntry[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    /** Card minimum width in CSS px. Drives the grid template + thumbnail size. */
+    const [cardSize, setCardSize] = useState(CARD_SIZE_DEFAULT);
 
     const activeTabId = useProjectTabStore((s) => s.activeTabId);
     const setSelectedFile = useProjectTabStore((s) => s.setSelectedFile);
     const fileTreeVersion = useAppMetadataStore((s) => s.fileTreeVersion);
     const openModal = useModalStore((s) => s.openModal);
+
+    // Ctrl+scroll → resize cards. Stays within MIN/MAX. Plain scroll
+    // (no Ctrl) falls through to the container's normal scroll.
+    const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+        if (!e.ctrlKey && !e.metaKey) return;
+        e.preventDefault();
+        setCardSize((prev) => {
+            const next = e.deltaY < 0 ? prev + CARD_SIZE_STEP : prev - CARD_SIZE_STEP;
+            return Math.max(CARD_SIZE_MIN, Math.min(CARD_SIZE_MAX, next));
+        });
+    };
 
     // Refetch when the folder changes or the watcher signals a tree-level
     // change (file added / removed under this directory).
@@ -132,10 +154,19 @@ export const FolderGridView: React.FC<FolderGridViewProps> = ({
                 <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>
                     {loading ? 'Loading…' : `${entries.length} item${entries.length === 1 ? '' : 's'}`}
                 </span>
+                <span
+                    style={{ color: 'var(--text-muted)', flexShrink: 0, fontSize: '11px' }}
+                    title="Hold Ctrl and scroll inside the grid to resize cards"
+                >
+                    {cardSize}px
+                </span>
             </div>
 
-            {/* Grid */}
-            <div style={{ flex: 1, overflow: 'auto', padding: '12px' }}>
+            {/* Grid — Ctrl+scroll resizes cards. */}
+            <div
+                style={{ flex: 1, overflow: 'auto', padding: '12px' }}
+                onWheel={handleWheel}
+            >
                 {error && (
                     <div style={{ color: 'var(--accent-danger)', padding: '12px' }}>
                         Error: {error}
@@ -150,7 +181,7 @@ export const FolderGridView: React.FC<FolderGridViewProps> = ({
                 <div
                     style={{
                         display: 'grid',
-                        gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
+                        gridTemplateColumns: `repeat(auto-fill, minmax(${cardSize}px, 1fr))`,
                         gap: '12px',
                     }}
                 >
@@ -160,6 +191,7 @@ export const FolderGridView: React.FC<FolderGridViewProps> = ({
                             <FolderGridCard
                                 key={entry.absolute_path}
                                 entry={entry}
+                                cardSize={cardSize}
                                 onClick={() => goTo(entry.relative_path)}
                                 onDoubleClick={
                                     isTexture
@@ -180,11 +212,12 @@ export const FolderGridView: React.FC<FolderGridViewProps> = ({
 
 interface FolderGridCardProps {
     entry: api.FolderEntry;
+    cardSize: number;
     onClick: () => void;
     onDoubleClick?: () => void;
 }
 
-const FolderGridCard: React.FC<FolderGridCardProps> = ({ entry, onClick, onDoubleClick }) => {
+const FolderGridCard: React.FC<FolderGridCardProps> = ({ entry, cardSize, onClick, onDoubleClick }) => {
     const isTexture = !entry.is_directory && TEXTURE_EXTS.has(entry.extension);
     const [thumbnail, setThumbnail] = useState<string | null>(null);
     const cardRef = useRef<HTMLButtonElement>(null);
@@ -295,8 +328,31 @@ const FolderGridCard: React.FC<FolderGridCardProps> = ({ entry, onClick, onDoubl
                         }}
                     />
                 ) : (
+                    // Icon size scales with the card so the SVG is
+                    // readable at every zoom level. The CSS rule
+                    // `.file-tree__icon svg` constrains size by default;
+                    // bypass it here by writing dimensions directly into
+                    // the wrapper and letting the inner SVG inherit.
                     <span
-                        style={{ width: 40, height: 40 }}
+                        style={{
+                            width: `${Math.round(cardSize * 0.55)}px`,
+                            height: `${Math.round(cardSize * 0.55)}px`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                        }}
+                        ref={(el) => {
+                            // Force the embedded SVG to fill the wrapper.
+                            // dangerouslySetInnerHTML with size attrs on
+                            // the SVG would override these; ref-based
+                            // post-mutate dodges that.
+                            if (!el) return;
+                            const svg = el.querySelector('svg');
+                            if (svg) {
+                                svg.setAttribute('width', '100%');
+                                svg.setAttribute('height', '100%');
+                            }
+                        }}
                         dangerouslySetInnerHTML={{
                             __html: getFileIcon(entry.name, entry.is_directory, false),
                         }}

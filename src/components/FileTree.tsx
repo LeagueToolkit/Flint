@@ -179,21 +179,19 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
         dropTargetPath,
     }), [dropTargetPath]);
 
-    const handleItemClick = useCallback((path: string, isFolder: boolean) => {
+    // Row body click = select. For folders that means routing to the
+    // folder grid view in the preview panel. The chevron is the only
+    // thing that toggles expansion (handled separately on the expander
+    // span itself, see TreeNode below).
+    const handleItemClick = useCallback((path: string, _isFolder: boolean) => {
         if (!activeTab) return;
-        if (isFolder) {
-            // Toggle expand AND select — selecting routes the right-side
-            // PreviewPanel to its folder grid view, the "custom file
-            // explorer". Toggling still happens so the tree responds the
-            // way users expect.
-            toggleFolder(activeTab.id, path);
-            setSelectedFile(activeTab.id, path);
-            useNavigationStore.getState().setView('preview');
-        } else {
-            setSelectedFile(activeTab.id, path);
-            useNavigationStore.getState().setView('preview');
-        }
-    }, [activeTab, toggleFolder, setSelectedFile]);
+        setSelectedFile(activeTab.id, path);
+        useNavigationStore.getState().setView('preview');
+    }, [activeTab, setSelectedFile]);
+
+    const handleExpanderClick = useCallback((path: string) => {
+        if (activeTab) toggleFolder(activeTab.id, path);
+    }, [activeTab, toggleFolder]);
 
     const handleDeepToggle = useCallback((paths: string[], expand: boolean) => {
         if (activeTab) bulkSetFolders(activeTab.id, paths, expand);
@@ -220,6 +218,7 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
                 selectedFile={selectedFile}
                 expandedFolders={expandedFolders}
                 onItemClick={handleItemClick}
+                onExpanderClick={handleExpanderClick}
                 onDeepToggle={handleDeepToggle}
                 renamingPath={renamingPath}
                 setRenamingPath={setRenamingPath}
@@ -240,6 +239,7 @@ interface TreeNodeProps {
     selectedFile: string | null;
     expandedFolders: Set<string>;
     onItemClick: (path: string, isFolder: boolean) => void;
+    onExpanderClick: (path: string) => void;
     onDeepToggle: (paths: string[], expand: boolean) => void;
     renamingPath: string | null;
     setRenamingPath: (path: string | null) => void;
@@ -290,6 +290,7 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
     selectedFile,
     expandedFolders,
     onItemClick,
+    onExpanderClick,
     onDeepToggle,
     renamingPath,
     setRenamingPath,
@@ -727,6 +728,15 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
                 {effectiveNode.isDirectory ? (
                     <span
                         className="file-tree__expander"
+                        onClick={(e) => {
+                            // Chevron toggles expansion only — does NOT
+                            // also select the folder, so the user has to
+                            // click the row body explicitly to open the
+                            // folder grid view.
+                            e.stopPropagation();
+                            onExpanderClick(effectiveNode.path);
+                        }}
+                        style={{ cursor: 'pointer' }}
                         dangerouslySetInnerHTML={{ __html: expanderIcon }}
                     />
                 ) : (
@@ -777,6 +787,7 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
                             selectedFile={selectedFile}
                             expandedFolders={expandedFolders}
                             onItemClick={onItemClick}
+                            onExpanderClick={onExpanderClick}
                             onDeepToggle={onDeepToggle}
                             renamingPath={renamingPath}
                             setRenamingPath={setRenamingPath}
