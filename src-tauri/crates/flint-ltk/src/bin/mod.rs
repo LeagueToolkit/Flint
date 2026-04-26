@@ -3,6 +3,7 @@ pub mod ltk_bridge;
 pub mod jade;
 pub mod converter;
 pub mod concat;
+pub mod split;
 
 // Re-export ltk-based functions from bridge
 pub use ltk_bridge::{
@@ -27,3 +28,6 @@ pub use converter::{bin_to_text, text_to_bin, bin_to_json, json_to_bin};
 
 // Re-export concat utilities (used by refather)
 pub use concat::{classify_bin, BinCategory};
+
+// Re-export split utilities (right-click "Split VFX to separate BIN")
+pub use split::{classify_vfx_objects, group_by_class, split_bin, SplitResult, VFX_CLASS_NAMES};

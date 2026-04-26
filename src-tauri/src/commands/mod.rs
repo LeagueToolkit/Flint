@@ -3,6 +3,7 @@ pub mod audio;
 pub mod hash;
 pub mod wad;
 pub mod bin;
+pub mod bin_split;
 pub mod league;
 pub mod external_apps;
 pub mod project;

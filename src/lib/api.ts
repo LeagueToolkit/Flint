@@ -1140,6 +1140,39 @@ export async function importExternalFiles(
 }
 
 // =============================================================================
+// BIN split (right-click "Split VFX to separate BIN")
+// =============================================================================
+
+export interface BinSplitClassGroup {
+    class_hash: string;
+    class_name: string | null;
+    path_hashes: string[];
+    is_vfx_default: boolean;
+}
+
+export interface BinSplitAnalysis {
+    total_objects: number;
+    groups: BinSplitClassGroup[];
+}
+
+export interface BinSplitResult {
+    moved: number;
+    link_added: string;
+}
+
+export async function analyzeBinForSplit(binPath: string): Promise<BinSplitAnalysis> {
+    return invokeCommand('analyze_bin_for_split', { binPath });
+}
+
+export async function splitBinEntries(
+    binPath: string,
+    outputFilename: string,
+    pathHashes: string[],
+): Promise<BinSplitResult> {
+    return invokeCommand('split_bin_entries', { binPath, outputFilename, pathHashes });
+}
+
+// =============================================================================
 // Fantome Import Commands
 // =============================================================================
 

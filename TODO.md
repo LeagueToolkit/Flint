@@ -31,72 +31,32 @@ mark and skips emitting `file-changed` for matched events.
 
 ---
 
-## BIN split — right-click → "Extract VFX to separate BIN"
-This mirrors Quartz's `bin:combineLinkedBins` action in reverse. Split is
-the natural inverse of combine, and Quartz already proves the wire format
-works in production.
+## BIN split — DONE (initial)
+Right-click any `.bin` in the file tree (except `__Concat`) → "Split BIN
+by Class…". Modal lists every class in the BIN with object counts and
+checkboxes; classes our classifier flagged as VFX are checked by default
+(`VfxSystemDefinitionData`, `Particle*`, `TrailDef`, `BeamDef`, etc).
+Confirm → writes a sibling `Skin{N}_VFX.bin` next to the parent, removes
+the moved objects, appends the new file's project-relative path to the
+parent's `dependencies` so the engine merges them back at load.
 
-### Quartz wire format (read from `Quartz/src/main/ipc/channels/binTools.js:110-189`)
-A BIN file has two collections at the top level:
-- `entries` — array of objects, each with a `hash` (entry path hash, hex
-  string) and the property tree
-- `links` — array of strings; each string is a project-relative path to
-  another `.bin` file that the engine should also load alongside this one
+Wire format is byte-compatible with Quartz's `bin:combineLinkedBins`
+(the inverse op): `objects` map + `dependencies` string list.
 
-Combine = read each path in `links`, append its `entries` to the parent's
-`entries` (skipping duplicate hashes), `fs.unlinkSync` the linked file,
-remove that link from `parent.links`, write parent.
+Files: `flint-ltk/src/bin/split.rs` (`classify_vfx_objects`,
+`group_by_class`, `split_bin`), `commands/bin_split.rs`
+(`analyze_bin_for_split`, `split_bin_entries`), `BinSplitModal.tsx`,
+`FileTree.tsx` (context menu entry), `App.tsx` (modal mount),
+`types.ts` (`'binSplit'` ModalType).
 
-Split is the inverse:
-1. Pick a subset of `parent.entries`.
-2. Write a new BIN to disk with `entries: <subset>`, `links: []`.
-3. Remove those entries from `parent.entries`.
-4. Push the new file's project-relative path onto `parent.links`.
-5. Write parent.
-
-### Picking the VFX subset — the actual hard part
-Naive approach: filter entries by class name (`VfxSystemDefinitionData`,
-`StaticMaterialDef` whose name contains "Vfx", `Particle*`, etc.). This is
-wrong because a VFX entry can be referenced by hash from a non-VFX entry
-(e.g. a `SkinCharacterDataProperties` field linking a particle by hash).
-If the VFX entry moves to another file, the hash reference still resolves
-because the engine merges all linked BINs at runtime — but only if the new
-file is in `links`. Step 4 ensures that.
-
-So the class-name filter is actually fine, IF we always update `links`.
-The reference graph isn't needed for correctness, only for sanity-checking
-that we're not orphaning anything.
-
-**VFX class set (initial — verify against actual skins):**
-- `VfxSystemDefinitionData`
-- `StaticMaterialDef` (only when path contains `/particles/` or referenced
-  only by VFX entries — needs a reference pass to filter precisely;
-  conservative default = leave in parent BIN)
-- `ParticleParameterDef`, `Particle*`
-- Hash any class with `Particle`, `Vfx`, `TrailDef`, `BeamDef` in its name
-
-Anything we're unsure about: leave in parent BIN. Splitting too little is
-recoverable (user can split again); splitting too much may break the skin.
-
-### UX
-Right-click `Skin{N}.bin` in tree → "Split VFX to separate BIN":
-- Shows a modal listing every entry that matched the filter, grouped by
-  class name, with checkboxes (default all checked).
-- "Output filename" field, default `Skin{N}_VFX.bin`.
-- Confirm → run split, refresh tree, show toast `Split N entries to
-  Skin{N}_VFX.bin`.
-
-### Implementation
-- Rust command `split_bin_entries(bin_path, entry_hashes: Vec<String>,
-  output_filename: String) -> Result<String, String>` — does steps 1-5
-  above using `ltk_meta::Bin` and `flint-ltk/src/bin/`.
-- Frontend modal `BinSplitModal.tsx` driven from `FileTree` context menu.
-- Class-name filter lives in Rust (`flint-ltk/src/bin/split.rs` —
-  `classify_vfx_entries(bin: &Bin) -> Vec<EntryHash>`).
-
-Files (new): `src-tauri/src/commands/bin_split.rs`, `flint-ltk/src/bin/split.rs`,
-`src/components/BinSplitModal.tsx`. (Modified): `FileTree.tsx`, `main.rs`,
-`api.ts`.
+**Follow-ups (not done):**
+- Reference-graph audit before splitting — currently splitting can in
+  theory orphan a hash-reference if a non-VFX class references a VFX
+  hash. Engine merges linked deps so this is fine in practice; would
+  still be nice to surface a warning in the modal.
+- Make the modal show resolved class names with hash-cache hits, not
+  just raw hex (currently shows hex when the hash isn't in the BIN
+  cache — usually fine since most classes resolve).
 
 ---
 

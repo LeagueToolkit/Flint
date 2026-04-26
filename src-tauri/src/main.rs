@@ -196,6 +196,8 @@ fn main() {
             commands::file::duplicate_file,
             commands::file::move_file,
             commands::file::import_external_files,
+            commands::bin_split::analyze_bin_for_split,
+            commands::bin_split::split_bin_entries,
             // External apps commands (Jade/Quartz integration)
             commands::external_apps::detect_jade_installation,
             commands::external_apps::detect_quartz_installation,

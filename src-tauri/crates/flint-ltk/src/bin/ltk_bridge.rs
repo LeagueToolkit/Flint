@@ -283,4 +283,4 @@ pub fn text_to_tree(text: &str) -> Result<Bin> {
 }
 
 // Re-export ltk_ritobin types for hash provider support
-pub use ltk_ritobin::HashMapProvider;
+pub use ltk_ritobin::{HashMapProvider, HashProvider};

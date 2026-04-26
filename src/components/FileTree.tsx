@@ -556,6 +556,23 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
                 });
             }
 
+            // Split BIN option — only on Skin{N}.bin and similar (.bin files
+            // not matching one of the auto-generated names). The modal will
+            // show its class breakdown so the user can pick what to extract.
+            if (ext === 'bin' && !fileName.toLowerCase().includes('__concat')) {
+                const stem = fileName.slice(0, -4); // drop ".bin"
+                const defaultOutputName = `${stem}_VFX.bin`;
+                options.push({
+                    label: 'Split BIN by Class…',
+                    icon: getIcon('code'),
+                    separator: true,
+                    onClick: () => openModal('binSplit', {
+                        binPath: fullPath.replace(/\//g, '\\'),
+                        defaultOutputName,
+                    }),
+                });
+            }
+
             options.push({
                 label: 'Copy Path',
                 icon: getIcon('code'),
