@@ -3,6 +3,7 @@
  */
 
 import React, { useState, useMemo, useCallback, useRef, useEffect, CSSProperties } from 'react';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useAppMetadataStore, useProjectTabStore, useModalStore, useNotificationStore, useConfigStore, useNavigationStore } from '../lib/stores';
 import { getFileIcon, getExpanderIcon, getIcon } from '../lib/fileIcons';
 import * as api from '../lib/api';
@@ -57,6 +58,7 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
     const setFileTree = useProjectTabStore((s) => s.setFileTree);
     const setSelectedFile = useProjectTabStore((s) => s.setSelectedFile);
     const bulkSetFolders = useProjectTabStore((s) => s.bulkSetFolders);
+    const showToast = useNotificationStore((s) => s.showToast);
 
     // Get active tab for file tree data
     const activeTab = getActiveTab(activeTabId, openTabs);
@@ -75,6 +77,107 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
 
     // Rename state — shared across all tree nodes
     const [renamingPath, setRenamingPath] = useState<string | null>(null);
+
+    // External drag & drop (OS files dropped onto the file tree).
+    // WebView2 swallows HTML5 dragover/drop, so we use Tauri's webview-level
+    // drag-drop event and hit-test the DOM with `position` from the payload.
+    const [dropTargetPath, setDropTargetPath] = useState<string | null>(null);
+
+    // Fresh refs so the listener always sees current state
+    const activeTabRef = useRef(activeTab);
+    useEffect(() => { activeTabRef.current = activeTab; });
+    const setFileTreeRef = useRef(setFileTree);
+    useEffect(() => { setFileTreeRef.current = setFileTree; });
+    const showToastRef = useRef(showToast);
+    useEffect(() => { showToastRef.current = showToast; });
+    const bulkSetFoldersRef = useRef(bulkSetFolders);
+    useEffect(() => { bulkSetFoldersRef.current = bulkSetFolders; });
+
+    useEffect(() => {
+        let unlisten: (() => void) | null = null;
+        let expandTimer: number | null = null;
+        let lastHover: string | null = null;
+        let cancelled = false;
+
+        const hitTest = (x: number, y: number): string | null => {
+            const el = document.elementFromPoint(x, y) as HTMLElement | null;
+            const folderEl = el?.closest('[data-drop-path]') as HTMLElement | null;
+            return folderEl?.getAttribute('data-drop-path') ?? null;
+        };
+
+        // The webview drag-drop event reports physical pixel coordinates; the
+        // DOM uses CSS pixels. Divide by devicePixelRatio.
+        const cssCoords = (pos: { x: number; y: number }) => ({
+            x: pos.x / window.devicePixelRatio,
+            y: pos.y / window.devicePixelRatio,
+        });
+
+        getCurrentWebview()
+            .onDragDropEvent((event) => {
+                if (cancelled) return;
+                const { type } = event.payload as { type: string };
+
+                if (type === 'over') {
+                    const { x, y } = cssCoords((event.payload as any).position);
+                    const path = hitTest(x, y);
+                    if (path !== lastHover) {
+                        if (expandTimer !== null) { clearTimeout(expandTimer); expandTimer = null; }
+                        lastHover = path;
+                        setDropTargetPath(path);
+                        if (path) {
+                            const target = path;
+                            expandTimer = window.setTimeout(() => {
+                                const tab = activeTabRef.current;
+                                if (tab) bulkSetFoldersRef.current(tab.id, [target], true);
+                                expandTimer = null;
+                            }, 1200);
+                        }
+                    }
+                } else if (type === 'drop') {
+                    const payload = event.payload as { position: { x: number; y: number }; paths: string[] };
+                    const { x, y } = cssCoords(payload.position);
+                    const target = hitTest(x, y) ?? lastHover;
+                    if (expandTimer !== null) { clearTimeout(expandTimer); expandTimer = null; }
+                    lastHover = null;
+                    setDropTargetPath(null);
+
+                    const tab = activeTabRef.current;
+                    if (!tab || !target || !payload.paths?.length) return;
+
+                    (async () => {
+                        try {
+                            const created = await api.importExternalFiles(tab.projectPath, target, payload.paths);
+                            const files = await api.listProjectFiles(tab.projectPath);
+                            setFileTreeRef.current(tab.id, files);
+                            showToastRef.current('success', `Imported ${created.length} item${created.length === 1 ? '' : 's'}`);
+                        } catch (err) {
+                            const fe = err as api.FlintError;
+                            showToastRef.current('error', fe.getUserMessage?.() || 'Failed to import');
+                        }
+                    })();
+                } else {
+                    // 'leave' / 'cancelled'
+                    if (expandTimer !== null) { clearTimeout(expandTimer); expandTimer = null; }
+                    lastHover = null;
+                    setDropTargetPath(null);
+                }
+            })
+            .then((fn) => {
+                if (cancelled) fn();
+                else unlisten = fn;
+            })
+            .catch(() => {});
+
+        return () => {
+            cancelled = true;
+            if (expandTimer !== null) clearTimeout(expandTimer);
+            if (unlisten) unlisten();
+        };
+    }, []);
+
+    const dragProps: DragProps = useMemo(() => ({
+        dropTargetPath,
+    }), [dropTargetPath]);
 
     const handleItemClick = useCallback((path: string, isFolder: boolean) => {
         if (isFolder) {
@@ -116,10 +219,15 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
                 renamingPath={renamingPath}
                 setRenamingPath={setRenamingPath}
                 projectPath={activeTab?.projectPath || ''}
+                dragProps={dragProps}
             />
         </div>
     );
 };
+
+interface DragProps {
+    dropTargetPath: string | null;
+}
 
 interface TreeNodeProps {
     node: FileTreeNode;
@@ -131,6 +239,7 @@ interface TreeNodeProps {
     renamingPath: string | null;
     setRenamingPath: (path: string | null) => void;
     projectPath: string;
+    dragProps: DragProps;
 }
 
 // Compact folders: merge single-child directory chains into one label
@@ -180,6 +289,7 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
     renamingPath,
     setRenamingPath,
     projectPath,
+    dragProps,
 }) => {
     const openModal = useModalStore((s) => s.openModal);
     const openContextMenu = useModalStore((s) => s.openContextMenu);
@@ -192,6 +302,9 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
     const isExpanded = expandedFolders.has(effectiveNode.path);
     const isSelected = selectedFile === effectiveNode.path;
     const isRenaming = renamingPath === effectiveNode.path;
+
+    // Drop-target highlight when external files are dragged over this folder
+    const isDropTarget = dragProps.dropTargetPath === effectiveNode.path;
 
     // Subscribe to file status for THIS node only (not all statuses)
     const fullPath = projectPath ? `${projectPath}/${effectiveNode.path}`.replaceAll('\\', '/') : '';
@@ -510,9 +623,12 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
     const statusClass = fileStatus ? `file-tree__item--${fileStatus}` : '';
 
     return (
-        <div className="file-tree__node">
+        <div
+            className={`file-tree__node${isDropTarget ? ' file-tree__node--drop-target' : ''}`}
+            data-drop-path={effectiveNode.isDirectory ? effectiveNode.path : undefined}
+        >
             <div
-                className={`file-tree__item ${isSelected ? 'file-tree__item--selected' : ''} ${statusClass}`}
+                className={`file-tree__item ${isSelected ? 'file-tree__item--selected' : ''} ${statusClass}${isDropTarget ? ' file-tree__item--drop-target' : ''}`}
                 style={{ paddingLeft: 4 + depth * 12 }}
                 onClick={handleClick}
                 onContextMenu={handleContextMenu}
@@ -574,6 +690,7 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
                             renamingPath={renamingPath}
                             setRenamingPath={setRenamingPath}
                             projectPath={projectPath}
+                            dragProps={dragProps}
                         />
                     ))}
                 </div>

@@ -1123,6 +1123,22 @@ export async function duplicateFile(
     return invokeCommand('duplicate_file', { projectPath, filePath });
 }
 
+export async function moveFile(
+    projectPath: string,
+    sourcePath: string,
+    destFolder: string,
+): Promise<string> {
+    return invokeCommand('move_file', { projectPath, sourcePath, destFolder });
+}
+
+export async function importExternalFiles(
+    projectPath: string,
+    destFolder: string,
+    sources: string[],
+): Promise<string[]> {
+    return invokeCommand('import_external_files', { projectPath, destFolder, sources });
+}
+
 // =============================================================================
 // Fantome Import Commands
 // =============================================================================

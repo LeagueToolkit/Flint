@@ -1027,6 +1027,30 @@ input.search-box__input {
   font-size: var(--text-sm);
 }
 
+/* Drag & Drop */
+.file-tree__item {
+  cursor: default;
+  user-select: none;
+}
+
+/* Dragged source item: dimmed so you know what's "in flight" */
+.file-tree__item--dragging {
+  opacity: 0.35;
+}
+
+/* Drop target folder row: accent dashed outline + tinted background */
+.file-tree__item--drop-target {
+  background-color: rgba(79, 195, 247, 0.18) !important;
+  outline: 1.5px dashed rgba(79, 195, 247, 0.75);
+  outline-offset: -1px;
+  border-radius: 2px;
+}
+
+/* Folder bounds: left-side bracket when the target folder is expanded */
+.file-tree__node--drop-target > .file-tree__children {
+  box-shadow: inset 1.5px 0 0 0 rgba(79, 195, 247, 0.45);
+}
+
 /* --------------------------------------------------------------------------
    Component: Center Panel / Welcome Screen
    -------------------------------------------------------------------------- */

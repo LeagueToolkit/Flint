@@ -996,6 +996,163 @@ pub async fn duplicate_file(
     Ok(new_rel)
 }
 
+/// Move a file or directory to a different folder within the project.
+/// Returns the new relative path of the moved item.
+#[tauri::command]
+pub async fn move_file(
+    project_path: String,
+    source_path: String,
+    dest_folder: String,
+) -> Result<String, String> {
+    let project_root = PathBuf::from(&project_path);
+    let src_full = project_root.join(&source_path);
+
+    if !src_full.exists() {
+        return Err(format!("Source does not exist: {}", source_path));
+    }
+
+    let dest_dir_full = project_root.join(&dest_folder);
+    if !dest_dir_full.is_dir() {
+        return Err(format!("Destination is not a directory: {}", dest_folder));
+    }
+
+    // Prevent moving a directory into itself or its own subtree
+    if src_full.is_dir() {
+        let canonical_src = src_full.canonicalize()
+            .map_err(|e| format!("Failed to resolve source path: {}", e))?;
+        let canonical_dest = dest_dir_full.canonicalize()
+            .map_err(|e| format!("Failed to resolve destination path: {}", e))?;
+        if canonical_dest.starts_with(&canonical_src) {
+            return Err("Cannot move a folder into itself or its subdirectory".to_string());
+        }
+    }
+
+    let file_name = src_full
+        .file_name()
+        .ok_or("Cannot get filename from source path")?
+        .to_string_lossy()
+        .to_string();
+
+    let dest_full = dest_dir_full.join(&file_name);
+    if dest_full.exists() {
+        return Err(format!("'{}' already exists in the destination folder", file_name));
+    }
+
+    fs::rename(&src_full, &dest_full)
+        .map_err(|e| format!("Failed to move: {}", e))?;
+
+    let new_rel = dest_full
+        .strip_prefix(&project_root)
+        .map_err(|_| "Failed to compute relative path")?
+        .to_string_lossy()
+        .replace('\\', "/");
+
+    Ok(new_rel)
+}
+
+/// Import (copy) external files/folders from the OS into a destination folder
+/// inside the project. Used by drag-and-drop from Windows Explorer.
+/// Returns the list of relative paths (project-relative, forward slashes) that
+/// were created.
+#[tauri::command]
+pub async fn import_external_files(
+    project_path: String,
+    dest_folder: String,
+    sources: Vec<String>,
+) -> Result<Vec<String>, String> {
+    let project_root = PathBuf::from(&project_path);
+    let dest_dir_full = project_root.join(&dest_folder);
+
+    if !dest_dir_full.is_dir() {
+        return Err(format!("Destination is not a directory: {}", dest_folder));
+    }
+
+    let canonical_project = project_root
+        .canonicalize()
+        .map_err(|e| format!("Failed to resolve project path: {}", e))?;
+
+    let mut created: Vec<String> = Vec::new();
+
+    for src_str in sources {
+        let src = PathBuf::from(&src_str);
+        if !src.exists() {
+            return Err(format!("Source does not exist: {}", src_str));
+        }
+
+        // Refuse to import something that's already inside the project (would
+        // be ambiguous — that's what move is for).
+        if let Ok(canonical_src) = src.canonicalize() {
+            if canonical_src.starts_with(&canonical_project) {
+                continue;
+            }
+        }
+
+        let file_name = src
+            .file_name()
+            .ok_or("Cannot get filename from source path")?
+            .to_string_lossy()
+            .to_string();
+
+        let mut dest_full = dest_dir_full.join(&file_name);
+        if dest_full.exists() {
+            // Disambiguate with " (n)" suffix
+            let stem = Path::new(&file_name)
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| file_name.clone());
+            let ext = Path::new(&file_name)
+                .extension()
+                .map(|s| format!(".{}", s.to_string_lossy()))
+                .unwrap_or_default();
+            for n in 1..1000 {
+                let candidate = dest_dir_full.join(format!("{} ({}){}", stem, n, ext));
+                if !candidate.exists() {
+                    dest_full = candidate;
+                    break;
+                }
+            }
+            if dest_full.exists() {
+                return Err(format!("'{}' already exists and uniquification failed", file_name));
+            }
+        }
+
+        if src.is_dir() {
+            copy_dir_recursive(&src, &dest_full)
+                .map_err(|e| format!("Failed to copy directory '{}': {}", file_name, e))?;
+        } else {
+            fs::copy(&src, &dest_full)
+                .map_err(|e| format!("Failed to copy file '{}': {}", file_name, e))?;
+        }
+
+        let rel = dest_full
+            .strip_prefix(&project_root)
+            .map_err(|_| "Failed to compute relative path")?
+            .to_string_lossy()
+            .replace('\\', "/");
+        created.push(rel);
+    }
+
+    Ok(created)
+}
+
+fn copy_dir_recursive(src: &Path, dest: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(dest)?;
+    for entry in WalkDir::new(src).min_depth(1) {
+        let entry = entry?;
+        let rel = entry.path().strip_prefix(src).unwrap();
+        let target = dest.join(rel);
+        if entry.file_type().is_dir() {
+            fs::create_dir_all(&target)?;
+        } else {
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::copy(entry.path(), &target)?;
+        }
+    }
+    Ok(())
+}
+
 /// Get floor texture as PNG bytes.
 /// Checks `%APPDATA%/Flint/themes/floor.png` first for user customization,
 /// falls back to the bundled default.
