@@ -4,6 +4,7 @@
  */
 
 import React from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useAppMetadataStore } from './appMetadataStore';
 import { useConfigStore } from './configStore';
 import { useProjectTabStore } from './projectTabStore';
@@ -31,81 +32,174 @@ export {
 
 /**
  * Combined hook that provides backward compatibility with the old useAppState() API
- * Components can continue using state.xyz pattern or migrate to individual stores
+ * Components can continue using state.xyz pattern or migrate to individual stores.
+ *
+ * IMPORTANT — performance: each store is subscribed via a `useShallow`
+ * selector that picks ONLY the fields surfaced through the combined `state`
+ * object. Without this, calling `useAppMetadataStore()` (no selector)
+ * subscribes the consumer to the entire store snapshot, so any field change
+ * (a new log line, a toast, a heartbeat) re-renders every component that
+ * reads `useAppState()`. With ~22 callsites including TitleBar/StatusBar
+ * (always mounted), that cascade was the dominant cause of the
+ * "delay between commands" sluggishness.
+ *
+ * Action method refs are stable by zustand contract, so we read them via
+ * `getState()` rather than subscribing to them.
  */
 export function useAppState() {
-  const appMetadata = useAppMetadataStore();
-  const config = useConfigStore();
-  const projectTab = useProjectTabStore();
-  const navigation = useNavigationStore();
-  const wadExtract = useWadExtractStore();
-  const wadExplorer = useWadExplorerStore();
-  const champion = useChampionStore();
-  const modal = useModalStore();
-  const notification = useNotificationStore();
+  // Subscribed field subsets — drive the `state` object below. Each call
+  // uses `useShallow` so the consumer only re-renders when one of the
+  // listed fields actually changes (rather than on any field-or-method
+  // change in the store, which is what bare `useXxxStore()` would do).
+  const appMetadataSubset = useAppMetadataStore(
+    useShallow((s) => ({
+      status: s.status,
+      statusMessage: s.statusMessage,
+      hashesLoaded: s.hashesLoaded,
+      hashCount: s.hashCount,
+      verboseLogging: s.verboseLogging,
+      logs: s.logs,
+      logPanelExpanded: s.logPanelExpanded,
+    })),
+  );
+  const configSubset = useConfigStore(
+    useShallow((s) => ({
+      leaguePath: s.leaguePath,
+      leaguePathPbe: s.leaguePathPbe,
+      defaultProjectPath: s.defaultProjectPath,
+      creatorName: s.creatorName,
+      autoUpdateEnabled: s.autoUpdateEnabled,
+      skippedUpdateVersion: s.skippedUpdateVersion,
+      ltkManagerModPath: s.ltkManagerModPath,
+      autoSyncToLauncher: s.autoSyncToLauncher,
+      recentProjects: s.recentProjects,
+      savedProjects: s.savedProjects,
+    })),
+  );
+  const projectTabSubset = useProjectTabStore(
+    useShallow((s) => ({
+      openTabs: s.openTabs,
+      activeTabId: s.activeTabId,
+    })),
+  );
+  const navigationSubset = useNavigationStore(
+    useShallow((s) => ({ currentView: s.currentView })),
+  );
+  const wadExtractSubset = useWadExtractStore(
+    useShallow((s) => ({
+      extractSessions: s.extractSessions,
+      activeExtractId: s.activeExtractId,
+    })),
+  );
+  const wadExplorerSubset = useWadExplorerStore(
+    useShallow((s) => ({
+      isOpen: s.isOpen,
+      wads: s.wads,
+      scanStatus: s.scanStatus,
+      scanError: s.scanError,
+      selected: s.selected,
+      expandedWads: s.expandedWads,
+      expandedFolders: s.expandedFolders,
+      searchQuery: s.searchQuery,
+      checkedFiles: s.checkedFiles,
+    })),
+  );
+  const championSubset = useChampionStore(
+    useShallow((s) => ({
+      champions: s.champions,
+      championsLoaded: s.championsLoaded,
+    })),
+  );
+  const modalSubset = useModalStore(
+    useShallow((s) => ({
+      activeModal: s.activeModal,
+      modalOptions: s.modalOptions,
+      confirmDialog: s.confirmDialog,
+      contextMenu: s.contextMenu,
+    })),
+  );
+  const notificationSubset = useNotificationStore(
+    useShallow((s) => ({ toasts: s.toasts })),
+  );
 
-  // Combined state object (for components that read state.xyz)
+  // Action snapshots — method refs are stable in zustand, so reading off
+  // getState() once per render is safe and avoids unnecessary subscriptions.
+  // Names match the legacy bundles so the dispatch switch and return below
+  // need no changes.
+  const appMetadata = useAppMetadataStore.getState();
+  const config = useConfigStore.getState();
+  const projectTab = useProjectTabStore.getState();
+  const navigation = useNavigationStore.getState();
+  const wadExtract = useWadExtractStore.getState();
+  const wadExplorer = useWadExplorerStore.getState();
+  const champion = useChampionStore.getState();
+  const modal = useModalStore.getState();
+  const notification = useNotificationStore.getState();
+
+  // Combined state object (for components that read state.xyz). Built from
+  // the subscribed `*Subset` bundles so this object is stable when none of
+  // the picked fields changed.
   const state: AppState = {
     // App metadata
-    status: appMetadata.status,
-    statusMessage: appMetadata.statusMessage,
-    hashesLoaded: appMetadata.hashesLoaded,
-    hashCount: appMetadata.hashCount,
-    verboseLogging: appMetadata.verboseLogging,
-    logs: appMetadata.logs,
-    logPanelExpanded: appMetadata.logPanelExpanded,
+    status: appMetadataSubset.status,
+    statusMessage: appMetadataSubset.statusMessage,
+    hashesLoaded: appMetadataSubset.hashesLoaded,
+    hashCount: appMetadataSubset.hashCount,
+    verboseLogging: appMetadataSubset.verboseLogging,
+    logs: appMetadataSubset.logs,
+    logPanelExpanded: appMetadataSubset.logPanelExpanded,
 
     // Config
-    leaguePath: config.leaguePath,
-    leaguePathPbe: config.leaguePathPbe,
-    defaultProjectPath: config.defaultProjectPath,
-    creatorName: config.creatorName,
-    autoUpdateEnabled: config.autoUpdateEnabled,
-    skippedUpdateVersion: config.skippedUpdateVersion,
-    ltkManagerModPath: config.ltkManagerModPath,
-    autoSyncToLauncher: config.autoSyncToLauncher,
+    leaguePath: configSubset.leaguePath,
+    leaguePathPbe: configSubset.leaguePathPbe,
+    defaultProjectPath: configSubset.defaultProjectPath,
+    creatorName: configSubset.creatorName,
+    autoUpdateEnabled: configSubset.autoUpdateEnabled,
+    skippedUpdateVersion: configSubset.skippedUpdateVersion,
+    ltkManagerModPath: configSubset.ltkManagerModPath,
+    autoSyncToLauncher: configSubset.autoSyncToLauncher,
 
     // Project tabs
-    openTabs: projectTab.openTabs,
-    activeTabId: projectTab.activeTabId,
-    recentProjects: config.recentProjects,
-    savedProjects: config.savedProjects,
+    openTabs: projectTabSubset.openTabs,
+    activeTabId: projectTabSubset.activeTabId,
+    recentProjects: configSubset.recentProjects,
+    savedProjects: configSubset.savedProjects,
 
     // File change tracking
     fileChanges: {},
 
     // Navigation
-    currentView: navigation.currentView,
+    currentView: navigationSubset.currentView,
 
     // WAD extract
-    extractSessions: wadExtract.extractSessions,
-    activeExtractId: wadExtract.activeExtractId,
+    extractSessions: wadExtractSubset.extractSessions,
+    activeExtractId: wadExtractSubset.activeExtractId,
 
     // WAD explorer
     wadExplorer: {
-      isOpen: wadExplorer.isOpen,
-      wads: wadExplorer.wads,
-      scanStatus: wadExplorer.scanStatus,
-      scanError: wadExplorer.scanError,
-      selected: wadExplorer.selected,
-      expandedWads: wadExplorer.expandedWads,
-      expandedFolders: wadExplorer.expandedFolders,
-      searchQuery: wadExplorer.searchQuery,
-      checkedFiles: wadExplorer.checkedFiles,
+      isOpen: wadExplorerSubset.isOpen,
+      wads: wadExplorerSubset.wads,
+      scanStatus: wadExplorerSubset.scanStatus,
+      scanError: wadExplorerSubset.scanError,
+      selected: wadExplorerSubset.selected,
+      expandedWads: wadExplorerSubset.expandedWads,
+      expandedFolders: wadExplorerSubset.expandedFolders,
+      searchQuery: wadExplorerSubset.searchQuery,
+      checkedFiles: wadExplorerSubset.checkedFiles,
     },
 
     // Champions
-    champions: champion.champions,
-    championsLoaded: champion.championsLoaded,
+    champions: championSubset.champions,
+    championsLoaded: championSubset.championsLoaded,
 
     // Modals
-    activeModal: modal.activeModal,
-    modalOptions: modal.modalOptions,
-    confirmDialog: modal.confirmDialog,
-    contextMenu: modal.contextMenu,
+    activeModal: modalSubset.activeModal,
+    modalOptions: modalSubset.modalOptions,
+    confirmDialog: modalSubset.confirmDialog,
+    contextMenu: modalSubset.contextMenu,
 
     // Notifications
-    toasts: notification.toasts,
+    toasts: notificationSubset.toasts,
   };
 
   // Legacy dispatch function for backward compatibility
