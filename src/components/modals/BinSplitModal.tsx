@@ -70,7 +70,9 @@ export const BinSplitModal: React.FC = () => {
             })
             .catch((e) => {
                 if (cancelled) return;
-                setError((e as Error).message ?? String(e));
+                const msg = (e as { message?: string })?.message ?? String(e);
+                setError(msg);
+                showToast('error', `BIN analysis failed: ${msg}`);
             })
             .finally(() => {
                 if (!cancelled) setLoading(false);
@@ -154,13 +156,14 @@ export const BinSplitModal: React.FC = () => {
         }
     }, [analysis, options, outputName, checkedClasses, moveCount, busy, showToast, closeModal]);
 
-    if (!isVisible) return null;
-
     const totalRemainingInParent =
         (analysis?.total_objects ?? 0) - moveCount;
 
     return (
-        <div className="modal-overlay" onClick={busy ? undefined : closeModal}>
+        <div
+            className={`modal-overlay ${isVisible ? 'modal-overlay--visible' : ''}`}
+            onClick={busy ? undefined : closeModal}
+        >
             <div
                 className="modal modal--large"
                 onClick={(e) => e.stopPropagation()}

@@ -54,6 +54,7 @@ fn find_wad_root(bin_path: &Path) -> PathBuf {
 /// Read a BIN and return its class breakdown for the split modal.
 #[tauri::command]
 pub async fn analyze_bin_for_split(bin_path: String) -> Result<BinSplitAnalysis, String> {
+    tracing::info!("analyze_bin_for_split: reading {}", bin_path);
     let path = PathBuf::from(&bin_path);
     let data = std::fs::read(&path).map_err(|e| format!("Failed to read BIN: {}", e))?;
     let bin = read_bin(&data).map_err(|e| format!("Failed to parse BIN: {}", e))?;
@@ -113,6 +114,10 @@ pub async fn split_bin_entries(
     output_filename: String,
     path_hashes: Vec<String>,
 ) -> Result<BinSplitResult, String> {
+    tracing::info!(
+        "split_bin_entries: parent={}, output={}, moving {} hashes",
+        bin_path, output_filename, path_hashes.len()
+    );
     if output_filename.contains('/') || output_filename.contains('\\') {
         return Err("output_filename must be a bare filename, no slashes".to_string());
     }
