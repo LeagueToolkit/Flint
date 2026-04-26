@@ -100,16 +100,20 @@ Files (new): `src-tauri/src/commands/bin_split.rs`, `flint-ltk/src/bin/split.rs`
 
 ---
 
-## WAD explorer right side — base/empty state
-Currently the right side shows nothing useful when no WAD is open.
-Replace with:
-- "Recently opened WADs" list (last 10), each row: WAD name, full path,
-  "open" button. Source: a new `recentWads: string[]` in `configStore`.
-- "Folder preview" — when the user selects a folder node in the WAD tree,
-  show grid of immediate children (file icons + sizes + count). This
-  doubles as the entry point for the custom file explorer (below).
+## WAD explorer right side — base/empty state — partially DONE
+Right-side panel previously only showed quick-filter cards on empty
+state. Now also shows a "Recent WADs" list above the cards (last 8
+expanded WADs, name + category, click to scroll-to-WAD with the same
+mechanic the cheat-sheet uses).
 
-Files: `WadExplorer.tsx`, `WadPreviewPanel.tsx`, `configStore.ts`.
+Files: `wadExplorerStore.ts` (new `recentWads: string[]` +
+`pushRecentWad` action, session-only), `WadExplorer.tsx` (push on
+expand, render recent list in `QuickActionPanel`).
+
+**Still TODO:** folder preview when the user selects a folder node in
+the WAD tree (grid of immediate children with sizes + count). That's
+shared infrastructure with the custom file explorer item below — defer
+until that lands.
 
 ---
 

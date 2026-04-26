@@ -13,7 +13,7 @@
 import React, {
     useState, useCallback, useEffect, useRef, useMemo,
 } from 'react';
-import { useAppState, useConfigStore } from '../lib/stores';
+import { useAppState, useConfigStore, useWadExplorerStore } from '../lib/stores';
 import * as api from '../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
 import { getIcon, getFileIcon } from '../lib/fileIcons';
@@ -774,9 +774,12 @@ function flattenSearchResults(
 interface QuickActionPanelProps {
     wads: WadExplorerWad[];
     onSetFilter: (query: string) => void;
+    onOpenRecent: (wadPath: string) => void;
 }
 
-const QuickActionPanel: React.FC<QuickActionPanelProps> = ({ wads, onSetFilter }) => {
+const QuickActionPanel: React.FC<QuickActionPanelProps> = ({ wads, onSetFilter, onOpenRecent }) => {
+    const recentWads = useWadExplorerStore((s) => s.recentWads);
+
     const loadedChunks = useMemo(() => {
         const all: WadChunk[] = [];
         for (const w of wads) {
@@ -796,8 +799,19 @@ const QuickActionPanel: React.FC<QuickActionPanelProps> = ({ wads, onSetFilter }
     const totalLoaded = wads.filter(w => w.status === 'loaded').length;
     const totalWads = wads.length;
 
+    // Resolve recent WAD entries against the current scan so we can show the
+    // friendly name + category and skip stale entries (e.g. paths from a
+    // previous game install).
+    const recentEntries = useMemo(() => {
+        const byPath = new Map(wads.map((w) => [w.path, w] as const));
+        return recentWads
+            .map((p) => byPath.get(p))
+            .filter((w): w is WadExplorerWad => !!w)
+            .slice(0, 8);
+    }, [recentWads, wads]);
+
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: '32px', padding: '32px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: '28px', padding: '32px', overflow: 'auto' }}>
             <div style={{ textAlign: 'center' }}>
                 <div style={{ opacity: 0.4, marginBottom: '8px' }} dangerouslySetInnerHTML={{ __html: ICON_GRID }} />
                 <div style={{ fontSize: '18px', fontWeight: 600, marginBottom: '6px' }}>WAD Explorer</div>
@@ -809,6 +823,41 @@ const QuickActionPanel: React.FC<QuickActionPanelProps> = ({ wads, onSetFilter }
                             : `${totalWads} WADs loaded — select a file to preview`}
                 </div>
             </div>
+
+            {recentEntries.length > 0 && (
+                <div style={{ width: '100%', maxWidth: '480px' }}>
+                    <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: '8px', paddingLeft: '4px' }}>
+                        Recent WADs
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        {recentEntries.map((wad) => (
+                            <button
+                                key={wad.path}
+                                className="btn btn--ghost"
+                                onClick={() => onOpenRecent(wad.path)}
+                                title={wad.path}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    gap: '12px',
+                                    padding: '8px 12px',
+                                    height: 'auto',
+                                    width: '100%',
+                                    textAlign: 'left',
+                                }}
+                            >
+                                <span style={{ fontSize: '13px', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {wad.name}
+                                </span>
+                                <span style={{ fontSize: '11px', color: 'var(--text-muted)', flexShrink: 0 }}>
+                                    {wad.category}
+                                </span>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', width: '100%', maxWidth: '480px' }}>
                 {counts.map(qa => (
@@ -1084,17 +1133,22 @@ export const WadExplorer: React.FC = () => {
         }
     }, [dispatch]);
 
+    const pushRecentWad = useWadExplorerStore((s) => s.pushRecentWad);
     const handleToggleWad = useCallback((wadPath: string) => {
         const wad = wadExplorer.wads.find(w => w.path === wadPath);
         const wasCollapsed = !wadExplorer.expandedWads.has(wadPath);
 
         dispatch({ type: 'TOGGLE_WAD_EXPLORER_WAD', payload: wadPath });
 
+        // Track WAD as recently-opened on expand. Used by the empty-state
+        // panel to offer one-click reopen.
+        if (wasCollapsed) pushRecentWad(wadPath);
+
         // Load chunks lazily when WAD is being expanded (was collapsed, will be expanded)
         if (wad?.status === 'idle' && wasCollapsed) {
             loadWad(wadPath);
         }
-    }, [dispatch, loadWad, wadExplorer.wads, wadExplorer.expandedWads]);
+    }, [dispatch, loadWad, wadExplorer.wads, wadExplorer.expandedWads, pushRecentWad]);
 
     // ── Cheat sheet navigation ────────────────────────────────────────────────
     // Reads always-fresh data from refs so it can be called from effects and
@@ -2163,6 +2217,18 @@ export const WadExplorer: React.FC = () => {
                             setIsRegex(true);
                             dispatch({ type: 'SET_WAD_EXPLORER_SEARCH', payload: query });
                             searchRef.current?.focus();
+                        }}
+                        onOpenRecent={(wadPath) => {
+                            const wad = wadExplorer.wads.find((w) => w.path === wadPath);
+                            if (!wad) return;
+                            pendingNavRef.current = { wadPath: wad.path, phase: 'wad' };
+                            if (!wadExplorer.expandedWads.has(wad.path)) {
+                                handleToggleWad(wad.path);
+                            } else if (wad.status === 'idle') {
+                                loadWad(wad.path);
+                            } else {
+                                requestAnimationFrame(() => processNavigation());
+                            }
                         }}
                     />
                 )}

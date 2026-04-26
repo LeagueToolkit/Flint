@@ -16,6 +16,8 @@ interface WadExplorerState {
   expandedFolders: Set<string>;
   searchQuery: string;
   checkedFiles: Set<string>;
+  /** Most-recently-opened WAD paths (front = newest). Session-only. */
+  recentWads: string[];
 
   // Actions
   open: () => void;
@@ -30,6 +32,7 @@ interface WadExplorerState {
   setSearch: (query: string) => void;
   toggleCheck: (keys: string[], checked: boolean) => void;
   clearChecks: () => void;
+  pushRecentWad: (wadPath: string) => void;
 }
 
 export const useWadExplorerStore = create<WadExplorerState>((set) => ({
@@ -42,6 +45,7 @@ export const useWadExplorerStore = create<WadExplorerState>((set) => ({
   expandedFolders: new Set<string>(),
   searchQuery: '',
   checkedFiles: new Set<string>(),
+  recentWads: [],
 
   open: () => set({ isOpen: true }),
   close: () => set({ isOpen: false }),
@@ -133,4 +137,11 @@ export const useWadExplorerStore = create<WadExplorerState>((set) => ({
   },
 
   clearChecks: () => set({ checkedFiles: new Set<string>() }),
+
+  pushRecentWad: (wadPath) => {
+    set((state) => {
+      const filtered = state.recentWads.filter((p) => p !== wadPath);
+      return { recentWads: [wadPath, ...filtered].slice(0, 10) };
+    });
+  },
 }));
