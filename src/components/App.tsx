@@ -10,6 +10,7 @@ import * as api from '../lib/api';
 import * as updater from '../lib/updater';
 import { listen } from '@tauri-apps/api/event';
 import { invalidateCachedImage } from '../lib/imageCache';
+import { isSidecarFile } from '../lib/sidecarFiles';
 
 import { TitleBar } from './TitleBar';
 import { LeftPanel } from './FileTree';
@@ -216,10 +217,13 @@ export const App: React.FC = () => {
                 updates.fileTreeVersion = store.fileTreeVersion + 1;
             }
 
-            // File status (VFS indicators)
-            if (kind === 'create') {
+            // File status (VFS indicators) — sidecar/derived files (e.g. .ritobin)
+            // are produced by Flint itself and shouldn't surface as user-facing
+            // "new" / "modified" badges. Hot reload + tree refresh still fire.
+            const showStatus = !isSidecarFile(changedPath);
+            if (kind === 'create' && showStatus) {
                 updates.fileStatuses = { ...store.fileStatuses, [key]: 'new' };
-            } else if (kind === 'modify') {
+            } else if (kind === 'modify' && showStatus) {
                 if (store.fileStatuses[key] !== 'new') {
                     updates.fileStatuses = { ...store.fileStatuses, [key]: 'modified' };
                 }
