@@ -6,10 +6,13 @@
 //! - `split_bin_entries` — perform the split (writes new sibling BIN, updates
 //!   parent dependencies, removes moved objects from parent).
 
-use flint_ltk::bin::{classify_vfx_objects, group_by_class, read_bin, split_bin};
+use flint_ltk::bin::{
+    analyze_multi, classify_vfx_objects, group_by_class, read_bin, split_bin, split_bin_multi,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use walkdir::WalkDir;
 
 /// One class group surfaced to the modal: a class hash, an optional
 /// resolved class name (looked up via the BIN hash table when available),
@@ -103,6 +106,189 @@ fn lookup_bin_hash_name(
 pub struct BinSplitResult {
     pub moved: usize,
     pub link_added: String,
+}
+
+/// One source BIN listed in a folder-mode analysis.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BinSplitSourceInfo {
+    /// Absolute path of the source BIN.
+    pub path: String,
+    /// Engine-relative form (e.g. `data/characters/.../skin19.bin`) shown in
+    /// the modal so the user can tell which BIN they're operating on.
+    pub rel_path: String,
+    pub object_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BinSplitFolderAnalysis {
+    pub sources: Vec<BinSplitSourceInfo>,
+    pub total_objects: usize,
+    pub groups: Vec<BinSplitClassGroup>,
+    /// Suggested owner BIN (the main skin BIN — biggest object count among
+    /// matches in `data/characters/.../skins/skin*.bin`). Empty string if
+    /// nothing in the folder looks like a main skin BIN.
+    pub suggested_owner: String,
+}
+
+/// Walk the given folder for `.bin` files. Skips animation BINs (anim files
+/// are bone curves; we never want to split or merge those), and skips empty
+/// concat byproducts.
+fn collect_folder_bins(folder: &Path) -> Vec<PathBuf> {
+    WalkDir::new(folder)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+        .filter_map(|e| {
+            let path = e.path();
+            let name = path.file_name()?.to_str()?.to_lowercase();
+            if !name.ends_with(".bin") {
+                return None;
+            }
+            // Skip animation BINs — different content, never relevant here.
+            let path_lower = path.to_string_lossy().to_lowercase().replace('\\', "/");
+            if path_lower.contains("/animations/") {
+                return None;
+            }
+            Some(path.to_path_buf())
+        })
+        .collect()
+}
+
+/// Pick the most plausible "owner" BIN — the one whose `dependencies` list
+/// should get the new link added. Heuristic: the largest BIN whose path
+/// looks like a skin definition (`/data/characters/<name>/skins/skinNN.bin`).
+fn pick_owner_bin(sources: &[(PathBuf, usize)]) -> Option<PathBuf> {
+    let mut best: Option<(usize, PathBuf)> = None;
+    for (path, count) in sources {
+        let lower = path.to_string_lossy().to_lowercase().replace('\\', "/");
+        let looks_like_skin = lower.contains("/data/characters/")
+            && lower.contains("/skins/skin")
+            && lower.ends_with(".bin");
+        if !looks_like_skin {
+            continue;
+        }
+        match best {
+            Some((c, _)) if c >= *count => {}
+            _ => best = Some((*count, path.clone())),
+        }
+    }
+    best.map(|(_, p)| p)
+}
+
+/// Folder-mode analysis: walk every BIN in `folder_path`, union their class
+/// groups, and return the suggested owner.
+#[tauri::command]
+pub async fn analyze_folder_for_split(
+    folder_path: String,
+) -> Result<BinSplitFolderAnalysis, String> {
+    tracing::info!("analyze_folder_for_split: scanning {}", folder_path);
+    let folder = PathBuf::from(&folder_path);
+    if !folder.is_dir() {
+        return Err(format!("Not a folder: {}", folder_path));
+    }
+
+    let bins = collect_folder_bins(&folder);
+    if bins.is_empty() {
+        return Err(format!("No .bin files found under {}", folder_path));
+    }
+
+    let multi = tokio::task::spawn_blocking(move || analyze_multi(&bins))
+        .await
+        .map_err(|e| format!("Task panicked: {}", e))?;
+
+    let class_cache = flint_ltk::bin::get_cached_bin_hashes();
+    let cache = class_cache.read();
+
+    let groups: Vec<BinSplitClassGroup> = multi
+        .groups
+        .into_iter()
+        .map(|(class_hash, hashes)| {
+            let class_name = lookup_bin_hash_name(&cache, class_hash);
+            let is_vfx_default = multi.vfx_class_hashes.contains(&class_hash);
+            BinSplitClassGroup {
+                class_hash: format!("{:08x}", class_hash),
+                class_name,
+                path_hashes: hashes.iter().map(|h| format!("{:08x}", h)).collect(),
+                is_vfx_default,
+            }
+        })
+        .collect();
+
+    let folder_for_strip = folder.clone();
+    let sources_for_pick: Vec<(PathBuf, usize)> = multi
+        .sources
+        .iter()
+        .map(|s| (s.bin_path.clone(), s.object_count))
+        .collect();
+    let owner = pick_owner_bin(&sources_for_pick)
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
+
+    let sources: Vec<BinSplitSourceInfo> = multi
+        .sources
+        .into_iter()
+        .map(|s| {
+            let rel = s
+                .bin_path
+                .strip_prefix(&folder_for_strip)
+                .unwrap_or(&s.bin_path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            BinSplitSourceInfo {
+                path: s.bin_path.to_string_lossy().into_owned(),
+                rel_path: rel,
+                object_count: s.object_count,
+            }
+        })
+        .collect();
+
+    Ok(BinSplitFolderAnalysis {
+        sources,
+        total_objects: multi.total_objects,
+        groups,
+        suggested_owner: owner,
+    })
+}
+
+/// Folder-mode split: move objects out of every listed source BIN into a
+/// single shared output file under `<wad_root>/data/<output_filename>`. The
+/// `owner_path` BIN's `dependencies` list gets the new link.
+#[tauri::command]
+pub async fn split_folder_entries(
+    folder_path: String,
+    source_paths: Vec<String>,
+    owner_path: String,
+    output_filename: String,
+    path_hashes: Vec<String>,
+) -> Result<BinSplitResult, String> {
+    tracing::info!(
+        "split_folder_entries: folder={}, sources={}, owner={}, output={}, moving {} hashes",
+        folder_path, source_paths.len(), owner_path, output_filename, path_hashes.len()
+    );
+    if output_filename.contains('/') || output_filename.contains('\\') {
+        return Err("output_filename must be a bare filename, no slashes".to_string());
+    }
+    let parsed: Result<HashSet<u32>, _> = path_hashes
+        .iter()
+        .map(|s| u32::from_str_radix(s.trim_start_matches("0x"), 16))
+        .collect();
+    let move_hashes = parsed.map_err(|e| format!("Invalid hex hash: {}", e))?;
+
+    let sources: Vec<PathBuf> = source_paths.into_iter().map(PathBuf::from).collect();
+    let owner = PathBuf::from(&owner_path);
+    let project_root = find_wad_root(&PathBuf::from(&folder_path));
+
+    let result = tokio::task::spawn_blocking(move || {
+        split_bin_multi(&sources, &owner, &project_root, &output_filename, &move_hashes)
+    })
+    .await
+    .map_err(|e| format!("Task panicked: {}", e))?
+    .map_err(|e| e.to_string())?;
+
+    Ok(BinSplitResult {
+        moved: result.moved,
+        link_added: result.link_added,
+    })
 }
 
 /// Move the listed objects out of `bin_path` into a new sibling BIN at

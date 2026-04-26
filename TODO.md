@@ -49,6 +49,15 @@ Files: `flint-ltk/src/bin/split.rs` (`classify_vfx_objects`,
 `FileTree.tsx` (context menu entry), `App.tsx` (modal mount),
 `types.ts` (`'binSplit'` ModalType).
 
+**Refinements shipped 2026-04-27:**
+- Output now always lands at `<wad_root>/data/<filename>` (Riot
+  convention) instead of next to the parent BIN.
+- Right-click on a `data/` folder → multi-source split: walks every
+  `.bin` under the folder (skipping `/animations/`), unions class
+  groups across them, and writes one shared output. Owner BIN
+  (largest `/skins/skinNN.bin`) gets the new dependency link.
+- VFX preset / All / None pill buttons no longer overlap.
+
 **Follow-ups (not done):**
 - Reference-graph audit before splitting — currently splitting can in
   theory orphan a hash-reference if a non-VFX class references a VFX
@@ -57,6 +66,32 @@ Files: `flint-ltk/src/bin/split.rs` (`classify_vfx_objects`,
 - Make the modal show resolved class names with hash-cache hits, not
   just raw hex (currently shows hex when the hash isn't in the BIN
   cache — usually fine since most classes resolve).
+
+---
+
+## BIN organizer — auto-consolidate (NEW)
+Right-click on `data/` (or a project root menu item) → "Organize VFX".
+One-shot action that:
+- Walks every `.bin` under the folder, skipping animation BINs
+  (`/animations/`) and any BIN whose path or filename marks it as a
+  non-mergeable type (e.g. SFX BINs, audio events).
+- Pulls every VFX-class object from every source into one consolidated
+  `data/{creator}_{project}__VFX.bin`.
+- Pulls every non-VFX object back into the main skin BIN
+  (`/data/characters/<champ>/skins/skinNN.bin`) so non-VFX content lives
+  in one place again.
+- Updates the main skin BIN's `dependencies` to link the new VFX BIN.
+- Deletes any source BIN that becomes empty after consolidation.
+
+Implementation sketch:
+- Reuse the VFX classifier in `flint-ltk/src/bin/split.rs`.
+- New function `organize_vfx(folder, owner, output_name) -> { moved_to_vfx,
+  moved_to_main, removed_files }` — same building blocks as `split_bin_multi`,
+  just two destination buckets instead of one.
+- Tauri command `organize_bins_vfx`, frontend confirms via a small modal
+  that previews the file list + counts before running.
+- Add a "skip list" config (probably on the project) for any BIN paths
+  the user wants left alone.
 
 ---
 

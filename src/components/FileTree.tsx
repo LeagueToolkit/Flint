@@ -449,6 +449,22 @@ const TreeNode: React.FC<TreeNodeProps> = React.memo(({
                 onClick: () => setRenamingPath(effectiveNode.path),
             });
 
+            // Multi-source split — only meaningful for `data/` folders (or
+            // anything whose direct name is `data`). The modal scans every
+            // BIN under the folder and unions their class groups.
+            if (fileName.toLowerCase() === 'data') {
+                options.push({
+                    label: 'Split BINs by Class…',
+                    icon: getIcon('code'),
+                    separator: true,
+                    onClick: () => openModal('binSplit', {
+                        mode: 'folder',
+                        folderPath: fullPath.replace(/\//g, '\\'),
+                        defaultOutputName: 'VFX.bin',
+                    }),
+                });
+            }
+
             options.push({
                 label: 'Copy Path',
                 icon: getIcon('code'),

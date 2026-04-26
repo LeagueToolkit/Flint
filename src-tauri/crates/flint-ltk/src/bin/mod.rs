@@ -30,4 +30,7 @@ pub use converter::{bin_to_text, text_to_bin, bin_to_json, json_to_bin};
 pub use concat::{classify_bin, BinCategory};
 
 // Re-export split utilities (right-click "Split VFX to separate BIN")
-pub use split::{classify_vfx_objects, group_by_class, split_bin, SplitResult, VFX_CLASS_NAMES};
+pub use split::{
+    analyze_multi, classify_vfx_objects, group_by_class, split_bin, split_bin_multi,
+    MultiAnalysis, MultiSourceInfo, SplitResult, VFX_CLASS_NAMES,
+};

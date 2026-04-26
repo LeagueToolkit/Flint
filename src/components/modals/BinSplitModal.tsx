@@ -17,23 +17,41 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAppState } from '../../lib/stores';
 import * as api from '../../lib/api';
 
-interface BinSplitOptions {
-    /** Absolute path to the parent BIN file. */
+/**
+ * Single-BIN mode: right-click on one .bin file. The split runs against
+ * just that file and writes to `<wad_root>/data/<defaultOutputName>`.
+ */
+interface BinSplitSingleOptions {
+    mode?: 'single';
     binPath: string;
-    /**
-     * Suggested filename for the new sibling BIN. Computed by the caller
-     * (FileTree context menu) from the parent's stem, e.g.
-     * `Skin19.bin` → `Skin19_VFX.bin`.
-     */
     defaultOutputName: string;
 }
+
+/**
+ * Folder mode: right-click on `data/` (or any folder containing BINs). The
+ * modal scans the folder, unions class groups across every BIN, and the
+ * split runs across all of them in one shot, writing to
+ * `<wad_root>/data/<defaultOutputName>`. The owner BIN (the main skin BIN)
+ * gets its `dependencies` list updated; the others just lose the moved
+ * objects.
+ */
+interface BinSplitFolderOptions {
+    mode: 'folder';
+    folderPath: string;
+    defaultOutputName: string;
+}
+
+type BinSplitOptions = BinSplitSingleOptions | BinSplitFolderOptions;
 
 export const BinSplitModal: React.FC = () => {
     const { state, closeModal, showToast } = useAppState();
     const isVisible = state.activeModal === 'binSplit';
     const options = state.modalOptions as BinSplitOptions | null;
 
+    const isFolderMode = options?.mode === 'folder';
+
     const [analysis, setAnalysis] = useState<api.BinSplitAnalysis | null>(null);
+    const [folderAnalysis, setFolderAnalysis] = useState<api.BinSplitFolderAnalysis | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [outputName, setOutputName] = useState('');
@@ -41,10 +59,12 @@ export const BinSplitModal: React.FC = () => {
     const [checkedClasses, setCheckedClasses] = useState<Set<string>>(new Set());
     const [busy, setBusy] = useState(false);
 
-    // Load analysis when modal opens
+    // Load analysis when modal opens. Single-mode = analyze one BIN; folder
+    // mode = walk the folder and union class groups across every BIN.
     useEffect(() => {
-        if (!isVisible || !options?.binPath) {
+        if (!isVisible || !options) {
             setAnalysis(null);
+            setFolderAnalysis(null);
             setError(null);
             setCheckedClasses(new Set());
             return;
@@ -54,20 +74,30 @@ export const BinSplitModal: React.FC = () => {
         setLoading(true);
         setError(null);
         setAnalysis(null);
+        setFolderAnalysis(null);
 
         let cancelled = false;
-        api.analyzeBinForSplit(options.binPath)
-            .then((res) => {
+        const promise = options.mode === 'folder'
+            ? api.analyzeFolderForSplit(options.folderPath).then((res) => {
                 if (cancelled) return;
-                setAnalysis(res);
-                // Default-check every group that our Rust classifier flagged
-                // as VFX. The user can toggle from there.
+                setFolderAnalysis(res);
                 const initial = new Set<string>();
                 for (const g of res.groups) {
                     if (g.is_vfx_default) initial.add(g.class_hash);
                 }
                 setCheckedClasses(initial);
             })
+            : api.analyzeBinForSplit(options.binPath).then((res) => {
+                if (cancelled) return;
+                setAnalysis(res);
+                const initial = new Set<string>();
+                for (const g of res.groups) {
+                    if (g.is_vfx_default) initial.add(g.class_hash);
+                }
+                setCheckedClasses(initial);
+            });
+
+        promise
             .catch((e) => {
                 if (cancelled) return;
                 const msg = (e as { message?: string })?.message ?? String(e);
@@ -81,16 +111,21 @@ export const BinSplitModal: React.FC = () => {
         return () => {
             cancelled = true;
         };
-    }, [isVisible, options?.binPath, options?.defaultOutputName]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isVisible, options]);
+
+    /** Whichever analysis is active — both share the same `groups` shape. */
+    const groups = analysis?.groups ?? folderAnalysis?.groups ?? null;
+    const totalObjects = analysis?.total_objects ?? folderAnalysis?.total_objects ?? 0;
 
     const moveCount = useMemo(() => {
-        if (!analysis) return 0;
+        if (!groups) return 0;
         let n = 0;
-        for (const g of analysis.groups) {
+        for (const g of groups) {
             if (checkedClasses.has(g.class_hash)) n += g.path_hashes.length;
         }
         return n;
-    }, [analysis, checkedClasses]);
+    }, [groups, checkedClasses]);
 
     const toggleClass = useCallback((classHash: string) => {
         setCheckedClasses((prev) => {
@@ -102,23 +137,23 @@ export const BinSplitModal: React.FC = () => {
     }, []);
 
     const selectAll = useCallback(() => {
-        if (!analysis) return;
-        setCheckedClasses(new Set(analysis.groups.map((g) => g.class_hash)));
-    }, [analysis]);
+        if (!groups) return;
+        setCheckedClasses(new Set(groups.map((g) => g.class_hash)));
+    }, [groups]);
 
     const selectNone = useCallback(() => {
         setCheckedClasses(new Set());
     }, []);
 
     const selectVfxDefault = useCallback(() => {
-        if (!analysis) return;
+        if (!groups) return;
         setCheckedClasses(
-            new Set(analysis.groups.filter((g) => g.is_vfx_default).map((g) => g.class_hash)),
+            new Set(groups.filter((g) => g.is_vfx_default).map((g) => g.class_hash)),
         );
-    }, [analysis]);
+    }, [groups]);
 
     const handleSplit = useCallback(async () => {
-        if (!analysis || !options?.binPath || moveCount === 0 || busy) return;
+        if (!groups || !options || moveCount === 0 || busy) return;
 
         const trimmed = outputName.trim();
         if (!trimmed) {
@@ -136,13 +171,31 @@ export const BinSplitModal: React.FC = () => {
 
         // Collect every path_hash whose class group is checked.
         const hashes: string[] = [];
-        for (const g of analysis.groups) {
+        for (const g of groups) {
             if (checkedClasses.has(g.class_hash)) hashes.push(...g.path_hashes);
         }
 
         setBusy(true);
         try {
-            const result = await api.splitBinEntries(options.binPath, trimmed, hashes);
+            let result;
+            if (options.mode === 'folder' && folderAnalysis) {
+                if (!folderAnalysis.suggested_owner) {
+                    showToast('error', 'Could not find a main skin BIN in this folder to own the new link');
+                    return;
+                }
+                result = await api.splitFolderEntries(
+                    options.folderPath,
+                    folderAnalysis.sources.map((s) => s.path),
+                    folderAnalysis.suggested_owner,
+                    trimmed,
+                    hashes,
+                );
+            } else if (options.mode !== 'folder') {
+                result = await api.splitBinEntries(options.binPath, trimmed, hashes);
+            } else {
+                showToast('error', 'Folder analysis missing — cannot split');
+                return;
+            }
             showToast(
                 'success',
                 `Moved ${result.moved} object${result.moved === 1 ? '' : 's'} to ${trimmed}`,
@@ -154,10 +207,9 @@ export const BinSplitModal: React.FC = () => {
         } finally {
             setBusy(false);
         }
-    }, [analysis, options, outputName, checkedClasses, moveCount, busy, showToast, closeModal]);
+    }, [groups, options, outputName, checkedClasses, moveCount, busy, folderAnalysis, showToast, closeModal]);
 
-    const totalRemainingInParent =
-        (analysis?.total_objects ?? 0) - moveCount;
+    const totalRemainingInParent = totalObjects - moveCount;
 
     return (
         <div
@@ -170,29 +222,76 @@ export const BinSplitModal: React.FC = () => {
                 style={{ width: '720px', maxWidth: '95vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}
             >
                 <div className="modal__header">
-                    <h2 className="modal__title">Split BIN by Class</h2>
+                    <h2 className="modal__title">
+                        {isFolderMode ? 'Split BINs in Folder' : 'Split BIN by Class'}
+                    </h2>
                     <button className="modal__close" onClick={closeModal} disabled={busy}>×</button>
                 </div>
 
                 <div className="modal__body" style={{ overflow: 'auto', flex: 1 }}>
-                    {loading && <div className="modal__empty">Reading BIN…</div>}
+                    {loading && <div className="modal__empty">{isFolderMode ? 'Scanning folder…' : 'Reading BIN…'}</div>}
                     {error && <div className="modal__empty" style={{ color: 'var(--accent-danger)' }}>Error: {error}</div>}
 
-                    {analysis && !loading && !error && (
+                    {groups && !loading && !error && (
                         <>
-                            <div style={{ marginBottom: '16px', fontSize: '13px', color: 'var(--text-muted)' }}>
-                                {analysis.total_objects} objects total · {moveCount} selected to move ·{' '}
-                                {totalRemainingInParent} will stay in parent
+                            <div style={{ marginBottom: '12px', fontSize: '13px', color: 'var(--text-muted)' }}>
+                                {totalObjects} objects total · {moveCount} selected to move ·{' '}
+                                {totalRemainingInParent} will stay in source
                             </div>
 
-                            <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-                                <button className="btn btn--secondary btn--small" onClick={selectVfxDefault}>VFX preset</button>
-                                <button className="btn btn--ghost btn--small" onClick={selectAll}>All</button>
-                                <button className="btn btn--ghost btn--small" onClick={selectNone}>None</button>
+                            {folderAnalysis && (
+                                <div style={{ marginBottom: '16px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                                    <div style={{ marginBottom: '4px' }}>
+                                        Sources ({folderAnalysis.sources.length}):
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', paddingLeft: '8px', maxHeight: '120px', overflow: 'auto' }}>
+                                        {folderAnalysis.sources.map((s) => (
+                                            <div key={s.path} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', fontFamily: 'monospace', fontSize: '11px' }}>
+                                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                    {s.path === folderAnalysis.suggested_owner ? '★ ' : '  '}
+                                                    {s.rel_path}
+                                                </span>
+                                                <span style={{ flexShrink: 0 }}>×{s.object_count}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    {folderAnalysis.suggested_owner && (
+                                        <div style={{ marginTop: '6px' }}>
+                                            ★ owner BIN — gets the new link added to its dependencies
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
+                                <button
+                                    type="button"
+                                    className="btn btn--secondary btn--small"
+                                    onClick={selectVfxDefault}
+                                    style={{ padding: '4px 12px', whiteSpace: 'nowrap', flex: '0 0 auto' }}
+                                >
+                                    VFX preset
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn btn--ghost btn--small"
+                                    onClick={selectAll}
+                                    style={{ padding: '4px 12px', whiteSpace: 'nowrap', flex: '0 0 auto' }}
+                                >
+                                    All
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn btn--ghost btn--small"
+                                    onClick={selectNone}
+                                    style={{ padding: '4px 12px', whiteSpace: 'nowrap', flex: '0 0 auto' }}
+                                >
+                                    None
+                                </button>
                             </div>
 
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                {analysis.groups.map((g) => {
+                                {groups.map((g) => {
                                     const checked = checkedClasses.has(g.class_hash);
                                     const label = g.class_name ?? `0x${g.class_hash}`;
                                     return (

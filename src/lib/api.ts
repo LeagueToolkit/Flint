@@ -1172,6 +1172,35 @@ export async function splitBinEntries(
     return invokeCommand('split_bin_entries', { binPath, outputFilename, pathHashes });
 }
 
+export interface BinSplitSourceInfo {
+    path: string;
+    rel_path: string;
+    object_count: number;
+}
+
+export interface BinSplitFolderAnalysis {
+    sources: BinSplitSourceInfo[];
+    total_objects: number;
+    groups: BinSplitClassGroup[];
+    suggested_owner: string;
+}
+
+export async function analyzeFolderForSplit(folderPath: string): Promise<BinSplitFolderAnalysis> {
+    return invokeCommand('analyze_folder_for_split', { folderPath });
+}
+
+export async function splitFolderEntries(
+    folderPath: string,
+    sourcePaths: string[],
+    ownerPath: string,
+    outputFilename: string,
+    pathHashes: string[],
+): Promise<BinSplitResult> {
+    return invokeCommand('split_folder_entries', {
+        folderPath, sourcePaths, ownerPath, outputFilename, pathHashes,
+    });
+}
+
 // =============================================================================
 // Fantome Import Commands
 // =============================================================================
