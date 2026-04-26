@@ -379,6 +379,7 @@ pub fn repath_project(
     // Convert DashSet to HashSet for existing_paths filtering
     let all_asset_paths: HashSet<String> = all_asset_paths_set.into_iter().collect();
 
+    let t_step3 = std::time::Instant::now();
     // Step 3: Determine which paths actually exist
     // Use case-insensitive matching since Windows filesystem is case-insensitive
     let existing_paths: HashSet<String> = all_asset_paths
@@ -426,8 +427,10 @@ pub fn repath_project(
     for path in all_asset_paths.difference(&existing_paths) {
         result.missing_paths.push(path.clone());
     }
+    tracing::info!("[TIMING] step3 existing_paths filter ({} paths): {:?}", all_asset_paths.len(), t_step3.elapsed());
 
     // Step 4: Repath BIN files (PARALLEL)
+    let t_step4 = std::time::Instant::now();
     let prefix = config.prefix();
     let bins_processed = AtomicUsize::new(0);
     let paths_modified = AtomicUsize::new(0);
@@ -446,20 +449,29 @@ pub fn repath_project(
 
     result.bins_processed = bins_processed.load(Ordering::Relaxed);
     result.paths_modified = paths_modified.load(Ordering::Relaxed);
+    tracing::info!("[TIMING] step4 repath {} BINs in parallel: {:?}", result.bins_processed, t_step4.elapsed());
 
     // Step 5: Relocate asset files
+    let t_step5 = std::time::Instant::now();
     result.files_relocated = relocate_assets(file_base, &existing_paths, &prefix, config)?;
+    tracing::info!("[TIMING] step5 relocate_assets ({} files): {:?}", result.files_relocated, t_step5.elapsed());
 
     // Step 6: Clean up unused files
     if config.cleanup_unused {
+        let t_step6 = std::time::Instant::now();
         result.files_removed = cleanup_unused_files(file_base, &existing_paths, &prefix, config)?;
+        tracing::info!("[TIMING] step6 cleanup_unused_files ({} removed): {:?}", result.files_removed, t_step6.elapsed());
     }
 
     // Step 7: Clean up irrelevant extracted BINs
+    let t_step7 = std::time::Instant::now();
     cleanup_irrelevant_bins(file_base, &config.champion, config.target_skin_id)?;
+    tracing::info!("[TIMING] step7 cleanup_irrelevant_bins: {:?}", t_step7.elapsed());
 
     // Step 8: Clean up empty directories
+    let t_step8 = std::time::Instant::now();
     cleanup_empty_dirs(file_base)?;
+    tracing::info!("[TIMING] step8 cleanup_empty_dirs: {:?}", t_step8.elapsed());
 
     tracing::info!(
         "Repathing complete: {} bins, {} paths modified, {} files relocated",

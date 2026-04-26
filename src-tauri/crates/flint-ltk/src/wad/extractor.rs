@@ -8,6 +8,7 @@ use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 /// Result of an extraction operation
 #[derive(Debug, Clone)]
@@ -370,19 +371,30 @@ pub fn extract_skin_assets(
     let mmap_ref = &mmap;
     let chunk_size = (extraction_plan.len() / rayon::current_num_threads().max(1)).max(1);
 
-    let thread_results: Vec<(usize, usize)> = extraction_plan
+    // Per-thread sub-timings let us see whether the dominant cost is
+    // decompression (CPU/zstd) vs disk write (I/O/AV). Sums across threads
+    // are a "total work" view, not wall time — wall time is `phase_start`.
+    let phase_start = Instant::now();
+    let thread_results: Vec<(usize, usize, Duration, Duration, Duration)> = extraction_plan
         .par_chunks(chunk_size)
         .map(|slice| {
             let mut extracted = 0usize;
             let mut skipped   = 0usize;
+            let mut t_decompress = Duration::ZERO;
+            let mut t_path_resolve = Duration::ZERO;
+            let mut t_write = Duration::ZERO;
             let mut local_wad = match Wad::mount(Cursor::new(&mmap_ref[..])) {
                 Ok(w)  => w,
-                Err(_) => return (0, slice.len()),
+                Err(_) => return (0, slice.len(), Duration::ZERO, Duration::ZERO, Duration::ZERO),
             };
             for (chunk, out_path) in slice {
-                match local_wad.load_chunk_decompressed(chunk) {
+                let t0 = Instant::now();
+                let decompressed = local_wad.load_chunk_decompressed(chunk);
+                t_decompress += t0.elapsed();
+                match decompressed {
                     Err(_) => { skipped += 1; },
                     Ok(data) => {
+                        let t1 = Instant::now();
                         // Apply extension detection now that we have actual bytes
                         let final_path = resolve_chunk_path(&out_path.to_string_lossy(), &data);
                         let actual_path = output_dir.join(&wad_folder_name).join(&final_path);
@@ -393,21 +405,39 @@ pub fn extract_skin_assets(
                             if let Some(p) = actual_path.parent() { let _ = fs::create_dir_all(p); }
                             actual_path
                         };
-                        if fs::write(&write_path, &data).is_ok() {
-                            extracted += 1;
-                        } else {
-                            skipped += 1;
-                        }
+                        t_path_resolve += t1.elapsed();
+
+                        let t2 = Instant::now();
+                        let wrote = fs::write(&write_path, &data).is_ok();
+                        t_write += t2.elapsed();
+                        if wrote { extracted += 1; } else { skipped += 1; }
                     }
                 }
             }
-            (extracted, skipped)
+            (extracted, skipped, t_decompress, t_path_resolve, t_write)
         })
         .collect();
+    let phase_elapsed = phase_start.elapsed();
 
     let (extracted_count, skipped_count) = thread_results
         .iter()
-        .fold((0, 0), |(e, s), (te, ts)| (e + te, s + ts));
+        .fold((0usize, 0usize), |(e, s), (te, ts, _, _, _)| (e + te, s + ts));
+    let sum_decompress: Duration = thread_results.iter().map(|r| r.2).sum();
+    let sum_path: Duration = thread_results.iter().map(|r| r.3).sum();
+    let sum_write: Duration = thread_results.iter().map(|r| r.4).sum();
+    let n_threads = thread_results.len().max(1);
+    tracing::info!(
+        "[TIMING] extract phase 2 wall {:?} | per-thread avg \
+         decompress {:?} path_resolve {:?} write {:?} (across {} threads, sum: dec {:?}, path {:?}, write {:?})",
+        phase_elapsed,
+        sum_decompress / n_threads as u32,
+        sum_path / n_threads as u32,
+        sum_write / n_threads as u32,
+        n_threads,
+        sum_decompress,
+        sum_path,
+        sum_write,
+    );
 
     tracing::info!(
         "Extracted {}/{} chunks ({} skipped, {} path mappings)",
