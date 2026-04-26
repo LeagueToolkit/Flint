@@ -32,6 +32,7 @@ import { ModConfigEditorModal } from './modals/ModConfigEditorModal';
 import { ThumbnailCropModal } from './modals/ThumbnailCropModal';
 import { CheckpointModal } from './modals/CheckpointModal';
 import { BinSplitModal } from './modals/BinSplitModal';
+import { FullResImageModal } from './modals/FullResImageModal';
 import { ToastContainer } from './Toast';
 import { TutorialOverlay, isOnboardingDone } from './TutorialOverlay';
 
@@ -485,6 +486,7 @@ export const App: React.FC = () => {
             <ThumbnailCropModal />
             <CheckpointModal />
             <BinSplitModal />
+            <FullResImageModal />
 
             {/* Toast notifications */}
             <ToastContainer />

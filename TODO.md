@@ -138,12 +138,14 @@ Implementation:
 - `FileTree.tsx` — folder click now also sets `selectedFile` and
   navigates to the preview view (still toggles expansion).
 
-**Still TODO:**
-- Full-res modal for double-clicking a texture (zero-transform native
-  resolution + pan/zoom).
-- Lazy thumbnail decoding via IntersectionObserver — currently the grid
-  starts every visible texture's decode at once on mount, which can
-  spike CPU on folders with hundreds of textures.
+**Follow-ups shipped 2026-04-27:**
+- Full-res modal: double-click a texture card → opens
+  `FullResImageModal` with the image at native pixel size, drag-to-pan,
+  scroll-to-zoom (cursor stays anchored to the same image pixel during
+  zoom), Fit / 1:1 buttons, pixelated rendering past 2× zoom.
+- Lazy thumbnail decoding: each texture card now defers its decode
+  until an IntersectionObserver fires (200px rootMargin). Cache hits
+  still render instantly on mount.
 
 ---
 

@@ -14,8 +14,8 @@
  * - Double click on a texture opens the full-resolution image modal.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
-import { useProjectTabStore, useAppMetadataStore } from '../../lib/stores';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useProjectTabStore, useAppMetadataStore, useModalStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { getFileIcon } from '../../lib/fileIcons';
 import { getCachedImage, cacheImage } from '../../lib/imageCache';
@@ -51,6 +51,7 @@ export const FolderGridView: React.FC<FolderGridViewProps> = ({
     const activeTabId = useProjectTabStore((s) => s.activeTabId);
     const setSelectedFile = useProjectTabStore((s) => s.setSelectedFile);
     const fileTreeVersion = useAppMetadataStore((s) => s.fileTreeVersion);
+    const openModal = useModalStore((s) => s.openModal);
 
     // Refetch when the folder changes or the watcher signals a tree-level
     // change (file added / removed under this directory).
@@ -153,13 +154,24 @@ export const FolderGridView: React.FC<FolderGridViewProps> = ({
                         gap: '12px',
                     }}
                 >
-                    {entries.map((entry) => (
-                        <FolderGridCard
-                            key={entry.absolute_path}
-                            entry={entry}
-                            onClick={() => goTo(entry.relative_path)}
-                        />
-                    ))}
+                    {entries.map((entry) => {
+                        const isTexture = !entry.is_directory && TEXTURE_EXTS.has(entry.extension);
+                        return (
+                            <FolderGridCard
+                                key={entry.absolute_path}
+                                entry={entry}
+                                onClick={() => goTo(entry.relative_path)}
+                                onDoubleClick={
+                                    isTexture
+                                        ? () => openModal('fullResImage', {
+                                            absPath: entry.absolute_path,
+                                            fileName: entry.name,
+                                        })
+                                        : undefined
+                                }
+                            />
+                        );
+                    })}
                 </div>
             </div>
         </div>
@@ -169,24 +181,52 @@ export const FolderGridView: React.FC<FolderGridViewProps> = ({
 interface FolderGridCardProps {
     entry: api.FolderEntry;
     onClick: () => void;
+    onDoubleClick?: () => void;
 }
 
-const FolderGridCard: React.FC<FolderGridCardProps> = ({ entry, onClick }) => {
+const FolderGridCard: React.FC<FolderGridCardProps> = ({ entry, onClick, onDoubleClick }) => {
     const isTexture = !entry.is_directory && TEXTURE_EXTS.has(entry.extension);
     const [thumbnail, setThumbnail] = useState<string | null>(null);
+    const cardRef = useRef<HTMLButtonElement>(null);
+    const [inView, setInView] = useState(false);
 
-    // Lazy thumbnail load for textures. Cache hit short-circuits the IPC
-    // call. On miss: decode (DDS/TEX via Rust) or blob-URL (PNG/JPEG).
+    // Cache hit short-circuits before any observer setup — visible or not,
+    // if the data is already there we render it immediately.
     useEffect(() => {
         if (!isTexture) return;
-        let cancelled = false;
-
         const cached = getCachedImage(entry.absolute_path);
-        if (cached) {
-            setThumbnail(cached as string);
-            return;
-        }
+        if (cached) setThumbnail(cached as string);
+    }, [isTexture, entry.absolute_path]);
 
+    // IntersectionObserver — only fire decode IPC for textures actually
+    // scrolled into view. Folders with hundreds of textures used to kick
+    // off every decode at once on mount; this caps work to what the user
+    // is looking at, plus a 200px rootMargin so scrolling stays smooth.
+    useEffect(() => {
+        if (!isTexture || thumbnail) return;
+        const el = cardRef.current;
+        if (!el) return;
+        const obs = new IntersectionObserver(
+            (entries) => {
+                for (const e of entries) {
+                    if (e.isIntersecting) {
+                        setInView(true);
+                        obs.disconnect();
+                        break;
+                    }
+                }
+            },
+            { rootMargin: '200px' },
+        );
+        obs.observe(el);
+        return () => obs.disconnect();
+    }, [isTexture, thumbnail]);
+
+    // Decode once the card has been seen. Cache the result so revisits +
+    // adjacent components share work.
+    useEffect(() => {
+        if (!isTexture || !inView || thumbnail) return;
+        let cancelled = false;
         (async () => {
             try {
                 let url: string;
@@ -206,16 +246,15 @@ const FolderGridCard: React.FC<FolderGridCardProps> = ({ entry, onClick }) => {
                 // noisy in folders with many bad/unsupported textures.
             }
         })();
-
-        return () => {
-            cancelled = true;
-        };
-    }, [isTexture, entry.absolute_path, entry.extension]);
+        return () => { cancelled = true; };
+    }, [isTexture, inView, thumbnail, entry.absolute_path, entry.extension]);
 
     return (
         <button
+            ref={cardRef}
             type="button"
             onClick={onClick}
+            onDoubleClick={onDoubleClick}
             title={entry.name}
             style={{
                 display: 'flex',
