@@ -16,56 +16,18 @@ Files: `commands/file.rs` (`import_external_files`, `copy_dir_recursive`),
 
 ---
 
-## Bug — "modified" tag triggered by sidecar files
-**Repro:** open any `.bin` in the editor. Flint converts it to a sidecar
-`.ritobin` for editing. The file watcher sees a `modify` event for the
-sidecar and flags it. The sidecar is hidden from the tree, but its parent
-folder ends up looking dirty when nothing the user cares about changed.
-
-**Root cause:** `App.tsx:222-225` sets `'modified'` on every file-watcher
-`modify` event regardless of file kind. There is no allow/deny list.
-
-**Fix:**
-- Filter the watcher event in `App.tsx` so `modify`/`create` for paths
-  ending in `.ritobin` (and any other sidecar/derived format we add later
-  — `.tex.png` cache, `.dds.png` cache, etc.) does NOT update
-  `fileStatuses`. They should still bump `fileVersions` for hot-reload —
-  only the user-facing badge has to be suppressed.
-- Define the deny list in one place: `src/lib/sidecarFiles.ts`, exported as
-  `isSidecarFile(path: string): boolean`. Reuse from anywhere that needs
-  to distinguish derived-from-source files.
-
-Files: `App.tsx:200-244`, new `lib/sidecarFiles.ts`, `appMetadataStore.ts`.
+## Bug — "modified" tag triggered by sidecar files — DONE
+`isSidecarFile()` helper in `src/lib/sidecarFiles.ts` consulted in
+`App.tsx` before setting `fileStatuses`. Hot reload still fires.
 
 ---
 
-## Bug — BIN save reload churn
-**Repro:** edit ritobin → save. The file flickers / re-renders / scrolls
-because the save command writes `.bin`, which fires a watcher event, which
-reloads the editor content, which reconverts ritobin, which writes a new
-sidecar, which fires another event, etc.
-
-**Root cause:** `save_ritobin_to_bin` writes the `.bin` and the conversion
-also updates the `.ritobin` sidecar. The watcher doesn't know "this write
-came from the app" so it treats it like an external change and triggers
-the cache invalidation + version bump pipeline.
-
-**Fix (write echo suppression):**
-- Add a `pending_writes: Mutex<HashSet<PathBuf>>` to app state.
-- Before any Rust command writes a file, insert the path. After the write
-  completes, schedule removal on a 250ms timer (covers the watcher
-  debounce window).
-- In `commands/project_watcher.rs`, drop events whose path is in
-  `pending_writes`.
-- This is the standard pattern; VS Code calls it "self-write filtering".
-
-Alternative (simpler, worse): on save, the editor already knows it just
-wrote. Have `BinEditor.tsx` set a "just saved" flag for 500ms and ignore
-the next watcher-triggered version bump for that path. Less robust because
-multiple sources can save, but easier to ship.
-
-Files: `src-tauri/src/commands/project_watcher.rs`, `commands/bin.rs`
-(`save_ritobin_to_bin`), `BinEditor.tsx`.
+## Bug — BIN save reload churn — DONE
+Write-echo suppression: `core/write_echo.rs` exposes `mark()` /
+`consume()`, backed by a 1.5s window keyed on canonicalized paths.
+`save_ritobin_to_bin` and the `.ritobin` cache write in the read path
+mark their target paths before writing; the project watcher consumes the
+mark and skips emitting `file-changed` for matched events.
 
 ---
 
