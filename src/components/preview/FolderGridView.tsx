@@ -15,10 +15,11 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useProjectTabStore, useAppMetadataStore, useModalStore } from '../../lib/stores';
+import { useProjectTabStore, useAppMetadataStore, useModalStore, useNotificationStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { getFileIcon } from '../../lib/fileIcons';
 import { getCachedImage, cacheImage } from '../../lib/imageCache';
+import { buildFileContextMenuOptions } from '../../lib/fileContextMenuOptions';
 
 interface FolderGridViewProps {
     /** Absolute path of the folder being shown. */
@@ -63,6 +64,39 @@ export const FolderGridView: React.FC<FolderGridViewProps> = ({
     const setSelectedFile = useProjectTabStore((s) => s.setSelectedFile);
     const fileTreeVersion = useAppMetadataStore((s) => s.fileTreeVersion);
     const openModal = useModalStore((s) => s.openModal);
+    const openContextMenu = useModalStore((s) => s.openContextMenu);
+    const openConfirmDialog = useModalStore((s) => s.openConfirmDialog);
+    const showToast = useNotificationStore((s) => s.showToast);
+
+    const refreshFileTree = async () => {
+        if (!projectPath) return;
+        const files = await api.listProjectFiles(projectPath);
+        const { activeTabId: tabId } = useProjectTabStore.getState();
+        if (tabId) useProjectTabStore.getState().setFileTree(tabId, files);
+    };
+
+    const handleEntryContextMenu = (e: React.MouseEvent, entry: api.FolderEntry) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const options = buildFileContextMenuOptions({
+            node: {
+                path: entry.relative_path,
+                name: entry.name,
+                isDirectory: entry.is_directory,
+            },
+            projectPath,
+            // FolderGridView always shows children of a folder, so the
+            // displayed entries are never the project root — depth 1+.
+            depth: 1,
+            refreshFileTree,
+            openModal,
+            openConfirmDialog,
+            showToast,
+            // Inline rename isn't wired up in the grid yet; omit so the
+            // option doesn't show up as a no-op.
+        });
+        openContextMenu(e.clientX, e.clientY, options);
+    };
 
     // Ctrl+scroll → resize cards. Stays within MIN/MAX. Plain scroll
     // (no Ctrl) falls through to the container's normal scroll.
@@ -193,6 +227,7 @@ export const FolderGridView: React.FC<FolderGridViewProps> = ({
                                 entry={entry}
                                 cardSize={cardSize}
                                 onClick={() => goTo(entry.relative_path)}
+                                onContextMenu={(e) => handleEntryContextMenu(e, entry)}
                                 onDoubleClick={
                                     isTexture
                                         ? () => openModal('fullResImage', {
@@ -215,9 +250,10 @@ interface FolderGridCardProps {
     cardSize: number;
     onClick: () => void;
     onDoubleClick?: () => void;
+    onContextMenu?: (e: React.MouseEvent) => void;
 }
 
-const FolderGridCard: React.FC<FolderGridCardProps> = ({ entry, cardSize, onClick, onDoubleClick }) => {
+const FolderGridCard: React.FC<FolderGridCardProps> = ({ entry, cardSize, onClick, onDoubleClick, onContextMenu }) => {
     const isTexture = !entry.is_directory && TEXTURE_EXTS.has(entry.extension);
     const [thumbnail, setThumbnail] = useState<string | null>(null);
     const cardRef = useRef<HTMLButtonElement>(null);
@@ -288,6 +324,7 @@ const FolderGridCard: React.FC<FolderGridCardProps> = ({ entry, cardSize, onClic
             type="button"
             onClick={onClick}
             onDoubleClick={onDoubleClick}
+            onContextMenu={onContextMenu}
             title={entry.name}
             style={{
                 display: 'flex',

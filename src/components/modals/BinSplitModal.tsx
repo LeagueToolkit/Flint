@@ -234,9 +234,9 @@ export const BinSplitModal: React.FC = () => {
 
                     {groups && !loading && !error && (
                         <>
-                            <div style={{ marginBottom: '12px', fontSize: '13px', color: 'var(--text-muted)' }}>
-                                {totalObjects} objects total · {moveCount} selected to move ·{' '}
-                                {totalRemainingInParent} will stay in source
+                            <div style={{ marginBottom: '12px', fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.5, wordBreak: 'break-word' }}>
+                                <div>{totalObjects} objects total</div>
+                                <div>{moveCount} selected to move · {totalRemainingInParent} will stay in source</div>
                             </div>
 
                             {folderAnalysis && (
@@ -246,8 +246,8 @@ export const BinSplitModal: React.FC = () => {
                                     </div>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', paddingLeft: '8px', maxHeight: '120px', overflow: 'auto' }}>
                                         {folderAnalysis.sources.map((s) => (
-                                            <div key={s.path} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', fontFamily: 'monospace', fontSize: '11px' }}>
-                                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            <div key={s.path} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', fontFamily: 'monospace', fontSize: '11px', minWidth: 0 }}>
+                                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, flex: 1 }} title={s.rel_path}>
                                                     {s.path === folderAnalysis.suggested_owner ? '★ ' : '  '}
                                                     {s.rel_path}
                                                 </span>
@@ -263,57 +263,73 @@ export const BinSplitModal: React.FC = () => {
                                 </div>
                             )}
 
-                            <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
-                                <button
-                                    type="button"
-                                    className="btn btn--secondary btn--small"
-                                    onClick={selectVfxDefault}
-                                    style={{ padding: '4px 12px', whiteSpace: 'nowrap', flex: '0 0 auto' }}
+                            <div style={{ display: 'flex', gap: '12px', marginBottom: '12px', flexWrap: 'wrap', alignItems: 'center', paddingLeft: '4px' }}>
+                                <span
+                                    onClick={busy ? undefined : selectVfxDefault}
+                                    style={{
+                                        fontSize: '13px',
+                                        fontWeight: 500,
+                                        color: 'var(--accent-primary)',
+                                        cursor: busy ? 'not-allowed' : 'pointer',
+                                        userSelect: 'none',
+                                        whiteSpace: 'nowrap',
+                                        marginRight: '8px',
+                                        marginLeft: '8px',
+                                    }}
                                 >
                                     VFX preset
-                                </button>
+                                </span>
                                 <button
                                     type="button"
-                                    className="btn btn--ghost btn--small"
+                                    className="btn btn--ghost"
                                     onClick={selectAll}
-                                    style={{ padding: '4px 12px', whiteSpace: 'nowrap', flex: '0 0 auto' }}
+                                    style={{ padding: '8px 16px', fontSize: '13px', whiteSpace: 'nowrap', flex: '0 0 auto' }}
                                 >
                                     All
                                 </button>
                                 <button
                                     type="button"
-                                    className="btn btn--ghost btn--small"
+                                    className="btn btn--ghost"
                                     onClick={selectNone}
-                                    style={{ padding: '4px 12px', whiteSpace: 'nowrap', flex: '0 0 auto' }}
+                                    style={{ padding: '8px 16px', fontSize: '13px', whiteSpace: 'nowrap', flex: '0 0 auto' }}
                                 >
                                     None
                                 </button>
                             </div>
 
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                 {groups.map((g) => {
                                     const checked = checkedClasses.has(g.class_hash);
                                     const label = g.class_name ?? `0x${g.class_hash}`;
                                     return (
-                                        <label
+                                        <div
                                             key={g.class_hash}
+                                            role="button"
+                                            tabIndex={0}
+                                            aria-pressed={checked}
+                                            onClick={() => !busy && toggleClass(g.class_hash)}
+                                            onKeyDown={(e) => {
+                                                if (busy) return;
+                                                if (e.key === ' ' || e.key === 'Enter') {
+                                                    e.preventDefault();
+                                                    toggleClass(g.class_hash);
+                                                }
+                                            }}
                                             style={{
                                                 display: 'flex',
                                                 alignItems: 'center',
                                                 gap: '10px',
-                                                padding: '6px 10px',
-                                                borderRadius: '4px',
-                                                cursor: 'pointer',
-                                                background: checked ? 'rgba(79,195,247,0.08)' : 'transparent',
+                                                padding: '10px 14px',
+                                                borderRadius: '6px',
+                                                cursor: busy ? 'not-allowed' : 'pointer',
+                                                userSelect: 'none',
+                                                border: `1px solid ${checked ? 'var(--accent-primary)' : 'var(--border)'}`,
+                                                background: checked ? 'color-mix(in srgb, var(--accent-primary) 15%, transparent)' : 'var(--bg-elevated)',
+                                                opacity: busy ? 0.6 : 1,
+                                                transition: 'background 0.12s ease, border-color 0.12s ease',
                                             }}
                                         >
-                                            <input
-                                                type="checkbox"
-                                                checked={checked}
-                                                onChange={() => toggleClass(g.class_hash)}
-                                                disabled={busy}
-                                            />
-                                            <span style={{ fontSize: '13px', flex: 1, fontFamily: g.class_name ? 'inherit' : 'monospace' }}>
+                                            <span style={{ fontSize: '13px', flex: 1, minWidth: 0, fontFamily: g.class_name ? 'inherit' : 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: checked ? 'var(--text-primary)' : 'var(--text-secondary, var(--text-primary))' }} title={label}>
                                                 {label}
                                                 {g.is_vfx_default && (
                                                     <span style={{ marginLeft: '8px', fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
@@ -321,10 +337,10 @@ export const BinSplitModal: React.FC = () => {
                                                     </span>
                                                 )}
                                             </span>
-                                            <span style={{ fontSize: '11px', color: 'var(--text-muted)', minWidth: '48px', textAlign: 'right' }}>
+                                            <span style={{ fontSize: '11px', color: 'var(--text-muted)', minWidth: '48px', textAlign: 'right', flexShrink: 0 }}>
                                                 ×{g.path_hashes.length}
                                             </span>
-                                        </label>
+                                        </div>
                                     );
                                 })}
                             </div>
@@ -352,7 +368,7 @@ export const BinSplitModal: React.FC = () => {
                         <button
                             className="btn btn--primary"
                             onClick={handleSplit}
-                            disabled={busy || moveCount === 0 || !analysis}
+                            disabled={busy || moveCount === 0 || !groups}
                         >
                             {busy ? 'Splitting…' : `Split ${moveCount} object${moveCount === 1 ? '' : 's'}`}
                         </button>

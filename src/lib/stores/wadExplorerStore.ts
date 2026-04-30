@@ -6,6 +6,29 @@
 import { create } from 'zustand';
 import type { WadExplorerWad, WadChunk, GameWadInfo } from '../types';
 
+const RECENT_WADS_KEY = 'flint.wadExplorer.recentWads';
+const RECENT_WADS_MAX = 10;
+
+function loadRecentWads(): string[] {
+  try {
+    const raw = localStorage.getItem(RECENT_WADS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((p): p is string => typeof p === 'string').slice(0, RECENT_WADS_MAX);
+  } catch {
+    return [];
+  }
+}
+
+function saveRecentWads(list: string[]) {
+  try {
+    localStorage.setItem(RECENT_WADS_KEY, JSON.stringify(list));
+  } catch {
+    // out of space / privacy mode — silently ignore
+  }
+}
+
 interface WadExplorerState {
   isOpen: boolean;
   wads: WadExplorerWad[];
@@ -16,7 +39,7 @@ interface WadExplorerState {
   expandedFolders: Set<string>;
   searchQuery: string;
   checkedFiles: Set<string>;
-  /** Most-recently-opened WAD paths (front = newest). Session-only. */
+  /** Most-recently-opened WAD paths (front = newest). Persisted in localStorage. */
   recentWads: string[];
 
   // Actions
@@ -45,7 +68,7 @@ export const useWadExplorerStore = create<WadExplorerState>((set) => ({
   expandedFolders: new Set<string>(),
   searchQuery: '',
   checkedFiles: new Set<string>(),
-  recentWads: [],
+  recentWads: loadRecentWads(),
 
   open: () => set({ isOpen: true }),
   close: () => set({ isOpen: false }),
@@ -141,7 +164,9 @@ export const useWadExplorerStore = create<WadExplorerState>((set) => ({
   pushRecentWad: (wadPath) => {
     set((state) => {
       const filtered = state.recentWads.filter((p) => p !== wadPath);
-      return { recentWads: [wadPath, ...filtered].slice(0, 10) };
+      const next = [wadPath, ...filtered].slice(0, RECENT_WADS_MAX);
+      saveRecentWads(next);
+      return { recentWads: next };
     });
   },
 }));
