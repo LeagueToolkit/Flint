@@ -10,7 +10,8 @@
  * styles can't bleed into production UI.
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import '../../styles/design-lab.css';
 
 // ─── Inline icons (lab-local — keeps file fully standalone) ────────────────
@@ -177,14 +178,41 @@ const Check: React.FC<{ checked: boolean; onChange: (v: boolean) => void; label:
     </label>
 );
 
-// ─── Dropdown ───────────────────────────────────────────────────────────────
+// ─── Portal-rendered popover (escapes modal overflow:auto clipping) ─────────
+function usePopover(open: boolean, anchor: HTMLElement | null, align: 'left' | 'right') {
+    const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
+    useLayoutEffect(() => {
+        if (!open || !anchor) { setPos(null); return; }
+        const update = () => {
+            const r = anchor.getBoundingClientRect();
+            setPos({ top: r.bottom + 8, left: align === 'left' ? r.left : r.right, width: r.width });
+        };
+        update();
+        const opts: AddEventListenerOptions = { passive: true };
+        window.addEventListener('scroll', update, true);
+        window.addEventListener('resize', update, opts);
+        return () => {
+            window.removeEventListener('scroll', update, true);
+            window.removeEventListener('resize', update);
+        };
+    }, [open, anchor, align]);
+    return pos;
+}
+
+// ─── Dropdown (portal) ──────────────────────────────────────────────────────
 const Dropdown: React.FC<{ label: string; align?: 'left' | 'right' }> = ({ label, align = 'right' }) => {
     const [open, setOpen] = useState(false);
-    const ref = useRef<HTMLDivElement>(null);
+    const triggerRef = useRef<HTMLButtonElement>(null);
+    const menuRef = useRef<HTMLDivElement>(null);
+    const pos = usePopover(open, triggerRef.current, align);
+
     useEffect(() => {
         if (!open) return;
         const onDoc = (e: MouseEvent) => {
-            if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+            const t = e.target as Node;
+            if (triggerRef.current?.contains(t)) return;
+            if (menuRef.current?.contains(t)) return;
+            setOpen(false);
         };
         const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
         document.addEventListener('mousedown', onDoc);
@@ -196,19 +224,114 @@ const Dropdown: React.FC<{ label: string; align?: 'left' | 'right' }> = ({ label
     }, [open]);
 
     return (
-        <div ref={ref} className={`dl-dd ${open ? 'dl-dd--open' : ''} ${align === 'left' ? 'dl-dd--left' : ''}`}>
-            <button className={`dl-btn dl-btn--secondary ${open ? 'dl-btn--active' : ''}`} onClick={() => setOpen((v) => !v)}>
+        <>
+            <button
+                ref={triggerRef}
+                className={`dl-btn dl-btn--secondary ${open ? 'dl-btn--active' : ''}`}
+                onClick={() => setOpen((v) => !v)}
+            >
                 <span>{label}</span>
                 <Icon glyph="chevronDown" />
             </button>
-            <div className="dl-dd__menu" role="menu">
-                <button className="dl-dd__item"><Icon glyph="folder" /><span>Open project</span><span className="dl-dd__shortcut">⌘O</span></button>
-                <button className="dl-dd__item"><Icon glyph="refresh" /><span>Refresh</span><span className="dl-dd__shortcut">⌘R</span></button>
-                <button className="dl-dd__item"><Icon glyph="settings" /><span>Settings</span><span className="dl-dd__shortcut">⌘,</span></button>
-                <div className="dl-dd__divider" />
-                <button className="dl-dd__item dl-dd__item--danger"><Icon glyph="trash" /><span>Delete</span></button>
-            </div>
-        </div>
+            {open && pos && createPortal(
+                <div
+                    ref={menuRef}
+                    className={`dl-dd-portal ${align === 'left' ? 'dl-dd--left' : ''}`}
+                    style={{
+                        position: 'fixed',
+                        top: pos.top,
+                        left: align === 'left' ? pos.left : undefined,
+                        right: align === 'right' ? window.innerWidth - pos.left : undefined,
+                    }}
+                    role="menu"
+                >
+                    <button className="dl-dd__item"><Icon glyph="folder" /><span>Open project</span><span className="dl-dd__shortcut">⌘O</span></button>
+                    <button className="dl-dd__item"><Icon glyph="refresh" /><span>Refresh</span><span className="dl-dd__shortcut">⌘R</span></button>
+                    <button className="dl-dd__item"><Icon glyph="settings" /><span>Settings</span><span className="dl-dd__shortcut">⌘,</span></button>
+                    <div className="dl-dd__divider" />
+                    <button className="dl-dd__item dl-dd__item--danger"><Icon glyph="trash" /><span>Delete</span></button>
+                </div>,
+                document.body,
+            )}
+        </>
+    );
+};
+
+// ─── Custom Select (replaces native <select>; menu is portal'd) ─────────────
+type SelectOption = { value: string; label: string };
+const Select: React.FC<{
+    value: string;
+    onChange: (v: string) => void;
+    options: SelectOption[];
+    placeholder?: string;
+    width?: number;
+}> = ({ value, onChange, options, placeholder, width = 220 }) => {
+    const [open, setOpen] = useState(false);
+    const triggerRef = useRef<HTMLButtonElement>(null);
+    const menuRef = useRef<HTMLDivElement>(null);
+    const pos = usePopover(open, triggerRef.current, 'left');
+    const selected = options.find((o) => o.value === value);
+
+    useEffect(() => {
+        if (!open) return;
+        const onDoc = (e: MouseEvent) => {
+            const t = e.target as Node;
+            if (triggerRef.current?.contains(t)) return;
+            if (menuRef.current?.contains(t)) return;
+            setOpen(false);
+        };
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+        document.addEventListener('mousedown', onDoc);
+        document.addEventListener('keydown', onKey);
+        return () => {
+            document.removeEventListener('mousedown', onDoc);
+            document.removeEventListener('keydown', onKey);
+        };
+    }, [open]);
+
+    return (
+        <>
+            <button
+                ref={triggerRef}
+                className={`dl-select-trigger ${open ? 'dl-select-trigger--open' : ''}`}
+                onClick={() => setOpen((v) => !v)}
+                style={{ width }}
+            >
+                <span className={selected ? 'dl-select-trigger__value' : 'dl-select-trigger__placeholder'}>
+                    {selected?.label ?? placeholder ?? 'Select…'}
+                </span>
+                <Icon glyph="chevronDown" />
+            </button>
+            {open && pos && createPortal(
+                <div
+                    ref={menuRef}
+                    className="dl-dd-portal"
+                    style={{
+                        position: 'fixed',
+                        top: pos.top,
+                        left: pos.left,
+                        minWidth: width,
+                    }}
+                    role="listbox"
+                >
+                    {options.map((o) => (
+                        <button
+                            key={o.value}
+                            className={`dl-dd__item ${o.value === value ? 'dl-dd__item--selected' : ''}`}
+                            onClick={() => { onChange(o.value); setOpen(false); }}
+                            role="option"
+                            aria-selected={o.value === value}
+                        >
+                            <span>{o.label}</span>
+                            {o.value === value && (
+                                <span className="dl-dd__shortcut" style={{ color: 'var(--color-danger)' }}><Icon glyph="check" /></span>
+                            )}
+                        </button>
+                    ))}
+                </div>,
+                document.body,
+            )}
+        </>
     );
 };
 
@@ -260,6 +383,8 @@ export const DesignLab: React.FC = () => {
     const [tog2, setTog2] = useState(false);
     const [tab, setTab] = useState<'designs' | 'motion' | 'tokens'>('designs');
     const [openModal, setOpenModal] = useState<null | 'default' | 'wide' | 'confirm'>(null);
+    const [selValue, setSelValue] = useState('modpkg');
+    const [selChannel, setSelChannel] = useState('b');
 
     // Auto-advance progress for demo purposes
     useEffect(() => {
@@ -328,36 +453,33 @@ export const DesignLab: React.FC = () => {
 
                 {tab === 'designs' && (
                     <>
-                        {/* ─── Buttons ─────────────────────────────────── */}
-                        <Section title="Buttons" subtitle="Sheen sweep on hover, lift on hover, press scale, gradient surfaces.">
-                            <Row label="Variants">
-                                <button className="dl-btn dl-btn--primary"><Icon glyph="sparkle" /><span>Primary</span></button>
-                                <button className="dl-btn dl-btn--secondary"><span>Secondary</span></button>
-                                <button className="dl-btn dl-btn--ghost"><span>Ghost</span></button>
-                                <button className="dl-btn dl-btn--danger"><Icon glyph="trash" /><span>Danger</span></button>
+                        {/* ─── Dropdown / Select (top so menus are visible) ─ */}
+                        <Section title="Dropdown & Select" subtitle="Rounded menu, red selection highlight, portal-rendered (never clipped).">
+                            <Row label="Dropdown">
+                                <Dropdown label="Actions" align="left" />
+                                <Dropdown label="Right aligned" align="right" />
                             </Row>
-                            <Row label="Sizes">
-                                <button className="dl-btn dl-btn--sm">Small</button>
-                                <button className="dl-btn">Medium</button>
-                                <button className="dl-btn dl-btn--lg dl-btn--primary">Large</button>
-                            </Row>
-                            <Row label="With icon">
-                                <button className="dl-btn dl-btn--primary"><Icon glyph="download" /><span>Download</span></button>
-                                <button className="dl-btn"><span>Next</span><Icon glyph="chevronRight" /></button>
-                                <button className="dl-btn dl-btn--ghost"><Icon glyph="refresh" /><span>Refresh</span></button>
-                            </Row>
-                            <Row label="Icon only">
-                                <button className="dl-btn dl-btn--icon" title="Settings"><Icon glyph="settings" /></button>
-                                <button className="dl-btn dl-btn--icon dl-btn--danger" title="Delete"><Icon glyph="trash" /></button>
-                                <button className="dl-btn dl-btn--icon dl-btn--primary" title="Confirm"><Icon glyph="check" /></button>
-                            </Row>
-                            <Row label="States">
-                                <button className="dl-btn">Idle</button>
-                                <button className="dl-btn dl-btn--active">Active</button>
-                                <button className="dl-btn" disabled>Disabled</button>
-                                <button className={`dl-btn dl-btn--primary ${loading ? 'dl-btn--loading' : ''}`} onClick={fakeLoad}>
-                                    {loading ? 'Loading' : 'Click me'}
-                                </button>
+                            <Row label="Select" align="start">
+                                <Select
+                                    value={selChannel}
+                                    onChange={setSelChannel}
+                                    options={[
+                                        { value: 'a', label: 'Alpha channel' },
+                                        { value: 'b', label: 'Bravo channel' },
+                                        { value: 'c', label: 'Charlie channel' },
+                                    ]}
+                                    width={220}
+                                />
+                                <Select
+                                    value={selValue}
+                                    onChange={setSelValue}
+                                    options={[
+                                        { value: 'modpkg',  label: '.modpkg (recommended)' },
+                                        { value: 'fantome', label: '.fantome' },
+                                        { value: 'wad',     label: '.wad.client' },
+                                    ]}
+                                    width={260}
+                                />
                             </Row>
                         </Section>
 
@@ -381,13 +503,6 @@ export const DesignLab: React.FC = () => {
                                     <Icon glyph="search" />
                                     <input className="dl-input" placeholder="Find anything…" value={search} onChange={(e) => setSearch(e.target.value)} />
                                 </div>
-                            </Row>
-                            <Row label="Select" align="start">
-                                <select className="dl-select" defaultValue="b" style={{ width: 200 }}>
-                                    <option value="a">Alpha channel</option>
-                                    <option value="b">Bravo channel</option>
-                                    <option value="c">Charlie channel</option>
-                                </select>
                             </Row>
                             <Row label="Textarea" align="start">
                                 <textarea className="dl-textarea" placeholder="Multi-line text…" rows={3} style={{ width: 320 }} />
@@ -439,11 +554,36 @@ export const DesignLab: React.FC = () => {
                             </Row>
                         </Section>
 
-                        {/* ─── Dropdown ────────────────────────────────── */}
-                        <Section title="Dropdown" subtitle="Spring-in menu with backdrop blur. Click-outside / Escape to close.">
-                            <Row label="Default">
-                                <Dropdown label="Actions" />
-                                <Dropdown label="Left aligned" align="left" />
+                        {/* ─── Buttons ─────────────────────────────────── */}
+                        <Section title="Buttons" subtitle="Cursor-following glow, overlay primary, serious red danger.">
+                            <Row label="Variants">
+                                <button className="dl-btn dl-btn--primary"><Icon glyph="sparkle" /><span>Primary</span></button>
+                                <button className="dl-btn dl-btn--secondary"><span>Secondary</span></button>
+                                <button className="dl-btn dl-btn--ghost"><span>Ghost</span></button>
+                                <button className="dl-btn dl-btn--danger"><Icon glyph="trash" /><span>Danger</span></button>
+                            </Row>
+                            <Row label="Sizes">
+                                <button className="dl-btn dl-btn--sm">Small</button>
+                                <button className="dl-btn">Medium</button>
+                                <button className="dl-btn dl-btn--lg dl-btn--primary">Large</button>
+                            </Row>
+                            <Row label="With icon">
+                                <button className="dl-btn dl-btn--primary"><Icon glyph="download" /><span>Download</span></button>
+                                <button className="dl-btn"><span>Next</span><Icon glyph="chevronRight" /></button>
+                                <button className="dl-btn dl-btn--ghost"><Icon glyph="refresh" /><span>Refresh</span></button>
+                            </Row>
+                            <Row label="Icon only">
+                                <button className="dl-btn dl-btn--icon" title="Settings"><Icon glyph="settings" /></button>
+                                <button className="dl-btn dl-btn--icon dl-btn--danger" title="Delete"><Icon glyph="trash" /></button>
+                                <button className="dl-btn dl-btn--icon dl-btn--primary" title="Confirm"><Icon glyph="check" /></button>
+                            </Row>
+                            <Row label="States">
+                                <button className="dl-btn">Idle</button>
+                                <button className="dl-btn dl-btn--active">Active</button>
+                                <button className="dl-btn" disabled>Disabled</button>
+                                <button className={`dl-btn dl-btn--primary ${loading ? 'dl-btn--loading' : ''}`} onClick={fakeLoad}>
+                                    {loading ? 'Loading' : 'Click me'}
+                                </button>
                             </Row>
                         </Section>
 
@@ -582,10 +722,16 @@ export const DesignLab: React.FC = () => {
                 }
             >
                 <p style={{ margin: 0, color: 'var(--text-secondary)' }}>Choose a destination and format.</p>
-                <select className="dl-select" defaultValue="modpkg">
-                    <option value="modpkg">.modpkg (recommended)</option>
-                    <option value="fantome">.fantome</option>
-                </select>
+                <Select
+                    value={selValue}
+                    onChange={setSelValue}
+                    options={[
+                        { value: 'modpkg',  label: '.modpkg (recommended)' },
+                        { value: 'fantome', label: '.fantome' },
+                        { value: 'wad',     label: '.wad.client' },
+                    ]}
+                    width={280}
+                />
                 <div className="dl-progress"><div className="dl-progress__fill" style={{ width: `${progress}%` }} /></div>
             </Modal>
 
