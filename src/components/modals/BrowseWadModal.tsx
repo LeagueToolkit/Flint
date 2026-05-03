@@ -211,7 +211,16 @@ export const BrowseWadModal: React.FC = () => {
                         >
                             <div className="bw-drop__inner">
                                 <span className="bw-drop__icon" aria-hidden="true">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <svg
+                                        width="36"
+                                        height="36"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                    >
                                         <path d="M12 4v12" />
                                         <path d="M6 10l6-6 6 6" />
                                         <path d="M5 19h14" />
