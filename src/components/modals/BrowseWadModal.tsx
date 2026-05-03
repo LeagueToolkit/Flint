@@ -532,7 +532,7 @@ export const BrowseWadModal: React.FC = () => {
                                 <span className="bw-file__name">{wadPath.split(/[\\/]/).pop()}</span>
                                 <span className="bw-file__path">{wadPath}</span>
                             </span>
-                            <Button variant="ghost" size="sm" onClick={() => setPhase('pick')} icon="refresh">
+                            <Button variant="ghost" size="sm" onClick={() => setPhase('pick')} icon="folderOpen2">
                                 Change
                             </Button>
                         </div>

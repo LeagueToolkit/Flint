@@ -1374,6 +1374,9 @@ input.search-box__input {
 .log-panel--collapsed {
   height: 24px;
   min-height: 24px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   flex-shrink: 0;
   background-color: #111;
   border-top: 1px solid #1a1a1a;
@@ -1385,6 +1388,7 @@ input.search-box__input {
   font-family: var(--font-mono);
   color: var(--text-muted);
   cursor: pointer;
+  overflow: hidden;
   transition: background-color var(--transition-fast);
   margin-top: auto;
 }
@@ -1397,7 +1401,9 @@ input.search-box__input {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 100%;
   overflow: hidden;
 }
 
@@ -1430,6 +1436,10 @@ input.search-box__input {
 
 
 .log-panel__text {
+  display: block;
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

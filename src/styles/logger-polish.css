@@ -141,19 +141,35 @@
 }
 .log-panel__search > span:first-child {
     position: absolute;
-    left: 10px;
+    left: 11px;
     top: 50%;
     transform: translateY(-50%);
+    width: 14px;
+    height: 14px;
     color: var(--text-muted);
     pointer-events: none;
     display: inline-flex;
+    align-items: center;
+    justify-content: center;
     line-height: 0;
+    z-index: 1;
 }
-.log-panel__search > span:first-child svg { width: 13px; height: 13px; display: block; }
+.log-panel__search > span:first-child svg {
+    width: 14px !important;
+    height: 14px !important;
+    display: block;
+}
+/* `input:not([type="range"])` in index.css has specificity (0,1,1); a bare
+   `.log-panel__search-input` (0,1,0) loses to it and the global `padding:
+   var(--space-sm) var(--space-md)` clobbers our left padding, sliding text
+   under the icon. Match specificity with `input.…` and pin with !important
+   so the polish file wins regardless of cascade order. */
+input.log-panel__search-input,
 .log-panel__search-input {
     width: 100%;
     height: 30px;
-    padding: 0 30px 0 32px;
+    /* Left padding clears the 14px icon at left:11px (= 25px) plus 11px breathing room. */
+    padding: 0 32px 0 36px !important;
     font-size: 12px;
     color: var(--text-primary);
     background: var(--bg-tertiary);

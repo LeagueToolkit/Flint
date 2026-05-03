@@ -73,7 +73,7 @@ export const icons = {
     // UI Icons (for buttons, actions)
     // -------------------------------------------------------------------------
     plus: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
-    info: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="8" r="5.5" stroke="#60a5fa" stroke-width="1"/><path d="M8 7v4m0-6v.5" stroke="#60a5fa" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+    info: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1"/><path d="M8 7v4m0-6v.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
     success: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="8" r="5.5" stroke="#34d399" stroke-width="1"/><path d="M5.5 8l2 2 3-3.5" stroke="#34d399" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
     warning: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8 2l6 10H2L8 2z" stroke="#fbbf24" stroke-width="1" fill="none"/><path d="M8 6v3m0 2v.5" stroke="#fbbf24" stroke-width="1.5" stroke-linecap="round"/></svg>`,
     error: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="8" r="5.5" stroke="#f87171" stroke-width="1"/><path d="M5.5 5.5l5 5m0-5l-5 5" stroke="#f87171" stroke-width="1.5" stroke-linecap="round"/></svg>`,
