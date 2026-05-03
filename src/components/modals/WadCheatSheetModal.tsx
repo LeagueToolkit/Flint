@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import CHEAT_SHEET_MD from '../../assets/wad-cheat-sheet.md?raw';
-import { Button, Input, Modal } from '../ui';
+import { Icon, Modal } from '../ui';
 
 // ─── Placeholder detection ────────────────────────────────────────────────────
 
@@ -308,40 +308,61 @@ export const WadCheatSheetModal: React.FC<WadCheatSheetModalProps> = ({ onClose,
 
     return (
         <Modal open onClose={onClose} size="large" modifier="cs-modal">
-                <div className="cs-modal__header">
-                    <span className="cs-modal__title">📖 Asset Path Cheat Sheet</span>
-                    <Input
-                        className="file-tree__search-input cs-search"
+            <div className="cs-modal__header">
+                <span className="cs-title">
+                    <span className="cs-title__icon"><Icon name="info" /></span>
+                    <span>
+                        <span className="cs-title__name">Asset Path Cheat Sheet</span>
+                        <span className="cs-title__sub">{filtered.length} of {sections.length} sections</span>
+                    </span>
+                </span>
+                <div className="cs-search">
+                    <Icon name="search" />
+                    <input
+                        type="text"
+                        className="cs-search__input"
                         placeholder="Filter sections…"
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                         onKeyDown={(e) => e.key === 'Escape' && (search ? setSearch('') : onClose())}
                         autoFocus
                     />
-                    <Button size="sm" onClick={onClose} title="Close (Esc)" style={{ padding: '2px 6px', flexShrink: 0 }}>
-                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                            <path d="M4.5 4.5l7 7m0-7l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                        </svg>
-                    </Button>
-                </div>
-
-                <div className="cs-modal__body">
-                    {filtered.length === 0 ? (
-                        <div className="cs-modal__empty">No sections match "{search}"</div>
-                    ) : (
-                        filtered.map((sec, si) => (
-                            <div key={si} className="cs-section">
-                                <RenderSectionBlocks blocks={sec.blocks} ctx={ctx} />
-                            </div>
-                        ))
+                    {search && (
+                        <button
+                            className="cs-search__clear"
+                            onClick={() => setSearch('')}
+                            aria-label="Clear filter"
+                            title="Clear filter"
+                        >
+                            <Icon name="close" />
+                        </button>
                     )}
                 </div>
+                <button className="modal__close" onClick={onClose} aria-label="Close" title="Close (Esc)">
+                    <Icon name="close" />
+                </button>
+            </div>
 
-                <div className="cs-modal__footer">
-                    <span>·</span>
-                    <span>Original cheat sheet by Aropatnik</span>
-                    <span>·</span>
-                </div>
+            <div className="cs-modal__body">
+                {filtered.length === 0 ? (
+                    <div className="cs-empty">
+                        <span className="cs-empty__icon"><Icon name="search" /></span>
+                        <strong>No sections match</strong>
+                        <span>Nothing in the cheat sheet contains “{search}”.</span>
+                    </div>
+                ) : (
+                    filtered.map((sec, si) => (
+                        <div key={si} className="cs-section">
+                            <RenderSectionBlocks blocks={sec.blocks} ctx={ctx} />
+                        </div>
+                    ))
+                )}
+            </div>
+
+            <div className="cs-modal__footer">
+                <span className="cs-footer-dot" />
+                <span>Original cheat sheet by Aropatnik</span>
+            </div>
         </Modal>
     );
 };

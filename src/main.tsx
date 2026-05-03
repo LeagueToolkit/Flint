@@ -28,6 +28,8 @@ import './styles/new-project-polish.css';
 import './styles/logger-polish.css';
 // WAD Explorer polish
 import './styles/wad-explorer-polish.css';
+// WAD Cheat Sheet modal polish
+import './styles/cheat-sheet-polish.css';
 // Import default theme (can be swapped via custom theme import)
 import './themes/default.css';
 
