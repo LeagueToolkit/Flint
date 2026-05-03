@@ -238,15 +238,24 @@
     width: 44px;
     height: 44px;
     border-radius: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    display: grid;
+    place-items: center;
     background: color-mix(in oklab, var(--color-success) 15%, var(--bg-primary));
     border: 1px solid color-mix(in oklab, var(--color-success) 35%, transparent);
     color: var(--color-success);
     box-shadow: 0 0 12px color-mix(in oklab, var(--color-success) 25%, transparent);
+    line-height: 0;
 }
-.settings-hash__icon svg { width: 22px; height: 22px; }
+.settings-hash__icon > span {
+    display: grid;
+    place-items: center;
+    line-height: 0;
+}
+.settings-hash__icon svg {
+    width: 22px;
+    height: 22px;
+    display: block;
+}
 .settings-hash__icon--warn {
     background: color-mix(in oklab, var(--color-warning) 15%, var(--bg-primary));
     border-color: color-mix(in oklab, var(--color-warning) 35%, transparent);

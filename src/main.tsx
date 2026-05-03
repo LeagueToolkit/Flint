@@ -18,6 +18,8 @@ import './styles/index.css';
 import './styles/ui-primitives.css';
 // Settings polish + Picker styles — load after primitives
 import './styles/settings-polish.css';
+// Fixer modal polish — load after settings
+import './styles/fixer-polish.css';
 // Import default theme (can be swapped via custom theme import)
 import './themes/default.css';
 

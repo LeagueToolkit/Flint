@@ -34,8 +34,8 @@ interface PathSetting {
     value: string;
     onChange: (v: string) => void;
     browseTitle: string;
-    onDetect: () => void;
-    detectLabel: string;
+    onDetect?: () => void;
+    detectLabel?: string;
     /** Treat as file picker rather than directory. */
     file?: boolean;
     hint?: string;
@@ -64,16 +64,18 @@ const PathSettingItem: React.FC<{ setting: PathSetting }> = ({ setting }) => {
                 buttonLabel="Browse"
                 onButtonClick={handleBrowse}
             />
-            <Button
-                variant="ghost"
-                size="sm"
-                icon="search"
-                style={{ marginTop: 6 }}
-                onClick={setting.onDetect}
-                disabled={setting.disabled}
-            >
-                {setting.detectLabel}
-            </Button>
+            {setting.onDetect && setting.detectLabel && (
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    icon="search"
+                    style={{ marginTop: 6 }}
+                    onClick={setting.onDetect}
+                    disabled={setting.disabled}
+                >
+                    {setting.detectLabel}
+                </Button>
+            )}
             {setting.hint && <div className="settings-item__hint">{setting.hint}</div>}
         </div>
     );
@@ -460,8 +462,6 @@ export const SettingsModal: React.FC = () => {
             value: defaultProjectPath,
             onChange: setDefaultProjectPath,
             browseTitle: 'Select Default Project Folder',
-            onDetect: () => {},
-            detectLabel: 'Auto-detect',
         },
         {
             label: 'League of Legends Path',
