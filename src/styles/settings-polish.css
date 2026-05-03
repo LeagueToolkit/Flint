@@ -1,0 +1,540 @@
+/* ============================================================================
+   Flint — Settings & Picker polish
+   ----------------------------------------------------------------------------
+   Loaded after ui-primitives.css. Tightens up the SettingsModal shell, sidebar
+   tabs, item cards, and ships the new <Picker> component styles. Theme-aware
+   (everything reads from --bg-*, --accent-*, --color-*).
+   ============================================================================ */
+
+/* --------------------------------------------------------------------------
+   1. Settings modal shell — softer surfaces, gentle inner gradient
+   -------------------------------------------------------------------------- */
+.modal--settings {
+    border-radius: 16px;
+    overflow: hidden;
+    background:
+        radial-gradient(circle at top left,
+            color-mix(in oklab, var(--accent-primary) 5%, transparent) 0%,
+            transparent 35%),
+        radial-gradient(circle at bottom right,
+            color-mix(in oklab, var(--color-danger) 4%, transparent) 0%,
+            transparent 40%),
+        var(--bg-secondary);
+    box-shadow:
+        0 24px 48px -16px rgba(0,0,0,.55),
+        0 4px 12px rgba(0,0,0,.25),
+        0 0 0 1px var(--border);
+}
+.modal--settings .modal__header {
+    background: transparent;
+    border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+}
+.modal--settings .modal__footer {
+    background: color-mix(in oklab, var(--bg-tertiary) 50%, transparent);
+    border-top: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+}
+
+/* --------------------------------------------------------------------------
+   2. Sidebar — segmented, red-active selection, smoother motion
+   -------------------------------------------------------------------------- */
+.modal--settings .settings-sidebar {
+    background: transparent;
+    border-right: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+    padding: 14px 10px;
+    gap: 4px;
+    width: 180px;
+}
+.modal--settings .settings-sidebar__item {
+    position: relative;
+    padding: 9px 12px;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    color: var(--text-secondary);
+    transition:
+        background var(--motion-fast),
+        color var(--motion-fast),
+        border-color var(--motion-fast),
+        transform var(--motion-fast);
+}
+.modal--settings .settings-sidebar__item:hover {
+    background: color-mix(in oklab, var(--color-danger) 8%, transparent);
+    border-color: color-mix(in oklab, var(--color-danger) 22%, transparent);
+    color: var(--text-primary);
+}
+.modal--settings .settings-sidebar__item--active {
+    background: color-mix(in oklab, var(--color-danger) 14%, transparent);
+    border-color: color-mix(in oklab, var(--color-danger) 35%, transparent);
+    color: color-mix(in oklab, var(--color-danger) 12%, var(--text-primary));
+}
+/* Vertical bar indicator on the active tab — slides in from the left */
+.modal--settings .settings-sidebar__item--active::before {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px; height: 18px;
+    border-radius: 2px;
+    background: var(--color-danger);
+    box-shadow: 0 0 8px color-mix(in oklab, var(--color-danger) 50%, transparent);
+    animation: sidebarBarSlide 360ms cubic-bezier(.34,1.56,.64,1);
+}
+@keyframes sidebarBarSlide {
+    from { transform: translateY(-50%) translateX(-8px) scaleY(0.4); opacity: 0; }
+    to   { transform: translateY(-50%) translateX(0)   scaleY(1);   opacity: 1; }
+}
+/* Subtle red glow that follows the active item */
+.modal--settings .settings-sidebar__item--active::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: radial-gradient(
+        circle at 0% 50%,
+        color-mix(in oklab, var(--color-danger) 18%, transparent) 0%,
+        transparent 60%);
+    pointer-events: none;
+}
+.modal--settings .settings-sidebar__item:active { transform: scale(0.985); }
+
+/* Sidebar icons — line them up dead-center with the label */
+.modal--settings .settings-sidebar__item {
+    line-height: 1;
+}
+.modal--settings .settings-sidebar__item > * {
+    display: inline-flex;
+    align-items: center;
+}
+.modal--settings .settings-sidebar__item svg {
+    width: 15px;
+    height: 15px;
+    flex: none;
+    display: block;
+}
+.modal--settings .settings-sidebar__item span {
+    line-height: 1.2;
+    /* Tiny optical-correction nudge so glyph baselines match the icon centerline */
+    transform: translateY(0.5px);
+}
+
+/* --------------------------------------------------------------------------
+   3. Content area — better breathing room, scrollbar polish
+   -------------------------------------------------------------------------- */
+.modal--settings .settings-content {
+    padding: 22px 26px;
+}
+.modal--settings .settings-panel { gap: 18px; }
+
+/* --------------------------------------------------------------------------
+   4. Settings items — subtle card surface, refined hover
+   -------------------------------------------------------------------------- */
+.modal--settings .settings-item {
+    padding: 14px 16px;
+    background: color-mix(in oklab, var(--bg-tertiary) 55%, transparent);
+    border: 1px solid color-mix(in oklab, var(--border) 75%, transparent);
+    border-radius: 12px;
+    margin-bottom: 12px;
+    transition: border-color var(--motion-fast), background var(--motion-fast);
+}
+.modal--settings .settings-item:hover {
+    border-color: color-mix(in oklab, var(--accent-primary) 22%, var(--border));
+}
+.modal--settings .settings-item:last-child { margin-bottom: 0; }
+
+.modal--settings .settings-item__label {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+.modal--settings .settings-item__hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 6px;
+    line-height: 1.4;
+}
+.modal--settings .settings-item__badge {
+    background: color-mix(in oklab, var(--color-danger) 18%, transparent);
+    color: var(--color-danger);
+    border: 1px solid color-mix(in oklab, var(--color-danger) 30%, transparent);
+    border-radius: 999px;
+    padding: 1px 7px;
+    font-size: 9px;
+}
+
+/* Hash database info pill */
+.modal--settings .settings-item__info {
+    background: color-mix(in oklab, var(--bg-primary) 70%, transparent);
+    border: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+    border-radius: 10px;
+    padding: 8px 12px;
+}
+
+/* Toggle row — drop the default boxy label */
+.modal--settings .settings-toggle {
+    padding: 0;
+    background: transparent;
+}
+.modal--settings .settings-toggle:hover { background: transparent; }
+
+/* Spring-snap toggle thumb (overrides the linear --transition-base in index.css) */
+.settings-toggle input[type="checkbox"] {
+    transition:
+        background-color var(--motion-base),
+        border-color var(--motion-base),
+        box-shadow var(--motion-base) !important;
+}
+.settings-toggle input[type="checkbox"]::before {
+    transition:
+        left 320ms cubic-bezier(.34,1.56,.64,1),
+        background-color var(--motion-base),
+        transform var(--motion-fast) !important;
+}
+.settings-toggle:hover input[type="checkbox"]:not(:checked)::before {
+    background-color: var(--text-primary);
+}
+.settings-toggle input[type="checkbox"]:active::before {
+    transform: scale(1.1);
+}
+.settings-toggle input[type="checkbox"]:checked {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent-primary) 40%, transparent);
+    animation: toggleGlow 480ms ease-out;
+}
+@keyframes toggleGlow {
+    0%   { box-shadow: 0 0 0 0   color-mix(in oklab, var(--accent-primary) 40%, transparent); }
+    50%  { box-shadow: 0 0 0 6px color-mix(in oklab, var(--accent-primary) 20%, transparent); }
+    100% { box-shadow: 0 0 0 0   color-mix(in oklab, var(--accent-primary) 0%,  transparent); }
+}
+
+/* --------------------------------------------------------------------------
+   Hash database card — distinct status surface
+   -------------------------------------------------------------------------- */
+.settings-hash {
+    display: grid;
+    grid-template-columns: 44px 1fr auto;
+    gap: 14px;
+    align-items: center;
+    padding: 16px 18px;
+    background:
+        linear-gradient(135deg,
+            color-mix(in oklab, var(--color-success) 8%, var(--bg-tertiary)) 0%,
+            var(--bg-tertiary) 60%);
+    border: 1px solid color-mix(in oklab, var(--color-success) 25%, var(--border));
+    border-radius: 12px;
+    margin-bottom: 12px;
+    transition: border-color var(--motion-fast), background var(--motion-fast);
+}
+.settings-hash--warn {
+    background:
+        linear-gradient(135deg,
+            color-mix(in oklab, var(--color-warning) 10%, var(--bg-tertiary)) 0%,
+            var(--bg-tertiary) 60%);
+    border-color: color-mix(in oklab, var(--color-warning) 30%, var(--border));
+}
+
+.settings-hash__icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    display: grid;
+    place-items: center;
+    background: color-mix(in oklab, var(--color-success) 15%, var(--bg-primary));
+    border: 1px solid color-mix(in oklab, var(--color-success) 35%, transparent);
+    color: var(--color-success);
+    box-shadow: 0 0 12px color-mix(in oklab, var(--color-success) 25%, transparent);
+    line-height: 0;
+}
+.settings-hash__icon > span {
+    display: grid;
+    place-items: center;
+    line-height: 0;
+}
+.settings-hash__icon svg {
+    width: 22px;
+    height: 22px;
+    display: block;
+}
+.settings-hash__icon--warn {
+    background: color-mix(in oklab, var(--color-warning) 15%, var(--bg-primary));
+    border-color: color-mix(in oklab, var(--color-warning) 35%, transparent);
+    color: var(--color-warning);
+    box-shadow: 0 0 12px color-mix(in oklab, var(--color-warning) 25%, transparent);
+}
+
+.settings-hash__body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+.settings-hash__title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-secondary);
+}
+.settings-hash__count {
+    font-size: 14px;
+    color: var(--text-primary);
+    line-height: 1.3;
+}
+.settings-hash__count strong {
+    color: var(--color-success);
+    font-weight: 600;
+    font-family: var(--font-mono);
+}
+.settings-hash--warn .settings-hash__count strong { color: var(--color-warning); }
+.settings-hash__hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+    line-height: 1.4;
+}
+
+/* --------------------------------------------------------------------------
+   Success button variant — green save / confirm
+   -------------------------------------------------------------------------- */
+.btn--success {
+    background: color-mix(in oklab, var(--color-success) 14%, transparent);
+    border-color: color-mix(in oklab, var(--color-success) 45%, transparent);
+    color: var(--color-success);
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-success) 15%, transparent);
+}
+.btn--success::after {
+    background: radial-gradient(
+        160px circle at var(--mx, 50%) var(--my, 50%),
+        color-mix(in oklab, var(--color-success) 40%, transparent) 0%,
+        color-mix(in oklab, var(--color-success) 15%, transparent) 30%,
+        transparent 60%) !important;
+}
+.btn--success:hover {
+    background: var(--color-success);
+    border-color: var(--color-success);
+    color: #0b1e10;
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-success) 25%, transparent);
+}
+.btn--success:hover svg { transform: scale(1.08); transition: transform var(--motion-fast); }
+.btn--success:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--color-success), 0 0 0 4px color-mix(in oklab, var(--color-success) 30%, transparent);
+}
+
+/* Version card — featured surface with accent edge */
+.modal--settings .version-card {
+    background:
+        linear-gradient(135deg,
+            color-mix(in oklab, var(--accent-primary) 8%, var(--bg-tertiary)) 0%,
+            var(--bg-tertiary) 100%);
+    border: 1px solid color-mix(in oklab, var(--accent-primary) 25%, var(--border));
+    border-radius: 14px;
+    padding: 16px;
+}
+
+/* --------------------------------------------------------------------------
+   5. PICKER — custom rounded select (replaces native popup)
+   -------------------------------------------------------------------------- */
+.pkr {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    height: 36px;
+    padding: 0 14px;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition:
+        border-color var(--motion-fast),
+        background var(--motion-fast),
+        box-shadow var(--motion-fast),
+        transform var(--motion-fast);
+}
+.pkr:hover:not(:disabled) {
+    border-color: color-mix(in oklab, var(--accent-primary) 35%, var(--border));
+    background: var(--bg-hover);
+}
+.pkr:active:not(:disabled) { transform: scale(0.99); }
+.pkr--open,
+.pkr:focus-visible {
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent-primary) 35%, transparent);
+    outline: none;
+}
+.pkr:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.pkr__icon {
+    display: inline-flex;
+    align-items: center;
+    color: var(--text-muted);
+    flex: none;
+}
+.pkr__value {
+    flex: 1;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.pkr__value--placeholder { color: var(--text-muted); font-weight: 400; }
+.pkr__chev {
+    width: 12px; height: 12px;
+    flex: none;
+    color: var(--text-muted);
+    transition: transform var(--motion-fast);
+}
+.pkr--open .pkr__chev {
+    transform: rotate(180deg);
+    color: var(--color-danger);
+    transition: transform 320ms cubic-bezier(.34,1.56,.64,1), color var(--motion-fast);
+}
+
+/* Portal menu */
+.pkr-menu {
+    z-index: 1300;
+    min-width: 200px;
+    max-width: 480px;
+    max-height: 320px;
+    overflow-y: auto;
+    padding: 6px;
+    background: color-mix(in oklab, var(--bg-secondary) 95%, transparent);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow:
+        0 20px 40px -12px rgba(0,0,0,.55),
+        0 4px 8px rgba(0,0,0,.25);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    transform-origin: top left;
+    animation: pkrPop 220ms cubic-bezier(.34,1.56,.64,1);
+}
+@keyframes pkrPop {
+    from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+    to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+
+.pkr-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 9px 12px;
+    background: transparent;
+    color: var(--text-primary);
+    border: 1px solid transparent;
+    border-radius: 9px;
+    cursor: pointer;
+    text-align: left;
+    overflow: hidden;
+    opacity: 0;
+    transform: translateX(-8px);
+    animation: pkrItemIn 320ms cubic-bezier(.22,1,.36,1) forwards;
+    transition:
+        background var(--motion-fast),
+        color var(--motion-fast),
+        border-color var(--motion-fast),
+        transform var(--motion-fast),
+        padding var(--motion-fast);
+}
+/* Stagger items — each delays a little longer than the prior one */
+.pkr-item:nth-child(1) { animation-delay: 0ms; }
+.pkr-item:nth-child(2) { animation-delay: 30ms; }
+.pkr-item:nth-child(3) { animation-delay: 60ms; }
+.pkr-item:nth-child(4) { animation-delay: 90ms; }
+.pkr-item:nth-child(5) { animation-delay: 120ms; }
+.pkr-item:nth-child(6) { animation-delay: 150ms; }
+.pkr-item:nth-child(7) { animation-delay: 180ms; }
+.pkr-item:nth-child(n+8) { animation-delay: 210ms; }
+@keyframes pkrItemIn {
+    to { opacity: 1; transform: translateX(0); }
+}
+
+/* Sliding red wash behind the item on hover (left-to-right reveal) */
+.pkr-item::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg,
+        color-mix(in oklab, var(--color-danger) 22%, transparent) 0%,
+        color-mix(in oklab, var(--color-danger) 8%, transparent) 100%);
+    transform: translateX(-100%);
+    transition: transform 280ms cubic-bezier(.22,1,.36,1);
+    z-index: 0;
+    border-radius: inherit;
+}
+.pkr-item > * { position: relative; z-index: 1; }
+
+.pkr-item:hover:not(:disabled)::before,
+.pkr-item:focus-visible::before {
+    transform: translateX(0);
+}
+.pkr-item:hover:not(:disabled),
+.pkr-item:focus-visible {
+    border-color: color-mix(in oklab, var(--color-danger) 35%, transparent);
+    color: color-mix(in oklab, var(--color-danger) 10%, var(--text-primary));
+    padding-left: 14px;
+    outline: none;
+}
+.pkr-item--selected {
+    background: color-mix(in oklab, var(--color-danger) 12%, transparent);
+    border-color: color-mix(in oklab, var(--color-danger) 35%, transparent);
+    color: color-mix(in oklab, var(--color-danger) 8%, var(--text-primary));
+}
+.pkr-item--selected::before { transform: translateX(0); }
+.pkr-item--disabled { opacity: 0.45; pointer-events: none; }
+.pkr-item:active:not(:disabled) { transform: scale(0.97); }
+
+/* Selected check pop-in */
+.pkr-item__check {
+    animation: pkrCheckPop 320ms cubic-bezier(.34,1.56,.64,1);
+}
+@keyframes pkrCheckPop {
+    from { opacity: 0; transform: scale(0.4) rotate(-15deg); }
+    to   { opacity: 1; transform: scale(1) rotate(0); }
+}
+
+.pkr-item__icon {
+    width: 16px; height: 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    color: var(--text-muted);
+}
+.pkr-item:hover .pkr-item__icon,
+.pkr-item--selected .pkr-item__icon { color: var(--color-danger); }
+
+.pkr-item__body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+}
+.pkr-item__label {
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.pkr-item__hint {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+.pkr-item:hover .pkr-item__hint { color: color-mix(in oklab, var(--color-danger) 25%, var(--text-muted)); }
+
+.pkr-item__check {
+    width: 14px; height: 14px;
+    color: var(--color-danger);
+    flex: none;
+}

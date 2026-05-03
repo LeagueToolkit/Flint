@@ -20,18 +20,165 @@
     <meta name="twitter:description" content="Extract, preview, and ship League of Legends mods — all in one Rust-powered IDE." />
     <meta name="twitter:image" content="/embed-preview.png" />
 
-    <!-- Fonts loaded via CSS with font-display: swap for non-blocking load -->
+    <style>
+      :root {
+        --bg-primary: #111111;
+        --bg-secondary: #161616;
+        --bg-tertiary: #1c1c1c;
+        --border: #252525;
+        --text-primary: #c0c0c0;
+        --text-muted: #707070;
+        --accent: #EF4444;
+        --accent-soft: rgba(239, 68, 68, 0.18);
+      }
+      html, body { margin: 0; padding: 0; height: 100%; background: var(--bg-primary); color: var(--text-primary); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; overflow: hidden; }
+      #app { height: 100vh; }
+
+      /* Boot shell — mirrors the actual workspace chrome so Ctrl+R looks like the program */
+      .boot {
+        display: flex; flex-direction: column;
+        height: 100vh;
+        background: var(--bg-primary);
+        animation: bootFade .25s ease;
+      }
+      @keyframes bootFade { from { opacity: 0; } to { opacity: 1; } }
+
+      .boot__titlebar {
+        display: flex; align-items: center; gap: 12px;
+        height: 38px;
+        padding: 0 16px;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border);
+        flex: none;
+        font-size: 12px;
+        color: var(--text-muted);
+      }
+      .boot__brand {
+        display: flex; align-items: center; gap: 8px;
+        font-weight: 700; color: var(--text-primary);
+      }
+      .boot__spark {
+        width: 14px; height: 14px;
+        background: var(--accent);
+        clip-path: polygon(50% 0%, 60% 40%, 100% 50%, 60% 60%, 50% 100%, 40% 60%, 0% 50%, 40% 40%);
+        animation: spark 2.4s ease-in-out infinite;
+      }
+      @keyframes spark {
+        0%, 100% { transform: rotate(0deg) scale(1); filter: drop-shadow(0 0 4px var(--accent-soft)); }
+        50%      { transform: rotate(180deg) scale(1.08); filter: drop-shadow(0 0 12px var(--accent)); }
+      }
+      .boot__title { font-weight: 500; }
+      .boot__chip {
+        margin-left: auto;
+        height: 18px; padding: 0 8px;
+        display: inline-flex; align-items: center; gap: 6px;
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        font-size: 10px; color: var(--text-muted);
+      }
+      .boot__pulse {
+        width: 6px; height: 6px; border-radius: 50%;
+        background: var(--accent);
+        animation: pulse 1.4s ease-out infinite;
+      }
+      @keyframes pulse {
+        0%   { box-shadow: 0 0 0 0 var(--accent-soft); }
+        100% { box-shadow: 0 0 0 8px transparent; }
+      }
+
+      .boot__body { flex: 1; display: grid; grid-template-columns: 220px 1fr; min-height: 0; }
+      .boot__side {
+        background: var(--bg-secondary);
+        border-right: 1px solid var(--border);
+        padding: 14px 12px;
+        display: flex; flex-direction: column; gap: 10px;
+      }
+      .boot__main {
+        padding: 28px 32px;
+        display: flex; flex-direction: column; gap: 22px;
+        overflow: hidden;
+      }
+      .boot__hero { display: flex; flex-direction: column; gap: 10px; }
+      .boot__grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+      .boot__tile {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 14px;
+        display: flex; flex-direction: column; gap: 10px;
+      }
+
+      .sk {
+        display: block;
+        height: 12px;
+        border-radius: 6px;
+        background: linear-gradient(90deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.13) 50%, rgba(255,255,255,0.06) 100%);
+        background-size: 200% 100%;
+        animation: shimmer 1.6s ease-in-out infinite;
+      }
+      .sk--soft  { opacity: 0.55; }
+      .sk--row   { height: 10px; border-radius: 5px; }
+      .sk--block { height: 70px; border-radius: 8px; }
+      @keyframes shimmer {
+        0%   { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+      }
+
+      .boot__statusline {
+        display: flex; align-items: center; gap: 10px;
+        height: 28px;
+        padding: 0 16px;
+        background: var(--bg-secondary);
+        border-top: 1px solid var(--border);
+        font-size: 11px;
+        color: var(--text-muted);
+        flex: none;
+      }
+      .boot__statusline strong { color: var(--text-primary); font-weight: 500; }
+      .boot__statusline .right { margin-left: auto; font-family: 'Cascadia Code', Consolas, monospace; }
+    </style>
   </head>
   <body>
     <div id="app">
-      <!-- Loading UI - replaced by React when ready -->
-      <div id="loading-screen" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:#0D1117;color:#E6EDF3;font-family:system-ui,-apple-system,sans-serif;">
-        <div style="font-size:28px;font-weight:700;margin-bottom:12px;color:#EF4444;">⚡ Flint</div>
-        <div style="color:#8B949E;font-size:14px;">Loading...</div>
-        <div style="margin-top:24px;width:120px;height:3px;background:#21262D;border-radius:2px;overflow:hidden;">
-          <div style="width:30%;height:100%;background:linear-gradient(90deg,#EF4444,#F87171);animation:loading 1s ease-in-out infinite;"></div>
+      <!-- Workspace shell — replaced by React when ready. Mirrors actual app chrome. -->
+      <div id="loading-screen" class="boot" aria-hidden="true">
+        <div class="boot__titlebar">
+          <div class="boot__brand"><span class="boot__spark"></span><span>Flint</span></div>
+          <span class="boot__title">League of Legends Modding IDE</span>
+          <span class="boot__chip"><span class="boot__pulse"></span>Booting workspace</span>
         </div>
-        <style>@keyframes loading{0%{transform:translateX(-100%)}100%{transform:translateX(400%)}}</style>
+        <div class="boot__body">
+          <aside class="boot__side">
+            <span class="sk" style="width: 90px"></span>
+            <span class="sk sk--row" style="width: 80%"></span>
+            <span class="sk sk--row" style="width: 60%; margin-left: 14px"></span>
+            <span class="sk sk--row" style="width: 70%; margin-left: 14px"></span>
+            <span class="sk sk--row" style="width: 55%"></span>
+            <span class="sk sk--row" style="width: 75%; margin-left: 14px"></span>
+            <span class="sk sk--row" style="width: 40%; margin-left: 14px"></span>
+            <span class="sk sk--row" style="width: 65%"></span>
+          </aside>
+          <main class="boot__main">
+            <div class="boot__hero">
+              <span class="sk" style="width: 220px; height: 18px"></span>
+              <span class="sk sk--soft" style="width: 320px; height: 12px"></span>
+            </div>
+            <div class="boot__grid">
+              <div class="boot__tile"><span class="sk sk--block"></span><span class="sk sk--row" style="width: 70%"></span></div>
+              <div class="boot__tile"><span class="sk sk--block"></span><span class="sk sk--row" style="width: 50%"></span></div>
+              <div class="boot__tile"><span class="sk sk--block"></span><span class="sk sk--row" style="width: 80%"></span></div>
+              <div class="boot__tile"><span class="sk sk--block"></span><span class="sk sk--row" style="width: 60%"></span></div>
+              <div class="boot__tile"><span class="sk sk--block"></span><span class="sk sk--row" style="width: 75%"></span></div>
+              <div class="boot__tile"><span class="sk sk--block"></span><span class="sk sk--row" style="width: 45%"></span></div>
+            </div>
+          </main>
+        </div>
+        <div class="boot__statusline">
+          <strong>Flint</strong>
+          <span>· initializing</span>
+          <span class="right">loading modules…</span>
+        </div>
       </div>
     </div>
     <script type="module" src="/src/main.tsx"></script>

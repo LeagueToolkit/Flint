@@ -21,8 +21,8 @@ import {
     ModalFooter,
     ModalHeader,
     ProgressBar,
-    Select,
-    UIShowcase,
+    Picker,
+    DesignLab,
 } from '../ui';
 
 type SettingsTab = 'paths' | 'general' | 'dev';
@@ -34,8 +34,8 @@ interface PathSetting {
     value: string;
     onChange: (v: string) => void;
     browseTitle: string;
-    onDetect: () => void;
-    detectLabel: string;
+    onDetect?: () => void;
+    detectLabel?: string;
     /** Treat as file picker rather than directory. */
     file?: boolean;
     hint?: string;
@@ -64,16 +64,18 @@ const PathSettingItem: React.FC<{ setting: PathSetting }> = ({ setting }) => {
                 buttonLabel="Browse"
                 onButtonClick={handleBrowse}
             />
-            <Button
-                variant="ghost"
-                size="sm"
-                icon="search"
-                style={{ marginTop: 6 }}
-                onClick={setting.onDetect}
-                disabled={setting.disabled}
-            >
-                {setting.detectLabel}
-            </Button>
+            {setting.onDetect && setting.detectLabel && (
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    icon="search"
+                    style={{ marginTop: 6 }}
+                    onClick={setting.onDetect}
+                    disabled={setting.disabled}
+                >
+                    {setting.detectLabel}
+                </Button>
+            )}
             {setting.hint && <div className="settings-item__hint">{setting.hint}</div>}
         </div>
     );
@@ -460,8 +462,6 @@ export const SettingsModal: React.FC = () => {
             value: defaultProjectPath,
             onChange: setDefaultProjectPath,
             browseTitle: 'Select Default Project Folder',
-            onDetect: () => {},
-            detectLabel: 'Auto-detect',
         },
         {
             label: 'League of Legends Path',
@@ -563,16 +563,17 @@ export const SettingsModal: React.FC = () => {
                             <div className="settings-item">
                                 <label className="settings-item__label">Theme</label>
                                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                                    <Select
-                                        style={{ flex: 1 }}
-                                        value={selectedTheme}
-                                        onChange={(e) => setSelectedTheme(e.target.value || '')}
-                                    >
-                                        <option value="">Default (Red)</option>
-                                        {availableThemes.map((t) => (
-                                            <option key={t.id} value={t.id}>{t.name}</option>
-                                        ))}
-                                    </Select>
+                                    <div style={{ flex: 1 }}>
+                                        <Picker
+                                            fullWidth
+                                            value={selectedTheme}
+                                            onChange={(v) => setSelectedTheme(v)}
+                                            options={[
+                                                { value: '', label: 'Default (Red)' },
+                                                ...availableThemes.map((t) => ({ value: t.id, label: t.name })),
+                                            ]}
+                                        />
+                                    </div>
                                     <Button
                                         size="sm"
                                         onClick={async () => {
@@ -599,13 +600,15 @@ export const SettingsModal: React.FC = () => {
                                     BIN Conversion Engine
                                     <span className="settings-item__badge">Advanced</span>
                                 </label>
-                                <Select
+                                <Picker
+                                    fullWidth
                                     value={binConverterEngine}
-                                    onChange={(e) => setBinConverterEngine(e.target.value as 'ltk' | 'jade')}
-                                >
-                                    <option value="ltk">LTK (Default)</option>
-                                    <option value="jade">Jade Custom</option>
-                                </Select>
+                                    onChange={(v) => setBinConverterEngine(v as 'ltk' | 'jade')}
+                                    options={[
+                                        { value: 'ltk',  label: 'LTK (Default)',  hint: 'Standard converter, ships with Flint' },
+                                        { value: 'jade', label: 'Jade Custom', hint: 'Alt converter, handles edge-case BINs better' },
+                                    ]}
+                                />
                                 <div className="settings-item__hint">
                                     Jade Custom converter may handle certain BIN files better than LTK
                                 </div>
@@ -619,26 +622,6 @@ export const SettingsModal: React.FC = () => {
                                     label="Verbose Logging"
                                     description="Show detailed debug output in the log panel"
                                 />
-                            </div>
-
-                            <div className="settings-item">
-                                <label className="settings-label">Test Logging</label>
-                                <Button
-                                    onClick={async () => {
-                                        try {
-                                            await api.testLogging();
-                                            showToast('info', 'Test logs emitted - check the output panel');
-                                        } catch (err) {
-                                            console.error('Test logging failed:', err);
-                                            showToast('error', 'Failed to emit test logs');
-                                        }
-                                    }}
-                                >
-                                    Emit Test Logs
-                                </Button>
-                                <p className="settings-description">
-                                    Emit test logs at all levels to verify logging is working
-                                </p>
                             </div>
 
                             <div className="settings-item">
@@ -675,31 +658,29 @@ export const SettingsModal: React.FC = () => {
                                 />
                             </div>
 
-                            <div className="settings-item">
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                    <div className="settings-item__info">
-                                        <Icon name={state.hashesLoaded ? 'success' : 'warning'} />
-                                        <div>
-                                            <div className="settings-item__label" style={{ marginBottom: 0 }}>Hash Database</div>
-                                            <div className="settings-item__value">
-                                                {state.hashesLoaded
-                                                    ? `${state.hashCount.toLocaleString()} hashes loaded`
-                                                    : 'Hashes not loaded'}
-                                            </div>
-                                        </div>
+                            <div className={`settings-hash settings-hash--${state.hashesLoaded ? 'ok' : 'warn'}`}>
+                                <div className={`settings-hash__icon settings-hash__icon--${state.hashesLoaded ? 'ok' : 'warn'}`}>
+                                    <Icon name={state.hashesLoaded ? 'success' : 'warning'} />
+                                </div>
+                                <div className="settings-hash__body">
+                                    <div className="settings-hash__title">Hash Database</div>
+                                    <div className="settings-hash__count">
+                                        {state.hashesLoaded
+                                            ? <><strong>{state.hashCount.toLocaleString()}</strong> hashes loaded</>
+                                            : <span style={{ color: 'var(--color-warning)' }}>Hashes not loaded</span>}
                                     </div>
-                                    <Button
-                                        size="sm"
-                                        icon="refresh"
-                                        onClick={handleForceRebuildHashes}
-                                        disabled={isRebuildingHashes}
-                                    >
-                                        {isRebuildingHashes ? 'Rebuilding...' : 'Force Rebuild Hashes'}
-                                    </Button>
+                                    <div className="settings-hash__hint">
+                                        Rebuild to apply the latest fixes (BIN file resolution, new hash dumps, etc.)
+                                    </div>
                                 </div>
-                                <div className="settings-item__hint">
-                                    Rebuild hash database to apply latest fixes (BIN file resolution, etc.)
-                                </div>
+                                <Button
+                                    size="sm"
+                                    icon="refresh"
+                                    onClick={handleForceRebuildHashes}
+                                    disabled={isRebuildingHashes}
+                                >
+                                    {isRebuildingHashes ? 'Rebuilding…' : 'Force Rebuild'}
+                                </Button>
                             </div>
 
                             <div className="version-card">
@@ -851,7 +832,7 @@ export const SettingsModal: React.FC = () => {
                     Cancel
                 </Button>
                 <Button
-                    variant="primary"
+                    variant="success"
                     icon="success"
                     onClick={handleSave}
                     disabled={isValidating}
@@ -866,9 +847,9 @@ export const SettingsModal: React.FC = () => {
                 onClose={() => setShowUIPreview(false)}
                 modifier="modal--fullscreen"
             >
-                <ModalHeader title="UI Primitives Showcase" onClose={() => setShowUIPreview(false)} />
+                <ModalHeader title="Design Lab" onClose={() => setShowUIPreview(false)} />
                 <ModalBody style={{ overflow: 'auto', padding: 0 }}>
-                    <UIShowcase />
+                    <DesignLab />
                 </ModalBody>
             </Modal>
         </Modal>

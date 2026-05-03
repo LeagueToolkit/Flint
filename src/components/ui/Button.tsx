@@ -1,7 +1,7 @@
 import React from 'react';
 import { Icon, type IconName } from './Icon';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
+export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'success';
 export type ButtonSize = 'sm' | 'md' | 'lg';
 
 export interface ButtonProps extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'children'> {
@@ -20,6 +20,7 @@ const variantClass: Record<ButtonVariant, string> = {
     secondary: 'btn--secondary',
     ghost: 'btn--ghost',
     danger: 'btn--danger',
+    success: 'btn--success',
 };
 
 const sizeClass: Record<ButtonSize, string> = {

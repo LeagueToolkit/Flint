@@ -1,0 +1,398 @@
+/* ============================================================================
+   Flint — Project List ("My Projects") modal polish
+   ============================================================================ */
+
+/* --------------------------------------------------------------------------
+   Modal shell
+   -------------------------------------------------------------------------- */
+.modal--project-list {
+    border-radius: 16px;
+    overflow: hidden;
+    background:
+        radial-gradient(circle at top left,
+            color-mix(in oklab, var(--accent-primary) 6%, transparent) 0%,
+            transparent 35%),
+        var(--bg-secondary);
+    box-shadow:
+        0 24px 48px -16px rgba(0,0,0,.55),
+        0 4px 12px rgba(0,0,0,.25),
+        0 0 0 1px var(--border);
+    max-width: 880px !important;
+    width: 92vw;
+}
+
+/* Title block (header) */
+.pl-title { display: inline-flex; align-items: center; gap: 12px; }
+.pl-title__icon {
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    background:
+        linear-gradient(135deg,
+            color-mix(in oklab, var(--accent-primary) 22%, var(--bg-tertiary)),
+            var(--bg-tertiary));
+    border: 1px solid color-mix(in oklab, var(--accent-primary) 35%, var(--border));
+    border-radius: 10px;
+    color: var(--accent-primary);
+    box-shadow: 0 0 12px color-mix(in oklab, var(--accent-primary) 25%, transparent);
+}
+.pl-title__icon svg { width: 18px; height: 18px; display: block; }
+.pl-title__name { display: block; font-weight: 600; font-size: 14px; color: var(--text-primary); line-height: 1.2; }
+.pl-title__sub  { display: block; font-size: 11px; color: var(--text-muted); margin-top: 2px; font-weight: 400; }
+
+/* --------------------------------------------------------------------------
+   Toolbar (search + sort)
+   -------------------------------------------------------------------------- */
+.pl-toolbar {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    padding: 12px 22px 0;
+}
+.pl-search {
+    position: relative;
+    flex: 1;
+}
+.pl-search > .form-input,
+.pl-search > input { padding-left: 36px; }
+.pl-search > span:first-child {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    pointer-events: none;
+    z-index: 1;
+}
+.pl-search > span:first-child svg { width: 14px; height: 14px; display: block; }
+
+/* --------------------------------------------------------------------------
+   Body / grid
+   -------------------------------------------------------------------------- */
+.pl-body {
+    padding: 16px 22px;
+    min-height: 320px;
+}
+
+.pl-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+}
+
+.pl-no-match {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 60px 20px;
+    color: var(--text-muted);
+    font-size: 13px;
+    font-style: italic;
+}
+.pl-no-match svg { width: 16px; height: 16px; }
+
+/* --------------------------------------------------------------------------
+   Project card
+   -------------------------------------------------------------------------- */
+.pl-card {
+    --pl-hue: 220;
+    /* Default tint colour — overridden by JS once image color is extracted */
+    --pl-r: 100;
+    --pl-g: 110;
+    --pl-b: 130;
+    position: relative;
+    isolation: isolate;
+    display: grid;
+    grid-template-columns: 56px 1fr auto;
+    gap: 14px;
+    align-items: center;
+    padding: 12px 14px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    cursor: pointer;
+    text-align: left;
+    overflow: hidden;
+    color: var(--text-primary);
+    opacity: 0;
+    transform: translateY(8px);
+    animation: plCardIn 360ms cubic-bezier(.22,1,.36,1) forwards;
+    transition:
+        background var(--motion-fast),
+        border-color var(--motion-fast),
+        transform var(--motion-fast),
+        box-shadow var(--motion-fast);
+}
+.pl-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg,
+        rgba(var(--pl-r), var(--pl-g), var(--pl-b), 0.10) 0%,
+        rgba(var(--pl-r), var(--pl-g), var(--pl-b), 0.02) 60%,
+        transparent 100%);
+    pointer-events: none;
+    z-index: 0;
+    transition: opacity var(--motion-base);
+    opacity: 0.85;
+    border-radius: inherit;
+}
+.pl-card > * { position: relative; z-index: 1; }
+.pl-card:hover::before { opacity: 1; }
+@keyframes plCardIn {
+    to { opacity: 1; transform: translateY(0); }
+}
+.pl-card:hover {
+    background: var(--bg-hover);
+    border-color: rgba(var(--pl-r), var(--pl-g), var(--pl-b), 0.55);
+    transform: translateY(-1px);
+    box-shadow:
+        0 8px 18px -8px rgba(0,0,0,.4),
+        0 0 0 1px rgba(var(--pl-r), var(--pl-g), var(--pl-b), 0.35);
+}
+.pl-card:active { transform: translateY(0) scale(0.99); }
+.pl-card:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(var(--pl-r), var(--pl-g), var(--pl-b), 0.7);
+}
+.pl-card__champ { color: rgb(var(--pl-r), var(--pl-g), var(--pl-b)) !important; }
+.pl-card__tile--art { border-color: rgba(var(--pl-r), var(--pl-g), var(--pl-b), 0.5) !important; }
+.pl-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg,
+        hsl(var(--pl-hue) 70% 50% / 0.06),
+        transparent 60%);
+    pointer-events: none;
+    transition: opacity var(--motion-fast);
+    opacity: 0.5;
+    z-index: 0;
+}
+.pl-card > * { position: relative; z-index: 1; }
+/* Legacy hue-based hover/focus rules superseded by the extracted-color rules above */
+
+.pl-card--removing {
+    opacity: 0;
+    transform: translateX(20px);
+    pointer-events: none;
+    transition: opacity 200ms ease, transform 200ms ease;
+}
+
+/* Champion monogram tile (fallback when no image) */
+.pl-card__tile {
+    width: 56px;
+    height: 56px;
+    border-radius: 12px;
+    display: grid;
+    place-items: center;
+    background:
+        linear-gradient(135deg,
+            rgb(var(--pl-r), var(--pl-g), var(--pl-b)),
+            rgba(var(--pl-r), var(--pl-g), var(--pl-b), 0.5));
+    border: 1px solid rgba(var(--pl-r), var(--pl-g), var(--pl-b), 0.5);
+    box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.1),
+        0 4px 12px rgba(var(--pl-r), var(--pl-g), var(--pl-b), 0.4);
+    color: white;
+    font-weight: 700;
+    font-size: 18px;
+    letter-spacing: 0.02em;
+    flex: none;
+    overflow: hidden;
+    position: relative;
+}
+.pl-card__tile::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 30% 20%,
+        rgba(255,255,255,0.25) 0%,
+        transparent 50%);
+    pointer-events: none;
+}
+.pl-card__monogram {
+    position: relative;
+    z-index: 1;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+}
+
+/* Image tile — thumbnail.webp or champion centered splash */
+.pl-card__tile--art {
+    background: var(--bg-primary);
+    padding: 0;
+    /* border-color set dynamically from the extracted-color rule above */
+}
+.pl-card__tile--art::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, transparent 50%, rgba(0,0,0,0.35));
+    pointer-events: none;
+    z-index: 1;
+}
+.pl-card__art {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transition: transform var(--motion-base);
+}
+.pl-card:hover .pl-card__art { transform: scale(1.06); }
+
+/* Loading placeholder while we read thumbnail.webp from disk */
+.pl-card__tile--loading {
+    background:
+        linear-gradient(90deg,
+            rgba(255,255,255,0.04) 0%,
+            rgba(255,255,255,0.10) 50%,
+            rgba(255,255,255,0.04) 100%),
+        var(--bg-primary);
+    background-size: 200% 100%;
+    animation: plThumbShimmer 1.4s ease-in-out infinite;
+    border-color: var(--border);
+}
+@keyframes plThumbShimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* Body */
+.pl-card__body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+.pl-card__name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.pl-card__champ {
+    font-size: 12px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    line-height: 1.2;
+    /* Color comes from the extracted-color rule above */
+}
+.pl-card__path {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-top: 2px;
+}
+
+/* Meta column */
+.pl-card__meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+}
+.pl-card__time {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    white-space: nowrap;
+}
+.pl-card__remove {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    color: var(--text-muted);
+    background: transparent;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: background var(--motion-fast), color var(--motion-fast), border-color var(--motion-fast), transform var(--motion-fast);
+}
+.pl-card__remove:hover {
+    color: #fff;
+    background: var(--color-danger);
+    border-color: var(--color-danger);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-danger) 25%, transparent);
+}
+.pl-card__remove:active { transform: scale(0.9); }
+.pl-card__remove svg { width: 14px; height: 14px; display: block; }
+
+/* --------------------------------------------------------------------------
+   Empty state
+   -------------------------------------------------------------------------- */
+.pl-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding: 40px 20px 24px;
+    text-align: center;
+}
+.pl-empty__art {
+    position: relative;
+    width: 100px;
+    height: 100px;
+    margin-bottom: 4px;
+}
+.pl-empty__ring {
+    position: absolute;
+    inset: 12px;
+    border: 1px solid color-mix(in oklab, var(--accent-primary) 35%, transparent);
+    border-radius: 50%;
+    animation: plPulse 2.4s ease-out infinite;
+}
+.pl-empty__ring--2 {
+    inset: 0;
+    animation-delay: 1.2s;
+    border-color: color-mix(in oklab, var(--accent-primary) 20%, transparent);
+}
+@keyframes plPulse {
+    0%   { transform: scale(0.85); opacity: 1; }
+    100% { transform: scale(1.15); opacity: 0; }
+}
+.pl-empty__icon {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    color: var(--accent-primary);
+}
+.pl-empty__icon svg { width: 32px; height: 32px; opacity: 0.85; }
+
+.pl-empty__title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.pl-empty__desc {
+    margin: 0;
+    max-width: 420px;
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+.pl-empty__desc code {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    margin: 0 2px;
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+.pl-empty__actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
