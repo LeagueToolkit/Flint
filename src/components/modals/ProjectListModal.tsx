@@ -378,9 +378,6 @@ export const ProjectListModal: React.FC = () => {
             </ModalBody>
 
             <ModalFooter>
-                <Button variant="ghost" onClick={closeModal}>
-                    Cancel
-                </Button>
                 <Button variant="secondary" icon="folder" onClick={handleBrowseFiles}>
                     Open from disk
                 </Button>

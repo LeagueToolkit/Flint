@@ -556,21 +556,42 @@ input[type="radio"]:not(.np-pbe-toggle__input):disabled {
 }
 
 .modal__close {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  border-radius: 8px;
   color: var(--text-muted);
   background: transparent;
   font-size: 18px;
   line-height: 1;
-  transition: background var(--motion-fast), color var(--motion-fast);
+  cursor: pointer;
+  transition:
+    background var(--motion-fast),
+    color var(--motion-fast),
+    border-color var(--motion-fast),
+    transform 280ms cubic-bezier(.34,1.56,.64,1),
+    box-shadow var(--motion-fast);
+}
+.modal__close svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+  transition: transform 280ms cubic-bezier(.34,1.56,.64,1);
 }
 .modal__close:hover {
-  background: var(--surface-hover);
-  color: var(--text-primary);
+  color: #fff;
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-danger) 25%, transparent);
+}
+.modal__close:hover svg { transform: rotate(90deg); }
+.modal__close:active { transform: scale(0.92); }
+.modal__close:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-danger), 0 0 0 4px color-mix(in oklab, var(--color-danger) 30%, transparent);
 }
 
 /* Fullscreen modifier — used by the UI showcase preview */
