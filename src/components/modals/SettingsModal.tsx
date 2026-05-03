@@ -658,31 +658,29 @@ export const SettingsModal: React.FC = () => {
                                 />
                             </div>
 
-                            <div className="settings-item">
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                    <div className="settings-item__info">
-                                        <Icon name={state.hashesLoaded ? 'success' : 'warning'} />
-                                        <div>
-                                            <div className="settings-item__label" style={{ marginBottom: 0 }}>Hash Database</div>
-                                            <div className="settings-item__value">
-                                                {state.hashesLoaded
-                                                    ? `${state.hashCount.toLocaleString()} hashes loaded`
-                                                    : 'Hashes not loaded'}
-                                            </div>
-                                        </div>
+                            <div className={`settings-hash settings-hash--${state.hashesLoaded ? 'ok' : 'warn'}`}>
+                                <div className={`settings-hash__icon settings-hash__icon--${state.hashesLoaded ? 'ok' : 'warn'}`}>
+                                    <Icon name={state.hashesLoaded ? 'success' : 'warning'} />
+                                </div>
+                                <div className="settings-hash__body">
+                                    <div className="settings-hash__title">Hash Database</div>
+                                    <div className="settings-hash__count">
+                                        {state.hashesLoaded
+                                            ? <><strong>{state.hashCount.toLocaleString()}</strong> hashes loaded</>
+                                            : <span style={{ color: 'var(--color-warning)' }}>Hashes not loaded</span>}
                                     </div>
-                                    <Button
-                                        size="sm"
-                                        icon="refresh"
-                                        onClick={handleForceRebuildHashes}
-                                        disabled={isRebuildingHashes}
-                                    >
-                                        {isRebuildingHashes ? 'Rebuilding...' : 'Force Rebuild Hashes'}
-                                    </Button>
+                                    <div className="settings-hash__hint">
+                                        Rebuild to apply the latest fixes (BIN file resolution, new hash dumps, etc.)
+                                    </div>
                                 </div>
-                                <div className="settings-item__hint">
-                                    Rebuild hash database to apply latest fixes (BIN file resolution, etc.)
-                                </div>
+                                <Button
+                                    size="sm"
+                                    icon="refresh"
+                                    onClick={handleForceRebuildHashes}
+                                    disabled={isRebuildingHashes}
+                                >
+                                    {isRebuildingHashes ? 'Rebuilding…' : 'Force Rebuild'}
+                                </Button>
                             </div>
 
                             <div className="version-card">
@@ -834,7 +832,7 @@ export const SettingsModal: React.FC = () => {
                     Cancel
                 </Button>
                 <Button
-                    variant="primary"
+                    variant="success"
                     icon="success"
                     onClick={handleSave}
                     disabled={isValidating}

@@ -97,6 +97,26 @@
 }
 .modal--settings .settings-sidebar__item:active { transform: scale(0.985); }
 
+/* Sidebar icons — line them up dead-center with the label */
+.modal--settings .settings-sidebar__item {
+    line-height: 1;
+}
+.modal--settings .settings-sidebar__item > * {
+    display: inline-flex;
+    align-items: center;
+}
+.modal--settings .settings-sidebar__item svg {
+    width: 15px;
+    height: 15px;
+    flex: none;
+    display: block;
+}
+.modal--settings .settings-sidebar__item span {
+    line-height: 1.2;
+    /* Tiny optical-correction nudge so glyph baselines match the icon centerline */
+    transform: translateY(0.5px);
+}
+
 /* --------------------------------------------------------------------------
    3. Content area — better breathing room, scrollbar polish
    -------------------------------------------------------------------------- */
@@ -186,6 +206,111 @@
     0%   { box-shadow: 0 0 0 0   color-mix(in oklab, var(--accent-primary) 40%, transparent); }
     50%  { box-shadow: 0 0 0 6px color-mix(in oklab, var(--accent-primary) 20%, transparent); }
     100% { box-shadow: 0 0 0 0   color-mix(in oklab, var(--accent-primary) 0%,  transparent); }
+}
+
+/* --------------------------------------------------------------------------
+   Hash database card — distinct status surface
+   -------------------------------------------------------------------------- */
+.settings-hash {
+    display: grid;
+    grid-template-columns: 44px 1fr auto;
+    gap: 14px;
+    align-items: center;
+    padding: 16px 18px;
+    background:
+        linear-gradient(135deg,
+            color-mix(in oklab, var(--color-success) 8%, var(--bg-tertiary)) 0%,
+            var(--bg-tertiary) 60%);
+    border: 1px solid color-mix(in oklab, var(--color-success) 25%, var(--border));
+    border-radius: 12px;
+    margin-bottom: 12px;
+    transition: border-color var(--motion-fast), background var(--motion-fast);
+}
+.settings-hash--warn {
+    background:
+        linear-gradient(135deg,
+            color-mix(in oklab, var(--color-warning) 10%, var(--bg-tertiary)) 0%,
+            var(--bg-tertiary) 60%);
+    border-color: color-mix(in oklab, var(--color-warning) 30%, var(--border));
+}
+
+.settings-hash__icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in oklab, var(--color-success) 15%, var(--bg-primary));
+    border: 1px solid color-mix(in oklab, var(--color-success) 35%, transparent);
+    color: var(--color-success);
+    box-shadow: 0 0 12px color-mix(in oklab, var(--color-success) 25%, transparent);
+}
+.settings-hash__icon svg { width: 22px; height: 22px; }
+.settings-hash__icon--warn {
+    background: color-mix(in oklab, var(--color-warning) 15%, var(--bg-primary));
+    border-color: color-mix(in oklab, var(--color-warning) 35%, transparent);
+    color: var(--color-warning);
+    box-shadow: 0 0 12px color-mix(in oklab, var(--color-warning) 25%, transparent);
+}
+
+.settings-hash__body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+.settings-hash__title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-secondary);
+}
+.settings-hash__count {
+    font-size: 14px;
+    color: var(--text-primary);
+    line-height: 1.3;
+}
+.settings-hash__count strong {
+    color: var(--color-success);
+    font-weight: 600;
+    font-family: var(--font-mono);
+}
+.settings-hash--warn .settings-hash__count strong { color: var(--color-warning); }
+.settings-hash__hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+    line-height: 1.4;
+}
+
+/* --------------------------------------------------------------------------
+   Success button variant — green save / confirm
+   -------------------------------------------------------------------------- */
+.btn--success {
+    background: color-mix(in oklab, var(--color-success) 14%, transparent);
+    border-color: color-mix(in oklab, var(--color-success) 45%, transparent);
+    color: var(--color-success);
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-success) 15%, transparent);
+}
+.btn--success::after {
+    background: radial-gradient(
+        160px circle at var(--mx, 50%) var(--my, 50%),
+        color-mix(in oklab, var(--color-success) 40%, transparent) 0%,
+        color-mix(in oklab, var(--color-success) 15%, transparent) 30%,
+        transparent 60%) !important;
+}
+.btn--success:hover {
+    background: var(--color-success);
+    border-color: var(--color-success);
+    color: #0b1e10;
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-success) 25%, transparent);
+}
+.btn--success:hover svg { transform: scale(1.08); transition: transform var(--motion-fast); }
+.btn--success:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--color-success), 0 0 0 4px color-mix(in oklab, var(--color-success) 30%, transparent);
 }
 
 /* Version card — featured surface with accent edge */
