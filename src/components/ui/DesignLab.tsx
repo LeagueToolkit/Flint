@@ -169,10 +169,11 @@ const Toggle: React.FC<{ checked: boolean; onChange: (v: boolean) => void; disab
 
 // ─── Checkbox ───────────────────────────────────────────────────────────────
 const Check: React.FC<{ checked: boolean; onChange: (v: boolean) => void; label: React.ReactNode; disabled?: boolean }> = ({ checked, onChange, label, disabled }) => (
-    <label className="dl-check">
+    <label className={`dl-check ${disabled ? 'dl-check--disabled' : ''}`}>
         <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
         <span className="dl-check__box">
             <span className="dl-check__tick"><Icon glyph="check" /></span>
+            <span className="dl-check__cross"><Icon glyph="close" /></span>
         </span>
         <span>{label}</span>
     </label>
@@ -352,7 +353,7 @@ const Modal: React.FC<{
     }, [open, onClose]);
 
     if (!open) return null;
-    return (
+    return createPortal(
         <div className="dl-modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
             <div className={`dl-modal ${size === 'wide' ? 'dl-modal--wide' : ''} ${size === 'large' ? 'dl-modal--large' : ''}`}>
                 <div className="dl-modal__head">
@@ -362,7 +363,8 @@ const Modal: React.FC<{
                 <div className="dl-modal__body">{children}</div>
                 {footer && <div className="dl-modal__foot">{footer}</div>}
             </div>
-        </div>
+        </div>,
+        document.body,
     );
 };
 
@@ -554,6 +556,15 @@ export const DesignLab: React.FC = () => {
                             </Row>
                         </Section>
 
+                        {/* ─── Modal (placed before below-the-fold sections so the open buttons are easy to find) ─── */}
+                        <Section title="Modal" subtitle="Portal-rendered. Click an option below to open.">
+                            <Row label="Open">
+                                <button className="dl-btn dl-btn--primary" onClick={() => setOpenModal('default')}><Icon glyph="sparkle" /><span>Default modal</span></button>
+                                <button className="dl-btn" onClick={() => setOpenModal('wide')}>Wide modal</button>
+                                <button className="dl-btn dl-btn--danger" onClick={() => setOpenModal('confirm')}><Icon glyph="trash" /><span>Confirm dialog</span></button>
+                            </Row>
+                        </Section>
+
                         {/* ─── Buttons ─────────────────────────────────── */}
                         <Section title="Buttons" subtitle="Cursor-following glow, overlay primary, serious red danger.">
                             <Row label="Variants">
@@ -637,14 +648,6 @@ export const DesignLab: React.FC = () => {
                             </Row>
                         </Section>
 
-                        {/* ─── Modal ───────────────────────────────────── */}
-                        <Section title="Modal" subtitle="Spring scale-in with blur backdrop. Esc / overlay-click to close.">
-                            <Row label="Open">
-                                <button className="dl-btn dl-btn--primary" onClick={() => setOpenModal('default')}>Default modal</button>
-                                <button className="dl-btn" onClick={() => setOpenModal('wide')}>Wide modal</button>
-                                <button className="dl-btn dl-btn--danger" onClick={() => setOpenModal('confirm')}>Confirm dialog</button>
-                            </Row>
-                        </Section>
                     </>
                 )}
 

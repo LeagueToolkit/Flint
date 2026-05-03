@@ -409,23 +409,58 @@
     align-items: center;
     justify-content: center;
     flex: none;
+    position: relative;
     transition: background var(--dl-fast), border-color var(--dl-fast), transform var(--dl-fast);
 }
-.dl-check:hover .dl-check__box { border-color: color-mix(in oklab, var(--accent-primary) 50%, var(--border)); }
-.dl-check input:checked ~ .dl-check__box {
-    background: var(--accent-primary);
-    border-color: var(--accent-primary);
+.dl-check:hover .dl-check__box {
+    border-color: color-mix(in oklab, var(--color-danger) 55%, var(--border));
 }
-.dl-check__tick {
-    width: 14px; height: 14px;
-    color: white;
+/* Checked: stays dark, red border tightens, red tick appears */
+.dl-check input:checked ~ .dl-check__box {
+    background: var(--bg-primary);
+    border-color: var(--color-danger);
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-danger) 30%, transparent);
+}
+.dl-check__tick,
+.dl-check__cross {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    width: 12px; height: 12px;
     opacity: 0;
     transform: scale(0.4) rotate(-15deg);
     transition: opacity 140ms var(--dl-ease-out), transform 260ms var(--dl-ease-spring);
+    pointer-events: none;
 }
-.dl-check__tick svg { width: 100%; height: 100%; display: block; }
+.dl-check__tick  { color: var(--color-danger); }
+.dl-check__cross { color: var(--text-muted); }
+.dl-check__tick svg, .dl-check__cross svg { width: 100%; height: 100%; display: block; }
 .dl-check input:checked ~ .dl-check__box .dl-check__tick { opacity: 1; transform: scale(1) rotate(0); }
 .dl-check input:focus-visible ~ .dl-check__box { box-shadow: var(--dl-ring); }
+
+/* Disabled: 80% opacity, hatched bg, ALWAYS show cross (regardless of checked) */
+.dl-check--disabled,
+.dl-check input:disabled ~ * {
+    opacity: 0.8;
+    cursor: not-allowed;
+}
+.dl-check--disabled .dl-check__box,
+.dl-check input:disabled ~ .dl-check__box {
+    background:
+        repeating-linear-gradient(135deg,
+            color-mix(in oklab, var(--text-muted) 15%, transparent) 0 4px,
+            transparent 4px 8px),
+        var(--bg-tertiary);
+    border-color: color-mix(in oklab, var(--text-muted) 35%, var(--border));
+    box-shadow: none;
+}
+.dl-check--disabled .dl-check__tick,
+.dl-check input:disabled ~ .dl-check__box .dl-check__tick { opacity: 0 !important; }
+.dl-check--disabled .dl-check__cross,
+.dl-check input:disabled ~ .dl-check__box .dl-check__cross {
+    opacity: 1;
+    transform: scale(1) rotate(0);
+}
 
 /* --------------------------------------------------------------------------
    INPUT
@@ -650,7 +685,7 @@
    since it lives outside .dl-root and would otherwise inherit the modal's
    neutral surface. */
 .dl-dd-portal {
-    z-index: 1000;
+    z-index: 1200;
     min-width: 220px;
     padding: 8px;
     background: color-mix(in oklab, var(--bg-secondary) 95%, transparent);
@@ -770,7 +805,7 @@
    -------------------------------------------------------------------------- */
 .dl-modal-backdrop {
     position: fixed; inset: 0;
-    z-index: 100;
+    z-index: 1100;
     background: color-mix(in oklab, black 60%, transparent);
     backdrop-filter: blur(6px);
     -webkit-backdrop-filter: blur(6px);
@@ -779,20 +814,29 @@
     justify-content: center;
     padding: 24px;
     animation: dl-fade-in var(--dl-base) var(--dl-ease-out);
+    /* Portal sits outside .dl-root — re-declare base so children inherit. */
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 13px;
 }
 .dl-modal {
+    display: flex;
+    flex-direction: column;
     width: 100%;
     max-width: 480px;
+    max-height: calc(100vh - 48px);
     background: var(--bg-secondary);
     border: 1px solid var(--border);
     border-radius: var(--dl-radius-lg);
-    box-shadow: var(--dl-shadow-lg);
+    box-shadow: 0 24px 48px -16px rgba(0,0,0,.6), 0 4px 12px rgba(0,0,0,.3);
     overflow: hidden;
     transform-origin: center;
     animation: dl-modal-in 360ms var(--dl-ease-spring);
 }
 .dl-modal--wide  { max-width: 720px; }
 .dl-modal--large { max-width: 960px; }
+.dl-modal__body  { overflow: auto; flex: 1; }
+.dl-modal__head, .dl-modal__foot { flex: none; }
 
 .dl-modal__head {
     display: flex; align-items: center; gap: 12px;
