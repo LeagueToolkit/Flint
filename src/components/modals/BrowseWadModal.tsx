@@ -150,33 +150,49 @@ export const BrowseWadModal: React.FC = () => {
 
     if (!isVisible) return null;
 
+    /* Picker phase has its own headless layout (heading + subtitle inside body
+       to match the reference); other phases keep a compact ModalHeader. */
+    const showHeader = phase !== 'pick';
+
     return (
         <Modal open={isVisible} onClose={closeModal} size="wide" modifier="modal--browse-wad">
-            <ModalHeader
-                title={
-                    <span className="bw-title">
-                        <span className="bw-title__icon"><Icon name="wad" /></span>
-                        <span className="bw-title__text">
-                            <span className="bw-title__name">Open WAD File</span>
-                            <span className="bw-title__sub">
-                                {phase === 'pick' && 'Drag & drop or browse for a .wad / .wad.client'}
-                                {phase === 'loading' && 'Reading chunks…'}
-                                {phase === 'loaded' && `${totalChunks.toLocaleString()} chunks · ${unknownChunks.toLocaleString()} unresolved`}
-                                {phase === 'error' && 'Could not open this WAD'}
+            {showHeader && (
+                <ModalHeader
+                    title={
+                        <span className="bw-title">
+                            <span className="bw-title__icon"><Icon name="wad" /></span>
+                            <span className="bw-title__text">
+                                <span className="bw-title__name">Open WAD File</span>
+                                <span className="bw-title__sub">
+                                    {phase === 'loading' && 'Reading chunks…'}
+                                    {phase === 'loaded' && `${totalChunks.toLocaleString()} chunks · ${unknownChunks.toLocaleString()} unresolved`}
+                                    {phase === 'error' && 'Could not open this WAD'}
+                                </span>
                             </span>
                         </span>
-                    </span>
-                }
-                onClose={closeModal}
-            />
+                    }
+                    onClose={closeModal}
+                />
+            )}
 
             <ModalBody className="bw-body">
                 {phase === 'pick' && (
-                    <>
-                        <p className="bw-lead">
-                            Drop a League of Legends WAD file ({' '}
-                            <code>.wad</code> or <code>.wad.client</code> ) to scan its contents
-                            and detect missing path hashes.
+                    <div className="bw-pick">
+                        {/* Inline X close (since we hid the header for this phase) */}
+                        <button
+                            type="button"
+                            className="modal__close bw-pick__close"
+                            onClick={closeModal}
+                            aria-label="Close"
+                        >
+                            <Icon name="close" />
+                        </button>
+
+                        <h2 className="bw-pick__title">Open Your WAD File</h2>
+                        <p className="bw-pick__sub">
+                            Load a League of Legends WAD archive (<code>.wad</code> or
+                            {' '}<code>.wad.client</code>) to scan its contents and detect
+                            missing path hashes.
                         </p>
 
                         <div
@@ -219,12 +235,7 @@ export const BrowseWadModal: React.FC = () => {
                             <Icon name="folder" />
                             <span>Select manually from disk</span>
                         </button>
-
-                        <p className="bw-hint">
-                            Drag from File Explorer (not the browser). Files dropped from the
-                            web have no path and will be rejected.
-                        </p>
-                    </>
+                    </div>
                 )}
 
                 {phase === 'loading' && (
