@@ -267,6 +267,19 @@ export const DesignLab: React.FC = () => {
         return () => clearInterval(t);
     }, []);
 
+    // Cursor-following glow on .dl-btn — single delegated listener, sets --mx/--my
+    useEffect(() => {
+        const onMove = (e: MouseEvent) => {
+            const btn = (e.target as HTMLElement).closest<HTMLElement>('.dl-btn');
+            if (!btn) return;
+            const r = btn.getBoundingClientRect();
+            btn.style.setProperty('--mx', `${e.clientX - r.left}px`);
+            btn.style.setProperty('--my', `${e.clientY - r.top}px`);
+        };
+        document.addEventListener('mousemove', onMove);
+        return () => document.removeEventListener('mousemove', onMove);
+    }, []);
+
     function pickPalette(id: string) {
         setPaletteId(id);
         const p = PALETTES.find((x) => x.id === id);

@@ -22,7 +22,7 @@ import {
     ModalHeader,
     ProgressBar,
     Select,
-    UIShowcase,
+    DesignLab,
 } from '../ui';
 
 type SettingsTab = 'paths' | 'general' | 'dev';
@@ -866,9 +866,9 @@ export const SettingsModal: React.FC = () => {
                 onClose={() => setShowUIPreview(false)}
                 modifier="modal--fullscreen"
             >
-                <ModalHeader title="UI Primitives Showcase" onClose={() => setShowUIPreview(false)} />
+                <ModalHeader title="Design Lab" onClose={() => setShowUIPreview(false)} />
                 <ModalBody style={{ overflow: 'auto', padding: 0 }}>
-                    <UIShowcase />
+                    <DesignLab />
                 </ModalBody>
             </Modal>
         </Modal>

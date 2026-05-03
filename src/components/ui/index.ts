@@ -52,3 +52,4 @@ export { Spinner } from './Spinner';
 export type { SpinnerProps } from './Spinner';
 
 export { UIShowcase } from './UIShowcase';
+export { DesignLab } from './DesignLab';
