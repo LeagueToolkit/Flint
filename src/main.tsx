@@ -20,6 +20,8 @@ import './styles/ui-primitives.css';
 import './styles/settings-polish.css';
 // Fixer modal polish — load after settings
 import './styles/fixer-polish.css';
+// Project list modal polish
+import './styles/project-list-polish.css';
 // Import default theme (can be swapped via custom theme import)
 import './themes/default.css';
 

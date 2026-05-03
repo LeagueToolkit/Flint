@@ -1,76 +1,97 @@
 /**
- * Flint - Project List Modal Component
- * Shows saved projects with animations and an Import Projects (TODO) button
+ * Flint - Project List Modal
+ *
+ * Modernized "open existing project" view: searchable, sortable, card-based.
+ * Each row shows a champion monogram tile, project + path, relative time, and
+ * a trash control. Footer hosts "Open from disk" and the green "Import Mod"
+ * primary action.
  */
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { useAppState, useConfigStore } from '../../lib/stores';
 import { formatRelativeTime } from '../../lib/utils';
 import { open } from '@tauri-apps/plugin-dialog';
 import { appDataDir } from '@tauri-apps/api/path';
-import { Button, Icon, Modal, ModalBody, ModalFooter, ModalHeader } from '../ui';
+import { Button, Icon, Input, Modal, ModalBody, ModalFooter, ModalHeader, Picker } from '../ui';
 import * as api from '../../lib/api';
 import { listen } from '@tauri-apps/api/event';
+import type { SavedProject } from '../../lib/types';
+
+type SortMode = 'recent' | 'name' | 'champion';
+
+const SORT_OPTIONS = [
+    { value: 'recent',   label: 'Recently opened' },
+    { value: 'name',     label: 'Project name (A–Z)' },
+    { value: 'champion', label: 'Champion (A–Z)' },
+] as const;
+
+/** Two-letter monogram for the champion tile (e.g. "Aatrox" → "AA"). */
+function monogram(champion: string): string {
+    const c = (champion || '?').trim();
+    if (!c) return '?';
+    if (c.length <= 2) return c.toUpperCase();
+    // Use first two letters
+    return (c[0] + c[1]).toUpperCase();
+}
+
+/** Stable hue 0–360 derived from the champion name — gives each tile its own
+ *  color without persistence. */
+function hueFor(champion: string): number {
+    let h = 0;
+    for (let i = 0; i < champion.length; i++) h = (h * 31 + champion.charCodeAt(i)) >>> 0;
+    return h % 360;
+}
 
 export const ProjectListModal: React.FC = () => {
     const { state, dispatch, closeModal, setWorking, setReady, setError, openConfirmDialog } = useAppState();
     const configStore = useConfigStore();
     const [removingId, setRemovingId] = useState<string | null>(null);
+    const [search, setSearch] = useState('');
+    const [sortMode, setSortMode] = useState<SortMode>('recent');
 
     const isVisible = state.activeModal === 'projectList';
     const savedProjects = state.savedProjects || [];
 
-    // Listen for import progress events (Fantome + ModPkg)
+    // Reset search when modal opens
     useEffect(() => {
-        const unlistenFantome = listen<{status: string, message: string}>('fantome-import-progress', (event) => {
-            const { status, message } = event.payload;
-            if (status === 'error') {
-                setError(message);
-            } else {
-                setWorking(message);
-            }
-        });
-        const unlistenModpkg = listen<{status: string, message: string}>('modpkg-import-progress', (event) => {
-            const { status, message } = event.payload;
-            if (status === 'error') {
-                setError(message);
-            } else {
-                setWorking(message);
-            }
-        });
+        if (isVisible) {
+            setSearch('');
+            setSortMode('recent');
+        }
+    }, [isVisible]);
 
+    // Listen for import progress events
+    useEffect(() => {
+        const unlistenFantome = listen<{ status: string; message: string }>('fantome-import-progress', (event) => {
+            const { status, message } = event.payload;
+            if (status === 'error') setError(message);
+            else setWorking(message);
+        });
+        const unlistenModpkg = listen<{ status: string; message: string }>('modpkg-import-progress', (event) => {
+            const { status, message } = event.payload;
+            if (status === 'error') setError(message);
+            else setWorking(message);
+        });
         return () => {
-            unlistenFantome.then(fn => fn());
-            unlistenModpkg.then(fn => fn());
+            unlistenFantome.then((fn) => fn());
+            unlistenModpkg.then((fn) => fn());
         };
     }, [setWorking, setError]);
 
     const handleOpenProject = useCallback(async (projectPath: string) => {
         closeModal();
-
         try {
-            setWorking('Opening project...');
-
-            // Normalize path - strip project file name if present
-            // Handles: mod.config.json, flint.json, project.json
+            setWorking('Opening project…');
             let normalizedPath = projectPath;
             if (normalizedPath.endsWith('.json')) {
                 normalizedPath = normalizedPath.replace(/[\\/](mod\.config|flint|project)\.json$/, '');
             }
 
             const project = await api.openProject(normalizedPath);
+            dispatch({ type: 'SET_PROJECT', payload: { project, path: normalizedPath } });
 
-            dispatch({
-                type: 'SET_PROJECT',
-                payload: { project, path: normalizedPath },
-            });
-
-            // Determine project directory
-            let projectDir = normalizedPath;
-
-            // Fetch file tree
             try {
-                const files = await api.listProjectFiles(projectDir);
+                const files = await api.listProjectFiles(normalizedPath);
                 dispatch({ type: 'SET_FILE_TREE', payload: files });
             } catch (filesError) {
                 console.error('Failed to load project files:', filesError);
@@ -78,8 +99,7 @@ export const ProjectListModal: React.FC = () => {
 
             setReady();
 
-            // Update recent projects (use normalized path)
-            const recent = state.recentProjects.filter(p => p.path !== normalizedPath);
+            const recent = state.recentProjects.filter((p) => p.path !== normalizedPath);
             recent.unshift({
                 name: project.display_name || project.name,
                 champion: project.champion,
@@ -88,7 +108,6 @@ export const ProjectListModal: React.FC = () => {
                 lastOpened: new Date().toISOString(),
             });
             dispatch({ type: 'SET_RECENT_PROJECTS', payload: recent.slice(0, 10) });
-
         } catch (error) {
             console.error('Failed to open project:', error);
             const flintError = error as api.FlintError;
@@ -103,10 +122,7 @@ export const ProjectListModal: React.FC = () => {
                 filters: [{ name: 'Flint Project', extensions: ['json'] }],
                 multiple: false,
             });
-
-            if (selected) {
-                await handleOpenProject(selected as string);
-            }
+            if (selected) await handleOpenProject(selected as string);
         } catch (error) {
             console.error('Failed to open project:', error);
         }
@@ -114,12 +130,9 @@ export const ProjectListModal: React.FC = () => {
 
     const handleRemoveProject = useCallback((e: React.MouseEvent, projectId: string) => {
         e.stopPropagation();
-
-        // Find the project to get its path and name
-        const project = savedProjects.find(p => p.id === projectId);
+        const project = savedProjects.find((p) => p.id === projectId);
         if (!project) return;
 
-        // Show custom confirmation dialog
         openConfirmDialog({
             title: 'Delete Project',
             message: `Are you sure you want to delete "${project.name}"?\n\nThis will permanently delete all project files and cannot be undone.`,
@@ -128,19 +141,13 @@ export const ProjectListModal: React.FC = () => {
             danger: true,
             onConfirm: async () => {
                 try {
-                    // Start fade-out animation
                     setRemovingId(projectId);
-
-                    // Try to delete the project files, but if folder doesn't exist, just remove from list
-                    setWorking('Deleting project files...');
+                    setWorking('Deleting project files…');
                     try {
                         await api.deleteProject(project.path);
                     } catch (deleteError) {
-                        // If folder doesn't exist, that's fine - just remove from list
                         console.warn('Project folder may not exist, removing from list anyway:', deleteError);
                     }
-
-                    // Allow fade-out animation to play, then remove from list
                     setTimeout(() => {
                         dispatch({ type: 'REMOVE_SAVED_PROJECT', payload: projectId });
                         setRemovingId(null);
@@ -171,7 +178,6 @@ export const ProjectListModal: React.FC = () => {
                 multiple: false,
                 directory: false,
             });
-
             if (!selected) return;
 
             const filePath = selected as string;
@@ -183,46 +189,38 @@ export const ProjectListModal: React.FC = () => {
             let modName: string;
 
             if (isModpkg) {
-                // ModPkg import flow
-                setWorking('Analyzing ModPkg...');
+                setWorking('Analyzing ModPkg…');
                 const analysis = await api.analyzeModpkg(filePath);
-
                 if (!analysis.is_champion_mod) {
                     setError('This does not appear to be a champion mod. Only champion mods are supported.');
                     return;
                 }
-
                 champion = analysis.champion || 'Unknown';
                 skinId = analysis.skin_ids[0] || 0;
                 creatorName = analysis.authors[0] || state.creatorName || 'Unknown';
                 modName = analysis.display_name || analysis.name || `${champion}_Skin${skinId}_Imported`;
             } else {
-                // Fantome / WAD import flow
-                setWorking('Analyzing Fantome mod...');
+                setWorking('Analyzing Fantome mod…');
                 const analysis = await api.analyzeFantome(filePath);
-
                 if (!analysis.is_champion_mod) {
                     setError('This does not appear to be a champion mod. Only champion mods are supported.');
                     return;
                 }
-
                 champion = analysis.champion || 'Unknown';
                 skinId = analysis.skin_ids[0] || 0;
                 creatorName = analysis.metadata?.author || state.creatorName || 'Unknown';
                 modName = analysis.metadata?.name || `${champion}_Skin${skinId}_Imported`;
             }
 
-            // Get default project directory: {AppData}/RitoShark/Flint/Projects
             const appData = await appDataDir();
             const parts = appData.replace(/\\/g, '/').split('/');
             parts.pop();
             const defaultProjectsDir = `${parts.join('/')}/RitoShark/Flint/Projects`;
 
-            // Sanitize for filesystem (remove special characters)
             const sanitizedModName = modName.replace(/[^a-zA-Z0-9_-]/g, '_');
             const dirName = `${champion}_Skin${skinId}_${sanitizedModName}`;
 
-            setWorking('Importing and refathering mod files...');
+            setWorking('Importing and refathering mod files…');
             const projectDir = `${defaultProjectsDir}/${dirName}`;
 
             const options: api.ImportOptions = {
@@ -231,7 +229,7 @@ export const ProjectListModal: React.FC = () => {
                 project_name: modName,
                 target_skin_id: skinId,
                 cleanup_unused: false,
-                match_from_league: !isModpkg, // Only match from League for fantome/WAD (modpkg already has all files)
+                match_from_league: !isModpkg,
                 league_path: state.leaguePath || null,
                 use_jade: configStore.binConverterEngine === 'jade',
             };
@@ -240,15 +238,9 @@ export const ProjectListModal: React.FC = () => {
                 ? await api.importModpkg(filePath, projectDir, options)
                 : await api.importFantomeWad(filePath, projectDir, options);
 
-            // Open the project
-            setWorking('Opening project...');
+            setWorking('Opening project…');
+            dispatch({ type: 'SET_PROJECT', payload: { project, path: projectDir } });
 
-            dispatch({
-                type: 'SET_PROJECT',
-                payload: { project, path: projectDir },
-            });
-
-            // Fetch file tree
             try {
                 const files = await api.listProjectFiles(projectDir);
                 dispatch({ type: 'SET_FILE_TREE', payload: files });
@@ -256,8 +248,7 @@ export const ProjectListModal: React.FC = () => {
                 console.error('Failed to load project files:', filesError);
             }
 
-            // Update recent projects
-            const recent = state.recentProjects.filter(p => p.path !== projectDir);
+            const recent = state.recentProjects.filter((p) => p.path !== projectDir);
             recent.unshift({
                 name: project.display_name || project.name,
                 champion: project.champion,
@@ -267,97 +258,159 @@ export const ProjectListModal: React.FC = () => {
             });
             dispatch({ type: 'SET_RECENT_PROJECTS', payload: recent.slice(0, 10) });
 
-            // Close modal and clear loading state
             closeModal();
             setReady();
-
         } catch (error) {
             console.error('Failed to import mod:', error);
             const flintError = error as api.FlintError;
             closeModal();
             setError(flintError.getUserMessage?.() || 'Failed to import mod');
         }
-    }, [state.leaguePath, state.creatorName, state.recentProjects, dispatch, closeModal, setWorking, setReady, setError]);
+    }, [state.leaguePath, state.creatorName, state.recentProjects, dispatch, closeModal, setWorking, setReady, setError, configStore.binConverterEngine]);
+
+    // Filtered + sorted view
+    const visibleProjects = useMemo(() => {
+        const q = search.trim().toLowerCase();
+        let list = q
+            ? savedProjects.filter((p) =>
+                `${p.champion} ${p.name} ${p.path}`.toLowerCase().includes(q))
+            : savedProjects.slice();
+
+        switch (sortMode) {
+            case 'name':
+                list.sort((a, b) => a.name.localeCompare(b.name));
+                break;
+            case 'champion':
+                list.sort((a, b) => (a.champion || '').localeCompare(b.champion || '') || a.name.localeCompare(b.name));
+                break;
+            case 'recent':
+            default:
+                list.sort((a, b) => (b.lastOpened || '').localeCompare(a.lastOpened || ''));
+                break;
+        }
+        return list;
+    }, [savedProjects, search, sortMode]);
 
     return (
         <Modal open={isVisible} onClose={closeModal} modifier="modal--project-list">
-                <ModalHeader
-                    title={
-                        <>
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                                <path d="M3 7V17C3 18.1046 3.89543 19 5 19H19C20.1046 19 21 18.1046 21 17V9C21 7.89543 20.1046 7 19 7H13L11 5H5C3.89543 5 3 5.89543 3 7Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                            My Projects
-                        </>
-                    }
-                    onClose={closeModal}
-                />
+            <ModalHeader
+                title={
+                    <span className="pl-title">
+                        <span className="pl-title__icon"><Icon name="folder" /></span>
+                        <span>
+                            <span className="pl-title__name">My Projects</span>
+                            <span className="pl-title__sub">
+                                {savedProjects.length === 0
+                                    ? 'No saved projects yet'
+                                    : `${savedProjects.length} saved · open or import`}
+                            </span>
+                        </span>
+                    </span>
+                }
+                onClose={closeModal}
+            />
 
-                <ModalBody className="project-list__body">
-                    {savedProjects.length === 0 ? (
-                        <div className="project-list__empty">
-                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.3 }}>
-                                <path d="M3 7V17C3 18.1046 3.89543 19 5 19H19C20.1046 19 21 18.1046 21 17V9C21 7.89543 20.1046 7 19 7H13L11 5H5C3.89543 5 3 5.89543 3 7Z" stroke="currentColor" strokeWidth="1.5" />
-                            </svg>
-                            <div className="project-list__empty-title">No Projects Yet</div>
-                            <div className="project-list__empty-desc">
-                                Create a new project or browse for an existing one to get started.
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="project-list__items">
-                            {savedProjects.map((project, index) => (
-                                <div
-                                    key={project.id}
-                                    className={`project-list__item ${removingId === project.id ? 'project-list__item--removing' : ''}`}
-                                    onClick={() => handleOpenProject(project.path)}
-                                    style={{ animationDelay: `${index * 50}ms` }}
-                                >
-                                    <div className="project-list__item-icon">
-                                        <Icon name="folder" />
-                                    </div>
-                                    <div className="project-list__item-info">
-                                        <div className="project-list__item-name">
-                                            {project.champion} — {project.name}
-                                        </div>
-                                        <div className="project-list__item-path" title={project.path}>
-                                            {project.path}
-                                        </div>
-                                    </div>
-                                    <div className="project-list__item-meta">
-                                        <span className="project-list__item-date">
-                                            {formatRelativeTime(project.lastOpened)}
-                                        </span>
-                                        <button
-                                            className="project-list__item-remove"
-                                            onClick={(e) => handleRemoveProject(e, project.id)}
-                                            title="Remove from list"
-                                        >
-                                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                                                <path d="M4.5 4.5l7 7m0-7l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                                            </svg>
-                                        </button>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </ModalBody>
+            {savedProjects.length > 0 && (
+                <div className="pl-toolbar">
+                    <div className="pl-search">
+                        <Icon name="search" />
+                        <Input
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            placeholder="Search by champion, name, or path…"
+                        />
+                    </div>
+                    <Picker<SortMode>
+                        value={sortMode}
+                        onChange={(v) => setSortMode(v as SortMode)}
+                        options={SORT_OPTIONS as unknown as { value: SortMode; label: string }[]}
+                        width={200}
+                    />
+                </div>
+            )}
 
-                <ModalFooter className="project-list__footer">
-                    <Button onClick={handleBrowseFiles} title="Open an existing Flint project">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ marginRight: 4 }}>
-                            <path d="M3 7V17C3 18.1046 3.89543 19 5 19H19C20.1046 19 21 18.1046 21 17V9C21 7.89543 20.1046 7 19 7H13L11 5H5C3.89543 5 3 5.89543 3 7Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                        Open Existing Project
-                    </Button>
-                    <Button variant="primary" onClick={handleImportMod} title="Import .fantome, .modpkg, or .wad file">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ marginRight: 4 }}>
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                        Import Mod
-                    </Button>
-                </ModalFooter>
+            <ModalBody className="pl-body">
+                {savedProjects.length === 0 ? (
+                    <ProjectsEmpty onBrowse={handleBrowseFiles} onImport={handleImportMod} />
+                ) : visibleProjects.length === 0 ? (
+                    <div className="pl-no-match">
+                        <Icon name="search" />
+                        <span>No projects match “{search}”.</span>
+                    </div>
+                ) : (
+                    <div className="pl-grid">
+                        {visibleProjects.map((project: SavedProject, i) => (
+                            <button
+                                key={project.id}
+                                type="button"
+                                className={`pl-card ${removingId === project.id ? 'pl-card--removing' : ''}`}
+                                onClick={() => handleOpenProject(project.path)}
+                                style={{
+                                    animationDelay: `${Math.min(i, 12) * 28}ms`,
+                                    ['--pl-hue' as never]: hueFor(project.champion),
+                                }}
+                                title={`Open ${project.champion} — ${project.name}`}
+                            >
+                                <span className="pl-card__tile">
+                                    <span className="pl-card__monogram">{monogram(project.champion)}</span>
+                                </span>
+                                <span className="pl-card__body">
+                                    <span className="pl-card__name">{project.name}</span>
+                                    <span className="pl-card__champ">{project.champion}</span>
+                                    <span className="pl-card__path" title={project.path}>{project.path}</span>
+                                </span>
+                                <span className="pl-card__meta">
+                                    <span className="pl-card__time">{formatRelativeTime(project.lastOpened)}</span>
+                                    <span
+                                        className="pl-card__remove"
+                                        role="button"
+                                        tabIndex={-1}
+                                        onClick={(e) => handleRemoveProject(e, project.id)}
+                                        title="Delete project"
+                                    >
+                                        <Icon name="trash" />
+                                    </span>
+                                </span>
+                            </button>
+                        ))}
+                    </div>
+                )}
+            </ModalBody>
+
+            <ModalFooter>
+                <Button variant="ghost" onClick={closeModal}>
+                    Cancel
+                </Button>
+                <Button variant="secondary" icon="folder" onClick={handleBrowseFiles}>
+                    Open from disk
+                </Button>
+                <Button variant="success" icon="download" onClick={handleImportMod}>
+                    Import Mod
+                </Button>
+            </ModalFooter>
         </Modal>
     );
 };
+
+// =============================================================================
+// Empty state
+// =============================================================================
+
+const ProjectsEmpty: React.FC<{ onBrowse: () => void; onImport: () => void }> = ({ onBrowse, onImport }) => (
+    <div className="pl-empty">
+        <div className="pl-empty__art">
+            <span className="pl-empty__ring" />
+            <span className="pl-empty__ring pl-empty__ring--2" />
+            <span className="pl-empty__icon"><Icon name="folder" /></span>
+        </div>
+        <h3 className="pl-empty__title">No projects yet</h3>
+        <p className="pl-empty__desc">
+            Create a new project, open one from disk, or import a <code>.fantome</code> /
+            <code>.modpkg</code> to get started.
+        </p>
+        <div className="pl-empty__actions">
+            <Button icon="folder" onClick={onBrowse}>Open from disk</Button>
+            <Button variant="success" icon="download" onClick={onImport}>Import Mod</Button>
+        </div>
+    </div>
+);
