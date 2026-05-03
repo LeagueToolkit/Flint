@@ -157,8 +157,8 @@ export async function initBackendLogListener() {
             }
         );
 
-        originalConsole.log('✓ Backend log listener initialized');
-        addLogEntry('info', '✓ Backend log listener connected');
+        originalConsole.log('Backend log listener initialized');
+        addLogEntry('info', 'Backend log listener connected');
     } catch (error) {
         originalConsole.error('✗ Failed to initialize backend log listener:', error);
         addLogEntry('error', '✗ Failed to initialize backend log listener');

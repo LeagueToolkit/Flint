@@ -124,7 +124,7 @@ function useProjectArtUrl(project: SavedProject) {
             try {
                 const folder = project.path.replace(/[\\/](mod\.config|flint|project)\.json$/, '');
                 const thumbPath = `${folder.replace(/\\/g, '/')}/thumbnail.webp`;
-                const bytes = await api.readFileBytes(thumbPath);
+                const bytes = await api.readFileBytes(thumbPath, { silent: true });
                 if (cancelled.current) return;
                 const blob = new Blob([new Uint8Array(bytes)], { type: 'image/webp' });
                 const url = URL.createObjectURL(blob);

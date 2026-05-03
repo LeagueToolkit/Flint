@@ -125,13 +125,23 @@ export class FlintError extends Error {
 }
 
 /**
- * Wrap a Tauri command with consistent error handling
+ * Wrap a Tauri command with consistent error handling.
+ *
+ * Pass `{ silent: true }` for commands whose failure is *expected* (e.g. an
+ * optional file read) — the call still throws so the caller can handle it,
+ * but nothing gets logged.
  */
-async function invokeCommand<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
+async function invokeCommand<T>(
+    command: string,
+    args: Record<string, unknown> = {},
+    opts: { silent?: boolean } = {},
+): Promise<T> {
     try {
         return await invoke<T>(command, args);
     } catch (error) {
-        console.error(`[Flint] Command "${command}" failed:`, error);
+        if (!opts.silent) {
+            console.error(`[Flint] Command "${command}" failed:`, error);
+        }
         throw new FlintError(command, error);
     }
 }
@@ -578,8 +588,8 @@ export async function getBinPaths(binPath: string): Promise<unknown[]> {
 // File Commands (Preview System)
 // =============================================================================
 
-export async function readFileBytes(path: string): Promise<Uint8Array> {
-    const result = await invokeCommand<number[]>('read_file_bytes', { path });
+export async function readFileBytes(path: string, opts: { silent?: boolean } = {}): Promise<Uint8Array> {
+    const result = await invokeCommand<number[]>('read_file_bytes', { path }, opts);
     return new Uint8Array(result);
 }
 
