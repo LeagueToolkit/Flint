@@ -114,7 +114,7 @@ export function initializeLogger() {
     };
 
     // Log initialization
-    addLogEntry('info', '🔥 Flint frontend logger initialized');
+    addLogEntry('info', 'Flint frontend logger initialized');
 }
 
 /**

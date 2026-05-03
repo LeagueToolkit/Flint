@@ -68,7 +68,7 @@ fn main() {
         .with(filter_layer)
         .init();
 
-    tracing::info!("🔥 Flint starting...");
+    tracing::info!("Flint starting...");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())

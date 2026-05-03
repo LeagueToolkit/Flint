@@ -1,39 +1,42 @@
 /**
  * Flint - Log Panel Component
- * Displays application logs captured by the logger service
+ * Displays application logs captured by the logger service.
+ *
+ * Polished version: selectable text, per-line copy on hover, level pills
+ * (no emoji), filter input, level chips, copy/clear actions via the shared
+ * Button primitive.
  */
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppMetadataStore, useNotificationStore } from '../lib/stores';
 import { setLogStore } from '../lib/logger';
+import { Button, Icon } from './ui';
 
-// SVG Icons
-const TrashIcon = () => (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-        <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z" />
-        <path fillRule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z" />
-    </svg>
-);
+type LogLevel = 'info' | 'warning' | 'error';
+type FilterLevel = 'all' | LogLevel;
 
-const CopyIcon = () => (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-        <path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/>
-        <path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z"/>
-    </svg>
-);
+const LEVEL_LABEL: Record<LogLevel, string> = {
+    info: 'INFO',
+    warning: 'WARN',
+    error: 'ERROR',
+};
 
-const CloseIcon = () => (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-        <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z" />
-    </svg>
-);
+const FILTER_OPTIONS: { value: FilterLevel; label: string }[] = [
+    { value: 'all',     label: 'All'   },
+    { value: 'info',    label: 'Info'  },
+    { value: 'warning', label: 'Warn'  },
+    { value: 'error',   label: 'Error' },
+];
 
-const TerminalIcon = () => (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-        <path d="M6 9a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 0 1h-3A.5.5 0 0 1 6 9zM3.854 4.146a.5.5 0 1 0-.708.708L4.793 6.5 3.146 8.146a.5.5 0 1 0 .708.708l2-2a.5.5 0 0 0 0-.708l-2-2z" />
-        <path d="M2 1a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2H2zm12 1a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1h12z" />
-    </svg>
-);
+function formatTime(timestamp: number): string {
+    const d = new Date(timestamp);
+    return d.toLocaleTimeString('en-US', {
+        hour12: false,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+    });
+}
 
 export const LogPanel: React.FC = () => {
     const logs = useAppMetadataStore((s) => s.logs);
@@ -48,157 +51,185 @@ export const LogPanel: React.FC = () => {
     const contentRef = useRef<HTMLDivElement>(null);
     const hasConnectedRef = useRef(false);
 
-    // Connect the logger to the store on mount (pass batch function for throttled flushing)
+    const [filter, setFilter] = useState('');
+    const [levelFilter, setLevelFilter] = useState<FilterLevel>('all');
+
+    // Connect the logger to the store on mount
     useEffect(() => {
         if (hasConnectedRef.current) return;
         hasConnectedRef.current = true;
-
         setLogStore(addLog, addLogsBatch);
     }, [addLog, addLogsBatch]);
+
+    // Counts per level (compute before filtering)
+    const counts = useMemo(() => {
+        let info = 0, warning = 0, error = 0;
+        for (const l of logs) {
+            if (l.level === 'error') error++;
+            else if (l.level === 'warning') warning++;
+            else info++;
+        }
+        return { info, warning, error };
+    }, [logs]);
+
+    // Filtered logs (level + text)
+    const filteredLogs = useMemo(() => {
+        const q = filter.trim().toLowerCase();
+        return logs.filter((l) => {
+            if (levelFilter !== 'all' && l.level !== levelFilter) return false;
+            if (q && !l.message.toLowerCase().includes(q)) return false;
+            return true;
+        });
+    }, [logs, filter, levelFilter]);
 
     // Auto-scroll to bottom when new logs appear
     useEffect(() => {
         if (contentRef.current && logPanelExpanded) {
             contentRef.current.scrollTop = contentRef.current.scrollHeight;
         }
-    }, [logs, logPanelExpanded]);
+    }, [filteredLogs, logPanelExpanded]);
 
-    // Get the latest log message or default
     const latestLog = logs.length > 0 ? logs[logs.length - 1] : null;
     const displayMessage = latestLog ? latestLog.message : statusMessage || 'Ready';
-    const displayLevel = latestLog?.level || 'info';
+    const displayLevel: LogLevel = latestLog?.level || 'info';
 
-    // Format timestamp
-    const formatTime = (timestamp: number) => {
-        const date = new Date(timestamp);
-        return date.toLocaleTimeString('en-US', {
-            hour12: false,
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-        });
-    };
-
-    // Get level class for styling
-    const getLevelClass = (level: string) => {
-        switch (level) {
-            case 'error':
-                return 'log-panel__entry--error';
-            case 'warning':
-                return 'log-panel__entry--warning';
-            default:
-                return 'log-panel__entry--info';
-        }
-    };
-
-    // Get emoji indicator for log level
-    const getLevelEmoji = (level: string) => {
-        switch (level) {
-            case 'error':
-                return '❌';
-            case 'warning':
-                return '⚠️';
-            default:
-                return 'ℹ️';
-        }
-    };
-
-    // Get indicator class based on latest log level
-    const getIndicatorClass = () => {
+    // Indicator class on the collapsed bar
+    const indicatorClass = (() => {
         if (!latestLog) {
             switch (status) {
-                case 'working':
-                    return 'log-panel__indicator--working';
-                case 'error':
-                    return 'log-panel__indicator--error';
-                default:
-                    return 'log-panel__indicator--ready';
+                case 'working': return 'log-panel__indicator--working';
+                case 'error':   return 'log-panel__indicator--error';
+                default:        return 'log-panel__indicator--ready';
             }
         }
         switch (latestLog.level) {
-            case 'error':
-                return 'log-panel__indicator--error';
-            case 'warning':
-                return 'log-panel__indicator--warning';
-            default:
-                return 'log-panel__indicator--ready';
+            case 'error':   return 'log-panel__indicator--error';
+            case 'warning': return 'log-panel__indicator--warning';
+            default:        return 'log-panel__indicator--ready';
         }
-    };
+    })();
 
-    // Handle click on collapsed bar
-    const handleBarClick = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        toggleLogPanel();
-    };
-
-    // Handle close button click
-    const handleClose = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        toggleLogPanel();
-    };
-
-    // Handle clear button click
-    const handleClear = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        clearLogs();
-    };
-
-    // Handle copy logs button click
-    const handleCopyLogs = (e: React.MouseEvent) => {
-        e.stopPropagation();
-
-        // Format logs as plain text
-        const logText = logs.map(log => {
+    const copyAll = () => {
+        const text = filteredLogs.map((log) => {
             const time = formatTime(log.timestamp);
-            const level = log.level.toUpperCase().padEnd(7);
+            const level = LEVEL_LABEL[log.level as LogLevel].padEnd(5);
             return `[${time}] ${level} ${log.message}`;
         }).join('\n');
+        navigator.clipboard.writeText(text)
+            .then(() => showToast('success', `${filteredLogs.length} log${filteredLogs.length === 1 ? '' : 's'} copied`))
+            .catch(() => showToast('error', 'Failed to copy logs'));
+    };
 
-        // Copy to clipboard
-        navigator.clipboard.writeText(logText).then(() => {
-            showToast('success', 'Logs copied to clipboard');
-        }).catch(() => {
-            showToast('error', 'Failed to copy logs');
-        });
+    const copyLine = (msg: string) => {
+        navigator.clipboard.writeText(msg)
+            .then(() => showToast('info', 'Line copied'))
+            .catch(() => showToast('error', 'Failed to copy'));
     };
 
     if (logPanelExpanded) {
         return (
-            <div className="log-panel log-panel--expanded" onClick={handleClose}>
+            <div className="log-panel log-panel--expanded" onClick={toggleLogPanel}>
                 <div className="log-panel__container" onClick={(e) => e.stopPropagation()}>
+                    {/* Header */}
                     <div className="log-panel__header">
                         <span className="log-panel__title">
-                            <TerminalIcon /> Output
+                            <span className="log-panel__title-icon"><Icon name="info" /></span>
+                            <span>
+                                <span className="log-panel__title-name">Output</span>
+                                <span className="log-panel__title-sub">
+                                    {logs.length} entr{logs.length === 1 ? 'y' : 'ies'}
+                                    {logs.length !== filteredLogs.length && ` · ${filteredLogs.length} shown`}
+                                </span>
+                            </span>
                         </span>
                         <div className="log-panel__actions">
-                            <button className="log-panel__btn" onClick={handleCopyLogs} title="Copy logs to clipboard">
-                                <CopyIcon /> Copy
-                            </button>
-                            <button className="log-panel__btn" onClick={handleClear} title="Clear logs">
-                                <TrashIcon /> Clear
-                            </button>
-                            <button className="log-panel__btn log-panel__btn--close" onClick={handleClose} title="Close">
-                                <CloseIcon />
+                            <Button size="sm" icon="copy" onClick={copyAll} disabled={filteredLogs.length === 0}>
+                                Copy logs
+                            </Button>
+                            <Button size="sm" variant="danger" icon="trash" onClick={clearLogs} disabled={logs.length === 0}>
+                                Clear
+                            </Button>
+                            <button className="modal__close" onClick={toggleLogPanel} aria-label="Close">
+                                <Icon name="close" />
                             </button>
                         </div>
                     </div>
+
+                    {/* Toolbar */}
+                    <div className="log-panel__toolbar">
+                        <div className="log-panel__search">
+                            <Icon name="search" />
+                            <input
+                                type="text"
+                                className="log-panel__search-input"
+                                placeholder="Filter logs…"
+                                value={filter}
+                                onChange={(e) => setFilter(e.target.value)}
+                            />
+                            {filter && (
+                                <button
+                                    className="log-panel__search-clear"
+                                    onClick={() => setFilter('')}
+                                    aria-label="Clear filter"
+                                    title="Clear filter"
+                                >
+                                    <Icon name="close" />
+                                </button>
+                            )}
+                        </div>
+                        <div className="log-panel__levels">
+                            {FILTER_OPTIONS.map((opt) => {
+                                const count = opt.value === 'all'
+                                    ? logs.length
+                                    : counts[opt.value as LogLevel];
+                                return (
+                                    <button
+                                        key={opt.value}
+                                        className={`log-panel__chip log-panel__chip--${opt.value} ${levelFilter === opt.value ? 'log-panel__chip--active' : ''}`}
+                                        onClick={() => setLevelFilter(opt.value)}
+                                    >
+                                        <span>{opt.label}</span>
+                                        <span className="log-panel__chip-count">{count}</span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    {/* Content */}
                     <div className="log-panel__content" ref={contentRef}>
                         {logs.length === 0 ? (
                             <div className="log-panel__empty">
-                                No logs yet. Logs will appear here as you use Flint.
-                                <br />
-                                <small style={{ opacity: 0.7, marginTop: '8px', display: 'block' }}>
-                                    Enable verbose logging in Settings to see more details.
-                                </small>
+                                <span className="log-panel__empty-icon"><Icon name="info" /></span>
+                                <strong>No logs yet</strong>
+                                <span>Logs will appear here as you use Flint.</span>
+                                <small>Enable verbose logging in Settings to see more details.</small>
+                            </div>
+                        ) : filteredLogs.length === 0 ? (
+                            <div className="log-panel__empty">
+                                <span className="log-panel__empty-icon"><Icon name="search" /></span>
+                                <strong>No matching logs</strong>
+                                <span>{filter ? `Nothing matches "${filter}"` : `No ${levelFilter} entries.`}</span>
                             </div>
                         ) : (
-                            logs.map((log) => (
-                                <div key={log.id} className={`log-panel__entry ${getLevelClass(log.level)}`}>
+                            filteredLogs.map((log) => (
+                                <div
+                                    key={log.id}
+                                    className={`log-panel__entry log-panel__entry--${log.level}`}
+                                >
                                     <span className="log-panel__time">{formatTime(log.timestamp)}</span>
-                                    <span className="log-panel__level" title={log.level}>
-                                        {getLevelEmoji(log.level)}
+                                    <span className={`log-panel__level-pill log-panel__level-pill--${log.level}`}>
+                                        {LEVEL_LABEL[log.level as LogLevel]}
                                     </span>
                                     <span className="log-panel__message">{log.message}</span>
+                                    <button
+                                        className="log-panel__entry-copy"
+                                        onClick={() => copyLine(log.message)}
+                                        title="Copy line"
+                                        aria-label="Copy log line"
+                                    >
+                                        <Icon name="copy" />
+                                    </button>
                                 </div>
                             ))
                         )}
@@ -209,16 +240,16 @@ export const LogPanel: React.FC = () => {
     }
 
     return (
-        <footer className="log-panel log-panel--collapsed" onClick={handleBarClick}>
+        <footer className="log-panel log-panel--collapsed" onClick={toggleLogPanel}>
             <div className="log-panel__left">
-                <span className={`log-panel__indicator ${getIndicatorClass()}`} />
-                <span className={`log-panel__text ${getLevelClass(displayLevel)}`}>
-                    {displayMessage.length > 100 ? displayMessage.substring(0, 100) + '...' : displayMessage}
+                <span className={`log-panel__indicator ${indicatorClass}`} />
+                <span className={`log-panel__text log-panel__entry--${displayLevel}`}>
+                    {displayMessage.length > 100 ? displayMessage.substring(0, 100) + '…' : displayMessage}
                 </span>
             </div>
             <div className="log-panel__right">
                 <span className="log-panel__hint">
-                    <TerminalIcon /> {logs.length}
+                    <Icon name="info" /> {logs.length}
                 </span>
             </div>
         </footer>

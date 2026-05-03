@@ -24,6 +24,8 @@ import './styles/fixer-polish.css';
 import './styles/project-list-polish.css';
 // New project modal polish
 import './styles/new-project-polish.css';
+// Logger / status-bar polish
+import './styles/logger-polish.css';
 // Import default theme (can be swapped via custom theme import)
 import './themes/default.css';
 

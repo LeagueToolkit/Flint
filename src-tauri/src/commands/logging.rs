@@ -40,16 +40,16 @@ pub async fn set_log_level(verbose: bool) -> Result<(), String> {
     let reload = guard.as_ref().ok_or("Reload handle not initialized")?;
     reload(filter_str)?;
 
-    tracing::info!("📊 Log level changed to: {}", mode_name);
+    tracing::info!("Log level changed to: {}", mode_name);
 
     // Emit a test log at each level to verify the filter is working
     if verbose {
-        tracing::debug!("🔍 Verbose logging enabled - you will see detailed debug information");
-        tracing::info!("ℹ️  Info logs visible");
-        tracing::warn!("⚠️  Warning logs visible");
+        tracing::debug!("Verbose logging enabled - you will see detailed debug information");
+        tracing::info!("Info logs visible");
+        tracing::warn!("Warning logs visible");
     } else {
-        tracing::info!("ℹ️  Normal logging enabled - only important events will be shown");
-        tracing::warn!("⚠️  Warning logs visible");
+        tracing::info!("Normal logging enabled - only important events will be shown");
+        tracing::warn!("Warning logs visible");
         // Debug log won't be shown in normal mode
         tracing::debug!("This debug message should NOT appear in normal mode");
     }

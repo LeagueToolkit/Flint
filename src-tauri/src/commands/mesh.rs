@@ -55,7 +55,7 @@ pub async fn read_scb_mesh(path: String) -> Result<ScbMeshData, String> {
 
             format!("{}\n\n{}", bin_text, concat)
         } else {
-            tracing::warn!("⚠️ No concat BIN found - using main BIN only");
+            tracing::warn!("No concat BIN found - using main BIN only");
             bin_text
         };
 
@@ -77,7 +77,7 @@ pub async fn read_scb_mesh(path: String) -> Result<ScbMeshData, String> {
         #[allow(deprecated)]
         let default_tex = &texture_mapping.default_texture;
 
-        tracing::debug!("📊 Extracted {} material mappings, default={:?}",
+        tracing::debug!("Extracted {} material mappings, default={:?}",
             material_props.len(),
             default_tex.as_deref().unwrap_or("none"));
 
@@ -106,7 +106,7 @@ pub async fn read_scb_mesh(path: String) -> Result<ScbMeshData, String> {
                                 texture_tasks.push((path_key, resolved));
                             }
                         } else {
-                            tracing::warn!("⚠ Texture file not found: {}", props.texture_path);
+                            tracing::warn!("Texture file not found: {}", props.texture_path);
                         }
                     } else {
                         tracing::warn!("✗ No texture resolved for SCB material: {}", material_name);
@@ -155,10 +155,10 @@ pub async fn read_scb_mesh(path: String) -> Result<ScbMeshData, String> {
                 }
 
                 let elapsed = start_time.elapsed();
-                tracing::info!("✅ Loaded {} textures for SCB mesh in {:.2}s", material_data.len(), elapsed.as_secs_f32());
+                tracing::info!("Loaded {} textures for SCB mesh in {:.2}s", material_data.len(), elapsed.as_secs_f32());
                 mesh_data.material_data = material_data;
     } else {
-        tracing::warn!("⚠ No .ritobin cache found and could not create one for SCB texture mapping");
+        tracing::warn!("No .ritobin cache found and could not create one for SCB texture mapping");
         mesh_data.texture_warning = Some(
             "Could not find or create texture cache. The associated BIN file may be missing or in an unsupported location.".to_string()
         );
@@ -193,10 +193,10 @@ fn find_ritobin_text(mesh_path: &Path) -> Option<String> {
             }
 
             // Cache doesn't exist - try to create it automatically
-            tracing::debug!("📦 Creating .ritobin cache from BIN: {}", bin_path.display());
+            tracing::debug!("Creating .ritobin cache from BIN: {}", bin_path.display());
             match create_ritobin_cache(&bin_path, &ritobin_path) {
                 Ok(text) => {
-                    tracing::debug!("✅ Created .ritobin cache: {}", ritobin_path.display());
+                    tracing::debug!("Created .ritobin cache: {}", ritobin_path.display());
                     return Some(text);
                 }
                 Err(e) => {
@@ -407,7 +407,7 @@ pub async fn read_skn_mesh(path: String) -> Result<SknMeshData, String> {
 
             format!("{}\n\n{}", bin_text, concat)
         } else {
-            tracing::warn!("⚠️ No concat BIN found - using main BIN only");
+            tracing::warn!("No concat BIN found - using main BIN only");
             bin_text
         };
 
@@ -429,7 +429,7 @@ pub async fn read_skn_mesh(path: String) -> Result<SknMeshData, String> {
         #[allow(deprecated)]
         let default_tex = &texture_mapping.default_texture;
 
-        tracing::debug!("📊 Extracted {} material mappings, default={:?}",
+        tracing::debug!("Extracted {} material mappings, default={:?}",
             material_props.len(),
             default_tex.as_deref().unwrap_or("none"));
 
@@ -471,7 +471,7 @@ pub async fn read_skn_mesh(path: String) -> Result<SknMeshData, String> {
                                 texture_tasks.push((path_key, resolved));
                             }
                         } else {
-                            tracing::warn!("⚠ Texture file not found: {}", props.texture_path);
+                            tracing::warn!("Texture file not found: {}", props.texture_path);
                         }
                     } else {
                         tracing::warn!("✗ No texture resolved for material: {}", material_name);
@@ -520,10 +520,10 @@ pub async fn read_skn_mesh(path: String) -> Result<SknMeshData, String> {
                 }
 
                 let elapsed = start_time.elapsed();
-                tracing::info!("✅ Loaded {} textures for SKN mesh in {:.2}s", material_data.len(), elapsed.as_secs_f32());
+                tracing::info!("Loaded {} textures for SKN mesh in {:.2}s", material_data.len(), elapsed.as_secs_f32());
                 mesh_data.material_data = material_data;
     } else {
-        tracing::warn!("⚠ No .ritobin cache found and could not create one for SKN texture mapping");
+        tracing::warn!("No .ritobin cache found and could not create one for SKN texture mapping");
         mesh_data.texture_warning = Some(
             "Could not find or create texture cache. The associated BIN file may be missing or in an unsupported location.".to_string()
         );
