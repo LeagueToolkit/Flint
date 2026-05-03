@@ -46,59 +46,54 @@
 .fx-title__sub  { display: block; font-size: 11px; color: var(--text-muted); margin-top: 2px; font-weight: 400; }
 
 /* --------------------------------------------------------------------------
-   Segmented tabs with animated indicator
+   Tabs — flat row with red underline on active
    -------------------------------------------------------------------------- */
 .fx-tabs {
-    position: relative;
     display: flex;
     gap: 4px;
-    padding: 6px;
-    margin: 0 22px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
-    border-radius: 12px;
+    margin: 4px 22px 12px;
+    border-bottom: 1px solid var(--border);
+    padding: 0;
 }
 .fx-tab {
-    flex: 1;
-    z-index: 1;
+    position: relative;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 8px;
-    padding: 8px 14px;
+    padding: 12px 18px;
     background: transparent;
     border: none;
-    color: var(--text-secondary);
+    color: var(--text-muted);
     font-size: 13px;
     font-weight: 500;
-    border-radius: 8px;
     cursor: pointer;
-    transition: color var(--motion-fast), transform var(--motion-fast);
+    transition: color var(--motion-fast), background var(--motion-fast);
+    border-radius: 8px 8px 0 0;
 }
 .fx-tab svg { width: 14px; height: 14px; flex: none; }
-.fx-tab:hover:not(:disabled) { color: var(--text-primary); }
-.fx-tab:active:not(:disabled) { transform: scale(0.985); }
-.fx-tab:disabled { opacity: 0.5; cursor: not-allowed; }
-.fx-tab--active { color: var(--text-primary); }
-
-.fx-tabs__indicator {
+.fx-tab::after {
+    content: '';
     position: absolute;
-    top: 6px;
-    left: 6px;
-    width: calc(50% - 8px);
-    height: calc(100% - 12px);
-    background:
-        linear-gradient(180deg,
-            color-mix(in oklab, var(--accent-primary) 22%, var(--bg-secondary)),
-            var(--bg-secondary));
-    border: 1px solid color-mix(in oklab, var(--accent-primary) 35%, var(--border));
-    border-radius: 8px;
-    box-shadow: 0 2px 6px rgba(0,0,0,.25);
-    transition: transform 360ms cubic-bezier(.34,1.56,.64,1);
-    pointer-events: none;
-    z-index: 0;
+    left: 12px; right: 12px; bottom: -1px;
+    height: 2px;
+    background: var(--color-danger);
+    border-radius: 2px;
+    transform: scaleX(0);
+    transform-origin: center;
+    transition: transform 280ms cubic-bezier(.22,1,.36,1);
+    box-shadow: 0 0 8px color-mix(in oklab, var(--color-danger) 50%, transparent);
 }
-.fx-tabs__indicator[data-pos="batch"] { transform: translateX(calc(100% + 4px)); }
+.fx-tab:hover:not(:disabled) {
+    color: var(--text-primary);
+    background: color-mix(in oklab, var(--text-muted) 10%, transparent);
+}
+.fx-tab:disabled { opacity: 0.5; cursor: not-allowed; }
+.fx-tab--active {
+    color: var(--text-primary);
+}
+.fx-tab--active svg { color: var(--color-danger); }
+.fx-tab--active::after { transform: scaleX(1); }
 
 /* --------------------------------------------------------------------------
    Pane / forms
@@ -342,11 +337,24 @@
 /* --------------------------------------------------------------------------
    Batch list / results
    -------------------------------------------------------------------------- */
+.fx-batch-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12px;
+}
+.fx-batch-head__actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+.fx-batch-head__actions .form-input { width: 180px; }
+
 .fx-batch-list {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    max-height: 220px;
+    gap: 4px;
+    max-height: 320px;
     overflow-y: auto;
     padding: 6px;
     background: color-mix(in oklab, var(--bg-primary) 60%, transparent);
@@ -354,23 +362,80 @@
     border-radius: 12px;
 }
 .fx-batch-row {
-    display: grid;
-    grid-template-columns: 16px 1fr auto;
+    display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 8px 10px;
-    border-radius: 8px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
+    gap: 12px;
+    padding: 9px 12px;
+    border-radius: 9px;
+    background: transparent;
+    border: 1px solid transparent;
     font-size: 12px;
     color: var(--text-primary);
+    cursor: pointer;
+    transition: background var(--motion-fast), border-color var(--motion-fast);
 }
-.fx-batch-row svg { width: 14px; height: 14px; color: var(--text-muted); }
-.fx-batch-row__path {
+.fx-batch-row:hover:not(.fx-batch-row--head) {
+    background: var(--bg-tertiary);
+    border-color: color-mix(in oklab, var(--accent-primary) 22%, var(--border));
+}
+.fx-batch-row--checked {
+    background: color-mix(in oklab, var(--accent-primary) 8%, var(--bg-tertiary));
+    border-color: color-mix(in oklab, var(--accent-primary) 35%, var(--border));
+}
+.fx-batch-row--head {
+    background: color-mix(in oklab, var(--bg-tertiary) 70%, transparent);
+    border-color: var(--border);
+    cursor: default;
+    margin-bottom: 4px;
+    justify-content: space-between;
+}
+.fx-batch-row__head-label {
+    font-size: 11px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+}
+.fx-batch-row__head-label strong {
+    color: var(--accent-primary);
+    font-family: var(--font-mono);
+    font-weight: 700;
+}
+
+.fx-batch-row > svg {
+    width: 14px; height: 14px;
+    color: var(--accent-gold, var(--text-muted));
+    flex: none;
+}
+.fx-batch-row__body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+}
+.fx-batch-row__name {
+    font-size: 13px;
+    color: var(--text-primary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+.fx-batch-row__name strong { color: var(--accent-primary); font-weight: 600; }
+.fx-batch-row__path {
+    font-size: 11px;
+    color: var(--text-muted);
     font-family: var(--font-mono);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.fx-batch-empty {
+    padding: 24px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-style: italic;
 }
 
 .fx-batch-result {

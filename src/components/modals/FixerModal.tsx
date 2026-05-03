@@ -188,10 +188,6 @@ export const FixerModal: React.FC = () => {
         }
     }, []);
 
-    const handleRemoveBatchPath = useCallback((path: string) => {
-        setBatchPaths(prev => prev.filter(p => p !== path));
-    }, []);
-
     const handleBatchFix = useCallback(async () => {
         if (batchPaths.length === 0) return;
         setPhase('fixing');
@@ -234,8 +230,10 @@ export const FixerModal: React.FC = () => {
                 onClose={isWorking ? undefined : closeModal}
             />
 
-            <div className="fx-tabs">
+            <div className="fx-tabs" role="tablist">
                 <button
+                    role="tab"
+                    aria-selected={tab === 'single'}
                     className={`fx-tab ${tab === 'single' ? 'fx-tab--active' : ''}`}
                     onClick={() => { setTab('single'); setPhase('idle'); setBatchResult(null); }}
                     disabled={isWorking}
@@ -244,6 +242,8 @@ export const FixerModal: React.FC = () => {
                     <span>Single Project</span>
                 </button>
                 <button
+                    role="tab"
+                    aria-selected={tab === 'batch'}
                     className={`fx-tab ${tab === 'batch' ? 'fx-tab--active' : ''}`}
                     onClick={() => { setTab('batch'); setPhase('idle'); setAnalysis(null); setFixResult(null); }}
                     disabled={isWorking}
@@ -251,7 +251,6 @@ export const FixerModal: React.FC = () => {
                     <Icon name="folder" />
                     <span>Batch</span>
                 </button>
-                <span className="fx-tabs__indicator" data-pos={tab} />
             </div>
 
             <ModalBody style={{ minHeight: 320 }}>
@@ -274,15 +273,14 @@ export const FixerModal: React.FC = () => {
                 ) : (
                     <BatchFixTab
                         batchPaths={batchPaths}
+                        setBatchPaths={setBatchPaths}
                         phase={phase}
                         statusMessage={statusMessage}
                         batchResult={batchResult}
                         onAdd={handleAddBatchProjects}
-                        onRemove={handleRemoveBatchPath}
                         onFix={handleBatchFix}
                         isWorking={isWorking}
-                        recentProjects={state.recentProjects}
-                        onAddPath={(p: string) => setBatchPaths(prev => [...new Set([...prev, p])])}
+                        savedProjects={state.savedProjects ?? []}
                     />
                 )}
             </ModalBody>
@@ -472,65 +470,160 @@ const SingleFixTab: React.FC<SingleFixTabProps> = ({
 
 interface BatchFixTabProps {
     batchPaths: string[];
+    setBatchPaths: React.Dispatch<React.SetStateAction<string[]>>;
     phase: FixerPhase;
     statusMessage: string;
     batchResult: BatchFixResult | null;
     onAdd: () => void;
-    onRemove: (path: string) => void;
     onFix: () => void;
     isWorking: boolean;
-    recentProjects: RecentProject[];
-    onAddPath: (path: string) => void;
+    savedProjects: { id: string; name: string; champion: string; path: string; lastOpened: string }[];
+}
+
+/** Strip a trailing project file from a path so we land on the project folder. */
+function projectFolder(p: string): string {
+    return p.replace(/[\\/](mod\.config|flint|project)\.json$/, '');
 }
 
 const BatchFixTab: React.FC<BatchFixTabProps> = ({
-    batchPaths, phase, statusMessage, batchResult,
-    onAdd, onRemove, onFix, isWorking, recentProjects, onAddPath,
+    batchPaths, setBatchPaths, phase, statusMessage, batchResult,
+    onAdd, onFix, isWorking, savedProjects,
 }) => {
-    const addAllRecent = () => {
-        for (const p of recentProjects) {
-            const folderPath = p.path.replace(/[\\/]project\.json$/, '');
-            onAddPath(folderPath);
+    const [filter, setFilter] = useState('');
+
+    const projects = savedProjects.map((p) => ({ ...p, folderPath: projectFolder(p.path) }));
+    const filtered = filter
+        ? projects.filter((p) =>
+            `${p.champion} ${p.name}`.toLowerCase().includes(filter.toLowerCase()))
+        : projects;
+
+    const allChecked = filtered.length > 0 && filtered.every((p) => batchPaths.includes(p.folderPath));
+    const someChecked = filtered.some((p) => batchPaths.includes(p.folderPath));
+
+    const toggleProject = (folderPath: string) => {
+        setBatchPaths((prev) =>
+            prev.includes(folderPath)
+                ? prev.filter((x) => x !== folderPath)
+                : [...prev, folderPath],
+        );
+    };
+
+    const toggleAll = () => {
+        if (allChecked) {
+            const filteredSet = new Set(filtered.map((p) => p.folderPath));
+            setBatchPaths((prev) => prev.filter((x) => !filteredSet.has(x)));
+        } else {
+            const all = filtered.map((p) => p.folderPath);
+            setBatchPaths((prev) => Array.from(new Set([...prev, ...all])));
         }
     };
+
+    const clearAll = () => setBatchPaths([]);
 
     return (
         <div className="fx-pane">
             <FormGroup>
-                <FormLabel>Project Folders</FormLabel>
-                <p className="fx-help">Pick multiple Flint project directories to scan and fix in a single batch.</p>
-                <div className="fx-path-row fx-path-row--actions">
-                    <Button onClick={onAdd} disabled={isWorking} icon="folder">
-                        Browse
-                    </Button>
-                    {recentProjects.length > 0 && (
-                        <Button onClick={addAllRecent} disabled={isWorking} icon="refresh">
-                            Add All Recent ({recentProjects.length})
+                <div className="fx-batch-head">
+                    <div>
+                        <FormLabel>Your Projects</FormLabel>
+                        <p className="fx-help">
+                            {projects.length > 0
+                                ? `Select projects to scan and fix in a single batch.`
+                                : `No saved projects yet. Open one in Flint and it'll appear here.`}
+                        </p>
+                    </div>
+                    <div className="fx-batch-head__actions">
+                        <Input
+                            placeholder="Search…"
+                            value={filter}
+                            onChange={(e) => setFilter(e.target.value)}
+                            sizeVariant="sm"
+                            disabled={isWorking || projects.length === 0}
+                        />
+                        <Button onClick={onAdd} disabled={isWorking} size="sm" icon="folder">
+                            Add Folder
                         </Button>
-                    )}
+                    </div>
                 </div>
             </FormGroup>
 
-            {/* Path list */}
-            {batchPaths.length > 0 && (
+            {/* Project list with checkboxes */}
+            {projects.length > 0 && (
                 <div className="fx-batch-list">
-                    {batchPaths.map((p) => (
-                        <div key={p} className="fx-batch-row">
-                            <Icon name="folder" />
-                            <span className="fx-batch-row__path">{p}</span>
-                            <Button
-                                variant="danger"
-                                size="sm"
-                                onClick={() => onRemove(p)}
-                                disabled={isWorking}
-                                icon="trash"
-                            >
-                                Remove
+                    <div className="fx-batch-row fx-batch-row--head">
+                        <Checkbox
+                            checked={allChecked}
+                            onChange={toggleAll}
+                            label={
+                                <span className="fx-batch-row__head-label">
+                                    {batchPaths.length > 0
+                                        ? <><strong>{batchPaths.length}</strong> selected</>
+                                        : <>Select all{filter ? ' (filtered)' : ''}</>}
+                                </span>
+                            }
+                        />
+                        {someChecked && (
+                            <Button variant="ghost" size="sm" onClick={clearAll} disabled={isWorking}>
+                                Clear
                             </Button>
-                        </div>
-                    ))}
+                        )}
+                    </div>
+                    {filtered.map((p) => {
+                        const checked = batchPaths.includes(p.folderPath);
+                        return (
+                            <label
+                                key={p.id || p.folderPath}
+                                className={`fx-batch-row ${checked ? 'fx-batch-row--checked' : ''}`}
+                            >
+                                <Checkbox
+                                    checked={checked}
+                                    onChange={() => toggleProject(p.folderPath)}
+                                    disabled={isWorking}
+                                />
+                                <Icon name="folder" />
+                                <span className="fx-batch-row__body">
+                                    <span className="fx-batch-row__name">
+                                        <strong>{p.champion}</strong> · {p.name}
+                                    </span>
+                                    <span className="fx-batch-row__path">{p.folderPath}</span>
+                                </span>
+                            </label>
+                        );
+                    })}
+                    {filter && filtered.length === 0 && (
+                        <div className="fx-batch-empty">No projects match “{filter}”.</div>
+                    )}
                 </div>
             )}
+
+            {/* Externally-added project folders that aren't in savedProjects */}
+            {(() => {
+                const known = new Set(projects.map((p) => p.folderPath));
+                const extras = batchPaths.filter((bp) => !known.has(bp));
+                if (extras.length === 0) return null;
+                return (
+                    <div className="fx-batch-list">
+                        <div className="fx-batch-row fx-batch-row--head">
+                            <span className="fx-batch-row__head-label">Added folders ({extras.length})</span>
+                        </div>
+                        {extras.map((p) => (
+                            <div key={p} className="fx-batch-row fx-batch-row--checked">
+                                <Icon name="folder" />
+                                <span className="fx-batch-row__path">{p}</span>
+                                <Button
+                                    variant="danger"
+                                    size="sm"
+                                    icon="trash"
+                                    onClick={() => setBatchPaths((prev) => prev.filter((x) => x !== p))}
+                                    disabled={isWorking}
+                                >
+                                    Remove
+                                </Button>
+                            </div>
+                        ))}
+                    </div>
+                );
+            })()}
 
             <StatusBanner phase={phase} message={statusMessage} isWorking={isWorking} />
 
