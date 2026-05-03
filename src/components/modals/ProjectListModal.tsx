@@ -50,21 +50,22 @@ function championSplashUrl(alias: string): string {
 const thumbnailCache = new Map<string, string | null>();
 
 /**
- * Project tile artwork:
+ * Resolve a project's tile artwork URL:
  *   1. Try `{project.path}/thumbnail.webp` via Tauri read.
  *   2. Fall back to the champion's centered splash from DDragon.
- *   3. Fall back to the gradient monogram tile.
+ *   3. null → caller should render the monogram fallback.
+ *
+ * Returns `{ url, isLoading, splashFailed }`. When `splashFailed` flips true
+ * the consumer should render the monogram instead of trying another image.
  */
-const ProjectThumb: React.FC<{ project: SavedProject }> = ({ project }) => {
+function useProjectArtUrl(project: SavedProject) {
     const [thumb, setThumb] = useState<string | null>(() => thumbnailCache.get(project.path) ?? null);
     const [thumbFailed, setThumbFailed] = useState(thumbnailCache.get(project.path) === null);
-    const [splashFailed, setSplashFailed] = useState(false);
     const cancelled = useRef(false);
 
     useEffect(() => {
         cancelled.current = false;
         if (thumbnailCache.has(project.path)) return;
-
         (async () => {
             try {
                 const folder = project.path.replace(/[\\/](mod\.config|flint|project)\.json$/, '');
@@ -81,39 +82,103 @@ const ProjectThumb: React.FC<{ project: SavedProject }> = ({ project }) => {
                 setThumbFailed(true);
             }
         })();
-
         return () => { cancelled.current = true; };
     }, [project.path]);
 
-    if (thumb) {
+    return {
+        url: thumb ?? (thumbFailed ? championSplashUrl(project.champion) : null),
+        isLoading: !thumb && !thumbFailed,
+        usingFallback: thumbFailed,
+    };
+}
+
+/** Tile renderer — image when we have a URL, monogram otherwise. */
+const ProjectThumb: React.FC<{
+    project: SavedProject;
+    url: string | null;
+    isLoading: boolean;
+    onSplashFail: () => void;
+    showMonogramFallback: boolean;
+}> = ({ project, url, isLoading, onSplashFail, showMonogramFallback }) => {
+    if (showMonogramFallback) {
         return (
-            <span className="pl-card__tile pl-card__tile--art">
-                <img src={thumb} alt="" className="pl-card__art" loading="lazy" />
+            <span className="pl-card__tile">
+                <span className="pl-card__monogram">{monogram(project.champion)}</span>
             </span>
         );
     }
-    if (!thumbFailed) {
-        // Still loading the local thumbnail — render a placeholder tile
-        return <span className="pl-card__tile pl-card__tile--loading" />;
-    }
-    if (!splashFailed) {
+    if (isLoading) return <span className="pl-card__tile pl-card__tile--loading" />;
+    if (!url) {
         return (
-            <span className="pl-card__tile pl-card__tile--art">
-                <img
-                    src={championSplashUrl(project.champion)}
-                    alt=""
-                    className="pl-card__art"
-                    loading="lazy"
-                    onError={() => setSplashFailed(true)}
-                />
+            <span className="pl-card__tile">
+                <span className="pl-card__monogram">{monogram(project.champion)}</span>
             </span>
         );
     }
-    // Final fallback: monogram
     return (
-        <span className="pl-card__tile">
-            <span className="pl-card__monogram">{monogram(project.champion)}</span>
+        <span className="pl-card__tile pl-card__tile--art">
+            <img src={url} alt="" className="pl-card__art" loading="lazy" onError={onSplashFail} />
         </span>
+    );
+};
+
+/** Card row — owns the URL state so the splash glow can share it with the tile. */
+const ProjectCard: React.FC<{
+    project: SavedProject;
+    index: number;
+    removing: boolean;
+    onOpen: () => void;
+    onRemove: (e: React.MouseEvent) => void;
+}> = ({ project, index, removing, onOpen, onRemove }) => {
+    const { url, isLoading } = useProjectArtUrl(project);
+    const [splashFailed, setSplashFailed] = useState(false);
+
+    const showMonogram = splashFailed;
+    const glowUrl = !showMonogram && url ? url : null;
+
+    return (
+        <button
+            type="button"
+            className={`pl-card ${removing ? 'pl-card--removing' : ''} ${glowUrl ? 'pl-card--has-glow' : ''}`}
+            onClick={onOpen}
+            style={{
+                animationDelay: `${Math.min(index, 12) * 28}ms`,
+                ['--pl-hue' as never]: hueFor(project.champion),
+            }}
+            title={`Open ${project.champion} — ${project.name}`}
+        >
+            {glowUrl && (
+                <span
+                    className="pl-card__glow"
+                    style={{ backgroundImage: `url(${JSON.stringify(glowUrl).slice(1, -1)})` }}
+                    aria-hidden="true"
+                />
+            )}
+            <ProjectThumb
+                project={project}
+                url={url}
+                isLoading={isLoading}
+                onSplashFail={() => setSplashFailed(true)}
+                showMonogramFallback={showMonogram}
+            />
+            <span className="pl-card__body">
+                <span className="pl-card__name">{project.name}</span>
+                <span className="pl-card__champ">{project.champion}</span>
+                <span className="pl-card__path" title={project.path}>{project.path}</span>
+            </span>
+            <span className="pl-card__meta">
+                <span className="pl-card__time">{formatRelativeTime(project.lastOpened)}</span>
+                <span
+                    className="pl-card__remove"
+                    role="button"
+                    tabIndex={-1}
+                    onClick={onRemove}
+                    title="Delete project"
+                >
+                    <Icon name="trash" />
+                </span>
+            </span>
+        </button>
     );
 };
 
@@ -415,36 +480,14 @@ export const ProjectListModal: React.FC = () => {
                 ) : (
                     <div className="pl-grid">
                         {visibleProjects.map((project: SavedProject, i) => (
-                            <button
+                            <ProjectCard
                                 key={project.id}
-                                type="button"
-                                className={`pl-card ${removingId === project.id ? 'pl-card--removing' : ''}`}
-                                onClick={() => handleOpenProject(project.path)}
-                                style={{
-                                    animationDelay: `${Math.min(i, 12) * 28}ms`,
-                                    ['--pl-hue' as never]: hueFor(project.champion),
-                                }}
-                                title={`Open ${project.champion} — ${project.name}`}
-                            >
-                                <ProjectThumb project={project} />
-                                <span className="pl-card__body">
-                                    <span className="pl-card__name">{project.name}</span>
-                                    <span className="pl-card__champ">{project.champion}</span>
-                                    <span className="pl-card__path" title={project.path}>{project.path}</span>
-                                </span>
-                                <span className="pl-card__meta">
-                                    <span className="pl-card__time">{formatRelativeTime(project.lastOpened)}</span>
-                                    <span
-                                        className="pl-card__remove"
-                                        role="button"
-                                        tabIndex={-1}
-                                        onClick={(e) => handleRemoveProject(e, project.id)}
-                                        title="Delete project"
-                                    >
-                                        <Icon name="trash" />
-                                    </span>
-                                </span>
-                            </button>
+                                project={project}
+                                index={i}
+                                removing={removingId === project.id}
+                                onOpen={() => handleOpenProject(project.path)}
+                                onRemove={(e) => handleRemoveProject(e, project.id)}
+                            />
                         ))}
                     </div>
                 )}

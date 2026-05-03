@@ -18,13 +18,12 @@
     font-size: 15px !important;
     font-weight: 600 !important;
     letter-spacing: -0.01em !important;
-    background: linear-gradient(135deg,
-        var(--text-primary) 0%,
-        color-mix(in oklab, var(--accent-primary) 60%, var(--text-primary)) 100%) !important;
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    color: transparent;
+    /* Solid color — gradient-text fill was invisible on most surfaces */
+    background: none !important;
+    -webkit-background-clip: initial !important;
+    background-clip: initial !important;
+    -webkit-text-fill-color: var(--text-primary) !important;
+    color: var(--text-primary) !important;
     margin: 0;
 }
 .np-header__subtitle {

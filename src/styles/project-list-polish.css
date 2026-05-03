@@ -78,7 +78,9 @@
 .pl-grid {
     display: grid;
     grid-template-columns: 1fr;
-    gap: 8px;
+    gap: 14px;
+    /* Allow the per-card glow to halo into the gutters */
+    padding: 8px 4px;
 }
 
 .pl-no-match {
@@ -110,6 +112,8 @@
     border-radius: 14px;
     cursor: pointer;
     text-align: left;
+    /* Default: clip artwork-internal pseudos. The splash glow lives OUTSIDE
+       the card via z-index:-1 + sibling, so card can keep overflow:hidden. */
     overflow: hidden;
     color: var(--text-primary);
     opacity: 0;
@@ -120,6 +124,36 @@
         border-color var(--motion-fast),
         transform var(--motion-fast),
         box-shadow var(--motion-fast);
+}
+
+/* Splash-tinted glow — sibling with absolute positioning + heavy blur.
+   Uses the same image URL as the tile, so each card's halo matches its art. */
+.pl-card__glow {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background-size: cover;
+    background-position: center 25%;
+    filter: blur(32px) saturate(150%);
+    opacity: 0;
+    transition: opacity 260ms ease;
+    pointer-events: none;
+    border-radius: inherit;
+}
+.pl-card--has-glow .pl-card__glow { opacity: 0.32; }
+.pl-card--has-glow:hover .pl-card__glow { opacity: 0.55; }
+.pl-card > *:not(.pl-card__glow) { position: relative; z-index: 1; }
+/* Soft black wash so the body text stays readable above the glow */
+.pl-card--has-glow::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg,
+        color-mix(in oklab, var(--bg-tertiary) 88%, transparent) 0%,
+        color-mix(in oklab, var(--bg-tertiary) 70%, transparent) 100%);
+    z-index: 0;
+    pointer-events: none;
+    border-radius: inherit;
 }
 @keyframes plCardIn {
     to { opacity: 1; transform: translateY(0); }
