@@ -1499,6 +1499,7 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "walkdir",
+ "xxhash-rust",
  "zip 2.4.2",
 ]
 

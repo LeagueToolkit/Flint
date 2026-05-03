@@ -25,3 +25,4 @@ pub mod dev;
 pub mod champion_schema;
 pub mod format_converters;
 pub mod settings;
+pub mod extract_hashes;

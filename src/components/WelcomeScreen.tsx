@@ -6,7 +6,6 @@ import React, { useState, useEffect } from 'react';
 import { useAppState } from '../lib/stores';
 import { formatRelativeTime } from '../lib/utils';
 import * as api from '../lib/api';
-import { open } from '@tauri-apps/plugin-dialog';
 import { getIcon } from '../lib/fileIcons';
 import type { RecentProject } from '../lib/types';
 
@@ -26,7 +25,7 @@ const ClockIcon: React.FC = () => (
 // =============================================================================
 
 export const WelcomeScreen: React.FC = () => {
-    const { state, dispatch, openModal, setWorking, setReady, setError, showToast } = useAppState();
+    const { state, dispatch, openModal, setWorking, setReady, setError } = useAppState();
     const [greeting, setGreeting] = useState('');
 
     // Calculate time-based greeting
@@ -92,37 +91,6 @@ export const WelcomeScreen: React.FC = () => {
 
     const handleOpenProject = () => {
         openModal('projectList');
-    };
-
-    /** Open a single WAD file chosen by the user */
-    const handleOpenWad = async () => {
-        try {
-            const selected = await open({
-                title: 'Open WAD File',
-                filters: [{ name: 'WAD Archive', extensions: ['wad', 'client'] }],
-                multiple: false,
-            });
-            if (!selected) return;
-            await openWadPath(selected as string);
-        } catch (error) {
-            console.error('Failed to open WAD:', error);
-        }
-    };
-
-    /** Open a single WAD at a known absolute path (shared by single-file and game-picker flows) */
-    const openWadPath = async (wadPath: string) => {
-        const sessionId = `extract-${Date.now()}`;
-        dispatch({ type: 'OPEN_EXTRACT_SESSION', payload: { id: sessionId, wadPath } });
-        try {
-            const chunks = await api.getWadChunks(wadPath);
-            dispatch({ type: 'SET_EXTRACT_CHUNKS', payload: { sessionId, chunks } });
-        } catch (err) {
-            console.error('[WelcomeScreen] Failed to load WAD chunks:', err);
-            showToast('error', 'Failed to read WAD file', {
-                suggestion: 'Make sure the file is a valid League WAD archive.',
-            });
-            dispatch({ type: 'SET_EXTRACT_LOADING', payload: { sessionId, loading: false } });
-        }
     };
 
     /** Remove a recent project from the list */
@@ -217,7 +185,7 @@ export const WelcomeScreen: React.FC = () => {
                     <h2 className="welcome__column-title">Explore Files</h2>
 
                     <div className="welcome__actions">
-                        <button className="btn btn--secondary btn--large" onClick={handleOpenWad}>
+                        <button className="btn btn--secondary btn--large" onClick={() => openModal('browseWad')}>
                             <span dangerouslySetInnerHTML={{ __html: getIcon('package') }} />
                             <span>Browse WAD File</span>
                         </button>

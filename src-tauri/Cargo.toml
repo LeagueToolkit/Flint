@@ -50,6 +50,9 @@ anyhow = "1.0"
 parking_lot = "0.12"
 rayon = "1.10"
 
+# Hashing (matches flint-ltk's version — used by extract_hashes)
+xxhash-rust = { version = "0.8", features = ["xxh64"] }
+
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

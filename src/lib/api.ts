@@ -462,6 +462,25 @@ export async function loadAllWadChunks(paths: string[]): Promise<WadChunkBatch[]
     return invokeCommand('load_all_wad_chunks', { paths });
 }
 
+export interface ExtractHashesResult {
+    /** Files (BIN + SKN) actually scanned. */
+    scanned: number;
+    /** New (path → xxhash64) pairs added to hashes.extracted.txt */
+    game_hashes_added: number;
+    /** New (name → fnv1a32) pairs added to hashes.binhashes.extracted.txt */
+    bin_hashes_added: number;
+    /** Absolute paths of files written / merged. */
+    output_files: string[];
+}
+
+/**
+ * Scan a WAD's BIN/SKN chunks for path hashes and merge results into the user
+ * hash directory. See `commands/extract_hashes.rs` for the scanner spec.
+ */
+export async function extractHashesFromWad(wadPath: string): Promise<ExtractHashesResult> {
+    return invokeCommand('extract_hashes_from_wad', { wadPath });
+}
+
 export async function extractWad(
     wadPath: string,
     outputDir: string,

@@ -145,6 +145,7 @@ fn main() {
             commands::wad::invalidate_wad_cache,
             commands::wad::extract_wad_model_preview,
             commands::wad::cleanup_wad_model_preview,
+            commands::extract_hashes::extract_hashes_from_wad,
             commands::bin::convert_bin_to_text,
             commands::bin::convert_bin_to_json,
             commands::bin::convert_text_to_bin,
