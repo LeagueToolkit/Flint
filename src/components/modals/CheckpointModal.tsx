@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAppState } from '../../lib/stores';
 import * as api from '../../lib/api';
-import { getIcon } from '../../lib/fileIcons';
+import { Button, Icon, Input, Modal, ModalBody, ModalHeader, ProgressBar, Spinner } from '../ui';
 import { listen } from '@tauri-apps/api/event';
 import type { Checkpoint, CheckpointDiff, CheckpointProgress, CheckpointFileContent } from '../../lib/types';
 
@@ -233,63 +233,45 @@ export const CheckpointModal: React.FC = () => {
         }
     };
 
-    if (!isVisible) return null;
-
     const progressPercent = createProgress && createProgress.total > 0
         ? Math.round((createProgress.current / createProgress.total) * 100)
         : 0;
 
     return (
-        <div className="modal-overlay modal-overlay--visible" onClick={closeModal}>
-            <div className="modal modal--large checkpoint-modal" onClick={(e) => e.stopPropagation()}>
-                {/* Header */}
-                <div className="modal__header">
-                    <div className="modal__header-content">
-                        <span dangerouslySetInnerHTML={{ __html: getIcon('history') }} />
-                        <h2>Project Timeline</h2>
-                    </div>
-                    <button className="modal__close" onClick={closeModal} title="Close (Esc)">
-                        <svg viewBox="0 0 16 16" width="16" height="16">
-                            <path d="M4.5 4.5l7 7m0-7l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
-                        </svg>
-                    </button>
-                </div>
+        <Modal open={isVisible} onClose={closeModal} size="large" modifier="checkpoint-modal">
+                <ModalHeader
+                    title={<><Icon name="history" /> Project Timeline</>}
+                    onClose={closeModal}
+                />
 
-                {/* Body */}
-                <div className="modal__body checkpoint-modal__body">
+                <ModalBody className="checkpoint-modal__body">
                     {/* Create Checkpoint Section */}
                     <div className="checkpoint-modal__create">
                         <h3>Create Checkpoint</h3>
                         <p className="text-muted">Save your current progress with a message</p>
                         <form onSubmit={handleCreateCheckpoint} className="checkpoint-form">
-                            <input
-                                type="text"
+                            <Input
                                 placeholder="e.g., Updated textures, Fixed animations, etc."
                                 value={message}
-                                onChange={e => setMessage(e.target.value)}
-                                className="input"
+                                onChange={(e) => setMessage(e.target.value)}
                                 disabled={isCreating}
                             />
-                            <button type="submit" className="btn btn--primary" disabled={!message.trim() || isCreating}>
+                            <Button type="submit" variant="primary" disabled={!message.trim() || isCreating}>
                                 {isCreating ? 'Creating...' : 'Create Checkpoint'}
-                            </button>
+                            </Button>
                         </form>
 
-                        {/* Progress bar during creation */}
                         {isCreating && createProgress && (
                             <div className="checkpoint-progress">
-                                <div className="checkpoint-progress__info">
-                                    <span>{createProgress.phase}</span>
-                                    {createProgress.total > 0 && (
-                                        <span>{createProgress.current}/{createProgress.total} files ({progressPercent}%)</span>
-                                    )}
-                                </div>
-                                <div className="checkpoint-progress__bar">
-                                    <div
-                                        className="checkpoint-progress__fill"
-                                        style={{ width: `${progressPercent}%` }}
-                                    />
-                                </div>
+                                <ProgressBar
+                                    value={progressPercent}
+                                    label={createProgress.phase}
+                                    caption={
+                                        createProgress.total > 0
+                                            ? `${createProgress.current}/${createProgress.total} files (${progressPercent}%)`
+                                            : undefined
+                                    }
+                                />
                             </div>
                         )}
                     </div>
@@ -303,7 +285,7 @@ export const CheckpointModal: React.FC = () => {
                                 <div className="checkpoint-modal__loading">Loading checkpoints...</div>
                             ) : checkpoints.length === 0 ? (
                                 <div className="checkpoint-modal__empty">
-                                    <span dangerouslySetInnerHTML={{ __html: getIcon('info') }} />
+                                    <Icon name="info" />
                                     <p>No checkpoints yet</p>
                                     <p className="text-muted">Create your first checkpoint to save your progress</p>
                                 </div>
@@ -367,21 +349,23 @@ export const CheckpointModal: React.FC = () => {
                                                     </div>
 
                                                     <div className="checkpoint-card__actions">
-                                                        <button
-                                                            className="btn btn--ghost btn--sm"
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            icon="refresh"
                                                             title="Restore this checkpoint"
                                                             onClick={(e) => { e.stopPropagation(); handleRestore(cp.id); }}
                                                         >
-                                                            <span dangerouslySetInnerHTML={{ __html: getIcon('refresh') }} />
                                                             Restore
-                                                        </button>
-                                                        <button
-                                                            className="btn btn--ghost btn--sm btn--danger"
+                                                        </Button>
+                                                        <Button
+                                                            variant="danger"
+                                                            size="sm"
+                                                            icon="trash"
+                                                            iconOnly
                                                             title="Delete checkpoint"
                                                             onClick={(e) => { e.stopPropagation(); handleDelete(cp.id); }}
-                                                        >
-                                                            <span dangerouslySetInnerHTML={{ __html: getIcon('trash') }} />
-                                                        </button>
+                                                        />
                                                     </div>
                                                 </div>
                                             </div>
@@ -397,7 +381,7 @@ export const CheckpointModal: React.FC = () => {
                                 <div className="checkpoint-details">
                                     {isComparing ? (
                                         <div className="checkpoint-details__loading">
-                                            <div className="spinner" />
+                                            <Spinner />
                                             <p>Calculating differences...</p>
                                         </div>
                                     ) : diff ? (
@@ -473,13 +457,14 @@ export const CheckpointModal: React.FC = () => {
                                                 <div className="checkpoint-preview">
                                                     <div className="checkpoint-preview__header">
                                                         <h4>{getFileName(previewFile.path)}</h4>
-                                                        <button
-                                                            className="btn btn--ghost btn--icon"
+                                                        <Button
+                                                            variant="ghost"
+                                                            iconOnly
                                                             onClick={() => { setPreviewFile(null); setPreviewOld(null); setPreviewNew(null); }}
                                                             title="Close preview"
                                                         >
                                                             ×
-                                                        </button>
+                                                        </Button>
                                                     </div>
                                                     {isLoadingPreview ? (
                                                         <div className="checkpoint-preview__loading">Loading preview...</div>
@@ -512,15 +497,14 @@ export const CheckpointModal: React.FC = () => {
                                 </div>
                             ) : (
                                 <div className="checkpoint-details__placeholder">
-                                    <span dangerouslySetInnerHTML={{ __html: getIcon('info') }} />
+                                    <Icon name="info" />
                                     <p>Select a checkpoint to view changes</p>
                                 </div>
                             )}
                         </div>
                     </div>
-                </div>
-            </div>
-        </div>
+                </ModalBody>
+        </Modal>
     );
 };
 

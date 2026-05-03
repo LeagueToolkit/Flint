@@ -6,37 +6,69 @@ import React, { useState } from 'react';
 import { useAppState } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { save } from '@tauri-apps/plugin-dialog';
-import { getIcon } from '../../lib/fileIcons';
 import { sanitizeChampionName } from '../../lib/utils';
+import {
+    Button,
+    FormGroup,
+    FormLabel,
+    Icon,
+    Modal,
+    ModalBody,
+    ModalFooter,
+    ModalHeader,
+    ModalLoading,
+    RadioGroup,
+} from '../ui';
+
+type ExportFormat = 'fantome' | 'modpkg';
+
+const FORMAT_OPTIONS = [
+    {
+        value: 'fantome' as const,
+        label: (
+            <>
+                <span>.fantome</span>{' '}
+                <span style={{ color: 'var(--text-secondary)' }}>(Fantome Mod Manager)</span>
+            </>
+        ),
+        icon: <Icon name="package" />,
+    },
+    {
+        value: 'modpkg' as const,
+        label: (
+            <>
+                <span>.modpkg</span>{' '}
+                <span style={{ color: 'var(--text-secondary)' }}>(League Mod Tools)</span>
+            </>
+        ),
+        icon: <Icon name="package" />,
+    },
+];
 
 export const ExportModal: React.FC = () => {
     const { state, closeModal, showToast } = useAppState();
 
-    const [format, setFormat] = useState<'fantome' | 'modpkg'>('fantome');
+    const [format, setFormat] = useState<ExportFormat>('fantome');
     const [isExporting, setIsExporting] = useState(false);
     const [progress, setProgress] = useState('');
 
-    // Get project from active tab
     const activeTab = state.activeTabId
-        ? state.openTabs.find(t => t.id === state.activeTabId)
+        ? state.openTabs.find((t) => t.id === state.activeTabId)
         : null;
     const currentProject = activeTab?.project || null;
     const currentProjectPath = activeTab?.projectPath || null;
 
     const isVisible = state.activeModal === 'export';
-    const modalOptions = state.modalOptions as { format?: 'fantome' | 'modpkg' } | null;
+    const modalOptions = state.modalOptions as { format?: ExportFormat } | null;
 
-    // Use format from modal options if provided
     React.useEffect(() => {
-        if (modalOptions?.format) {
-            setFormat(modalOptions.format);
-        }
+        if (modalOptions?.format) setFormat(modalOptions.format);
     }, [modalOptions]);
 
     const handleExport = async () => {
         if (!currentProjectPath || !currentProject) return;
 
-        const ext = format === 'fantome' ? 'fantome' : 'modpkg';
+        const ext = format;
         const projectName = currentProject?.display_name || currentProject?.name || 'mod';
 
         const outputPath = await save({
@@ -66,7 +98,6 @@ export const ExportModal: React.FC = () => {
 
             showToast('success', `Exported to ${result.path}`);
             closeModal();
-
         } catch (err) {
             console.error('Export failed:', err);
             const flintError = err as api.FlintError;
@@ -77,72 +108,43 @@ export const ExportModal: React.FC = () => {
         }
     };
 
-    if (!isVisible) return null;
+    const championLabel = currentProject?.champion ? sanitizeChampionName(currentProject.champion) : '';
+    const projectLabel = currentProject?.display_name || currentProject?.name || '';
 
     return (
-        <div className={`modal-overlay ${isVisible ? 'modal-overlay--visible' : ''}`}>
-            <div className="modal">
-                {isExporting && (
-                    <div className="modal__loading-overlay">
-                        <div className="modal__loading-content">
-                            <div className="spinner spinner--lg" />
-                            <div className="modal__loading-text">Exporting Mod</div>
-                            <div className="modal__loading-progress">{progress}</div>
-                        </div>
+        <Modal open={isVisible} onClose={closeModal} modifier="modal--export">
+            {isExporting && <ModalLoading text="Exporting Mod" progress={progress} />}
+
+            <ModalHeader title="Export Mod" onClose={closeModal} />
+
+            <ModalBody>
+                <FormGroup>
+                    <FormLabel>Export Format</FormLabel>
+                    <RadioGroup<ExportFormat>
+                        name="format"
+                        value={format}
+                        onChange={setFormat}
+                        options={FORMAT_OPTIONS}
+                        stacked
+                    />
+                </FormGroup>
+
+                <FormGroup>
+                    <FormLabel>Project</FormLabel>
+                    <div style={{ color: 'var(--text-secondary)' }}>
+                        {championLabel} - {projectLabel}
                     </div>
-                )}
+                </FormGroup>
+            </ModalBody>
 
-                <div className="modal__header">
-                    <h2 className="modal__title">Export Mod</h2>
-                    <button className="modal__close" onClick={closeModal}>×</button>
-                </div>
-
-                <div className="modal__body">
-                    <div className="form-group">
-                        <label className="form-label">Export Format</label>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                                <input
-                                    type="radio"
-                                    name="format"
-                                    value="fantome"
-                                    checked={format === 'fantome'}
-                                    onChange={() => setFormat('fantome')}
-                                />
-                                <span dangerouslySetInnerHTML={{ __html: getIcon('package') }} />
-                                <span>.fantome (Fantome Mod Manager)</span>
-                            </label>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                                <input
-                                    type="radio"
-                                    name="format"
-                                    value="modpkg"
-                                    checked={format === 'modpkg'}
-                                    onChange={() => setFormat('modpkg')}
-                                />
-                                <span dangerouslySetInnerHTML={{ __html: getIcon('package') }} />
-                                <span>.modpkg (League Mod Tools)</span>
-                            </label>
-                        </div>
-                    </div>
-
-                    <div className="form-group">
-                        <label className="form-label">Project</label>
-                        <div style={{ color: 'var(--text-secondary)' }}>
-                            {currentProject?.champion ? sanitizeChampionName(currentProject.champion) : ''} - {currentProject?.display_name || currentProject?.name}
-                        </div>
-                    </div>
-                </div>
-
-                <div className="modal__footer">
-                    <button className="btn btn--secondary" onClick={closeModal}>
-                        Cancel
-                    </button>
-                    <button className="btn btn--primary" onClick={handleExport} disabled={isExporting}>
-                        Export
-                    </button>
-                </div>
-            </div>
-        </div>
+            <ModalFooter>
+                <Button variant="secondary" onClick={closeModal}>
+                    Cancel
+                </Button>
+                <Button variant="primary" onClick={handleExport} disabled={isExporting}>
+                    Export
+                </Button>
+            </ModalFooter>
+        </Modal>
     );
 };

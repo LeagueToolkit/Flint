@@ -16,6 +16,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAppState } from '../../lib/stores';
 import * as api from '../../lib/api';
+import { Button, Input, Modal, ModalBody, ModalFooter, ModalHeader } from '../ui';
 
 /**
  * Single-BIN mode: right-click on one .bin file. The split runs against
@@ -212,23 +213,18 @@ export const BinSplitModal: React.FC = () => {
     const totalRemainingInParent = totalObjects - moveCount;
 
     return (
-        <div
-            className={`modal-overlay ${isVisible ? 'modal-overlay--visible' : ''}`}
-            onClick={busy ? undefined : closeModal}
+        <Modal
+            open={isVisible}
+            onClose={busy ? undefined : closeModal}
+            size="large"
+            modifier="modal--bin-split"
         >
-            <div
-                className="modal modal--large"
-                onClick={(e) => e.stopPropagation()}
-                style={{ width: '720px', maxWidth: '95vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}
-            >
-                <div className="modal__header">
-                    <h2 className="modal__title">
-                        {isFolderMode ? 'Split BINs in Folder' : 'Split BIN by Class'}
-                    </h2>
-                    <button className="modal__close" onClick={closeModal} disabled={busy}>×</button>
-                </div>
+                <ModalHeader
+                    title={isFolderMode ? 'Split BINs in Folder' : 'Split BIN by Class'}
+                    onClose={busy ? undefined : closeModal}
+                />
 
-                <div className="modal__body" style={{ overflow: 'auto', flex: 1 }}>
+                <ModalBody style={{ overflow: 'auto', flex: 1 }}>
                     {loading && <div className="modal__empty">{isFolderMode ? 'Scanning folder…' : 'Reading BIN…'}</div>}
                     {error && <div className="modal__empty" style={{ color: 'var(--accent-danger)' }}>Error: {error}</div>}
 
@@ -279,22 +275,20 @@ export const BinSplitModal: React.FC = () => {
                                 >
                                     VFX preset
                                 </span>
-                                <button
-                                    type="button"
-                                    className="btn btn--ghost"
+                                <Button
+                                    variant="ghost"
                                     onClick={selectAll}
-                                    style={{ padding: '8px 16px', fontSize: '13px', whiteSpace: 'nowrap', flex: '0 0 auto' }}
+                                    style={{ padding: '8px 16px', fontSize: 13, whiteSpace: 'nowrap', flex: '0 0 auto' }}
                                 >
                                     All
-                                </button>
-                                <button
-                                    type="button"
-                                    className="btn btn--ghost"
+                                </Button>
+                                <Button
+                                    variant="ghost"
                                     onClick={selectNone}
-                                    style={{ padding: '8px 16px', fontSize: '13px', whiteSpace: 'nowrap', flex: '0 0 auto' }}
+                                    style={{ padding: '8px 16px', fontSize: 13, whiteSpace: 'nowrap', flex: '0 0 auto' }}
                                 >
                                     None
-                                </button>
+                                </Button>
                             </div>
 
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -346,35 +340,33 @@ export const BinSplitModal: React.FC = () => {
                             </div>
                         </>
                     )}
-                </div>
+                </ModalBody>
 
-                <div className="modal__footer" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '12px' }}>
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <label style={{ fontSize: '12px', color: 'var(--text-muted)', flexShrink: 0 }}>
+                <ModalFooter stacked>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', width: '100%' }}>
+                        <label style={{ fontSize: 12, color: 'var(--text-muted)', flexShrink: 0 }}>
                             Output file:
                         </label>
-                        <input
-                            type="text"
+                        <Input
                             value={outputName}
                             onChange={(e) => setOutputName(e.target.value)}
                             disabled={busy}
-                            style={{ flex: 1, padding: '6px 10px', fontSize: '13px', fontFamily: 'monospace' }}
+                            style={{ flex: 1, fontFamily: 'monospace' }}
                         />
                     </div>
-                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                        <button className="btn btn--ghost" onClick={closeModal} disabled={busy}>
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', width: '100%' }}>
+                        <Button variant="ghost" onClick={closeModal} disabled={busy}>
                             Cancel
-                        </button>
-                        <button
-                            className="btn btn--primary"
+                        </Button>
+                        <Button
+                            variant="primary"
                             onClick={handleSplit}
                             disabled={busy || moveCount === 0 || !groups}
                         >
                             {busy ? 'Splitting…' : `Split ${moveCount} object${moveCount === 1 ? '' : 's'}`}
-                        </button>
+                        </Button>
                     </div>
-                </div>
-            </div>
-        </div>
+                </ModalFooter>
+        </Modal>
     );
 };

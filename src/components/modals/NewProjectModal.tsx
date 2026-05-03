@@ -18,6 +18,7 @@ import {
     type VideoMeta,
     type BudgetResult,
 } from '../../lib/spritesheet';
+import { Button } from '../ui';
 
 type ProjectType = 'skin' | 'loading-screen' | 'hud-editor';
 
@@ -588,7 +589,10 @@ export const NewProjectModal: React.FC = () => {
     if (!isVisible) return null;
 
     return (
-        <div className={`modal-overlay ${isVisible ? 'modal-overlay--visible' : ''}`}>
+        // Custom modal shell — has nested np-skin-picker-overlay / np-video-editor-overlay
+        // siblings that depend on .modal-overlay being the nearest positioned ancestor.
+        // Don't migrate to <Modal> — it would change the containing block.
+        <div className="modal-overlay modal-overlay--visible">
             <div className="modal modal--new-project">
                 {/* Loading overlay */}
                 {isCreating && (
@@ -877,25 +881,26 @@ export const NewProjectModal: React.FC = () => {
                                             </div>
                                         )}
                                         <div className="video-info__actions">
-                                            <button
-                                                className="btn btn--secondary btn--sm"
+                                            <Button
+                                                size="sm"
                                                 onClick={() => {
                                                     if (previewUrl) { URL.revokeObjectURL(previewUrl); setPreviewUrl(null); }
                                                     setVideoFile(null); setVideoMeta(null); setBudget(null);
                                                 }}
                                             >
                                                 Change
-                                            </button>
-                                            <button
-                                                className="btn btn--primary btn--sm"
+                                            </Button>
+                                            <Button
+                                                variant="primary"
+                                                size="sm"
                                                 onClick={() => setVideoEditorOpen(true)}
                                             >
-                                                <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                                                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" style={{ marginRight: 4 }}>
                                                     <path d="M11.5 1.5l3 3L5 14H2v-3L11.5 1.5z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" fill="none"/>
                                                     <path d="M9.5 3.5l3 3" stroke="currentColor" strokeWidth="1.5"/>
                                                 </svg>
                                                 Edit
-                                            </button>
+                                            </Button>
                                         </div>
                                     </div>
                                 </div>
@@ -1194,14 +1199,14 @@ export const NewProjectModal: React.FC = () => {
 
                         {/* Footer */}
                         <div className="np-ve-footer">
-                            <button
-                                className="btn btn--secondary btn--sm"
+                            <Button
+                                size="sm"
                                 onClick={generatePreview}
                                 disabled={isGeneratingPreview || !budget?.fits}
                                 title="Generate a preview with current settings"
                             >
                                 {isGeneratingPreview ? 'Generating...' : 'Preview'}
-                            </button>
+                            </Button>
                             <button className="np-btn np-btn--create" onClick={() => setVideoEditorOpen(false)}>
                                 Done
                             </button>

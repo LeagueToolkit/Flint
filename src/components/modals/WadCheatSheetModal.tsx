@@ -1,6 +1,7 @@
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import CHEAT_SHEET_MD from '../../assets/wad-cheat-sheet.md?raw';
+import { Button, Input, Modal } from '../ui';
 
 // ─── Placeholder detection ────────────────────────────────────────────────────
 
@@ -305,34 +306,25 @@ export const WadCheatSheetModal: React.FC<WadCheatSheetModalProps> = ({ onClose,
         onFilterPath: (path) => { onFilterPath(path); onClose(); },
     }), [onOpenWad, onFilterPath, onClose]);
 
-    const handleBackdrop = useCallback((e: React.MouseEvent) => {
-        if (e.target === e.currentTarget) onClose();
-    }, [onClose]);
-
     return (
-        <div className="modal-overlay modal-overlay--visible" onClick={handleBackdrop}>
-            <div className="modal modal--large cs-modal" style={{ width: '92%', maxHeight: '88vh', display: 'flex', flexDirection: 'column' }}>
-
-                {/* ── Header ── */}
+        <Modal open onClose={onClose} size="large" modifier="cs-modal">
                 <div className="cs-modal__header">
                     <span className="cs-modal__title">📖 Asset Path Cheat Sheet</span>
-                    <input
-                        type="text"
+                    <Input
                         className="file-tree__search-input cs-search"
                         placeholder="Filter sections…"
                         value={search}
-                        onChange={e => setSearch(e.target.value)}
-                        onKeyDown={e => e.key === 'Escape' && (search ? setSearch('') : onClose())}
+                        onChange={(e) => setSearch(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Escape' && (search ? setSearch('') : onClose())}
                         autoFocus
                     />
-                    <button className="btn btn--sm" onClick={onClose} title="Close (Esc)" style={{ padding: '2px 6px', flexShrink: 0 }}>
+                    <Button size="sm" onClick={onClose} title="Close (Esc)" style={{ padding: '2px 6px', flexShrink: 0 }}>
                         <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
                             <path d="M4.5 4.5l7 7m0-7l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                         </svg>
-                    </button>
+                    </Button>
                 </div>
 
-                {/* ── Content ── */}
                 <div className="cs-modal__body">
                     {filtered.length === 0 ? (
                         <div className="cs-modal__empty">No sections match "{search}"</div>
@@ -345,13 +337,11 @@ export const WadCheatSheetModal: React.FC<WadCheatSheetModalProps> = ({ onClose,
                     )}
                 </div>
 
-                {/* ── Footer ── */}
                 <div className="cs-modal__footer">
                     <span>·</span>
                     <span>Original cheat sheet by Aropatnik</span>
                     <span>·</span>
                 </div>
-            </div>
-        </div>
+        </Modal>
     );
 };

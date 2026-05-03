@@ -8,7 +8,7 @@ import { useAppState, useConfigStore } from '../../lib/stores';
 import { formatRelativeTime } from '../../lib/utils';
 import { open } from '@tauri-apps/plugin-dialog';
 import { appDataDir } from '@tauri-apps/api/path';
-import { getIcon } from '../../lib/fileIcons';
+import { Button, Icon, Modal, ModalBody, ModalFooter, ModalHeader } from '../ui';
 import * as api from '../../lib/api';
 import { listen } from '@tauri-apps/api/event';
 
@@ -279,22 +279,21 @@ export const ProjectListModal: React.FC = () => {
         }
     }, [state.leaguePath, state.creatorName, state.recentProjects, dispatch, closeModal, setWorking, setReady, setError]);
 
-    if (!isVisible) return null;
-
     return (
-        <div className={`modal-overlay ${isVisible ? 'modal-overlay--visible' : ''}`}>
-            <div className="modal modal--project-list">
-                <div className="modal__header">
-                    <h2 className="modal__title">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                            <path d="M3 7V17C3 18.1046 3.89543 19 5 19H19C20.1046 19 21 18.1046 21 17V9C21 7.89543 20.1046 7 19 7H13L11 5H5C3.89543 5 3 5.89543 3 7Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                        My Projects
-                    </h2>
-                    <button className="modal__close" onClick={closeModal}>×</button>
-                </div>
+        <Modal open={isVisible} onClose={closeModal} modifier="modal--project-list">
+                <ModalHeader
+                    title={
+                        <>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                                <path d="M3 7V17C3 18.1046 3.89543 19 5 19H19C20.1046 19 21 18.1046 21 17V9C21 7.89543 20.1046 7 19 7H13L11 5H5C3.89543 5 3 5.89543 3 7Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                            My Projects
+                        </>
+                    }
+                    onClose={closeModal}
+                />
 
-                <div className="modal__body project-list__body">
+                <ModalBody className="project-list__body">
                     {savedProjects.length === 0 ? (
                         <div className="project-list__empty">
                             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.3 }}>
@@ -315,7 +314,7 @@ export const ProjectListModal: React.FC = () => {
                                     style={{ animationDelay: `${index * 50}ms` }}
                                 >
                                     <div className="project-list__item-icon">
-                                        <span dangerouslySetInnerHTML={{ __html: getIcon('folder') }} />
+                                        <Icon name="folder" />
                                     </div>
                                     <div className="project-list__item-info">
                                         <div className="project-list__item-name">
@@ -343,23 +342,22 @@ export const ProjectListModal: React.FC = () => {
                             ))}
                         </div>
                     )}
-                </div>
+                </ModalBody>
 
-                <div className="modal__footer project-list__footer">
-                    <button className="btn btn--secondary" onClick={handleBrowseFiles} title="Open an existing Flint project">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                <ModalFooter className="project-list__footer">
+                    <Button onClick={handleBrowseFiles} title="Open an existing Flint project">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ marginRight: 4 }}>
                             <path d="M3 7V17C3 18.1046 3.89543 19 5 19H19C20.1046 19 21 18.1046 21 17V9C21 7.89543 20.1046 7 19 7H13L11 5H5C3.89543 5 3 5.89543 3 7Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                         </svg>
                         Open Existing Project
-                    </button>
-                    <button className="btn btn--primary" onClick={handleImportMod} title="Import .fantome, .modpkg, or .wad file">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                    </Button>
+                    <Button variant="primary" onClick={handleImportMod} title="Import .fantome, .modpkg, or .wad file">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ marginRight: 4 }}>
                             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                         </svg>
                         Import Mod
-                    </button>
-                </div>
-            </div>
-        </div>
+                    </Button>
+                </ModalFooter>
+        </Modal>
     );
 };

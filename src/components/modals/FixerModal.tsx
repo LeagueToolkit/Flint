@@ -10,7 +10,7 @@ import { useAppState } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
 import { appDataDir } from '@tauri-apps/api/path';
-import { getIcon } from '../../lib/fileIcons';
+import { Button, FormGroup, FormLabel, Icon, Input, Modal, ModalBody, ModalFooter, ModalHeader } from '../ui';
 import type {
     ProjectAnalysis,
     ProjectFixResult,
@@ -217,86 +217,73 @@ export const FixerModal: React.FC = () => {
     // Render
     // =========================================================================
 
-    if (!isVisible) return null;
-
     const isWorking = phase === 'scanning' || phase === 'fixing' || phase === 'loading-config';
 
     return (
-        <div className={`modal-overlay ${isVisible ? 'modal-overlay--visible' : ''}`}>
-            <div className="modal modal--wide">
-                {/* Header */}
-                <div className="modal__header">
-                    <h2 className="modal__title">
-                        <span dangerouslySetInnerHTML={{ __html: getIcon('wrench') }} />
-                        {' '}Fixer
-                    </h2>
-                    <button className="modal__close" onClick={closeModal} disabled={isWorking}>
-                        ×
-                    </button>
-                </div>
+        <Modal open={isVisible} onClose={isWorking ? undefined : closeModal} size="wide">
+            <ModalHeader
+                title={<><Icon name="wrench" /> Fixer</>}
+                onClose={isWorking ? undefined : closeModal}
+            />
 
-                {/* Tab bar - Settings-style */}
-                <div className="fixer-tabs">
-                    <button
-                        className={`fixer-tabs__item ${tab === 'single' ? 'fixer-tabs__item--active' : ''}`}
-                        onClick={() => { setTab('single'); setPhase('idle'); setBatchResult(null); }}
-                        disabled={isWorking}
-                    >
-                        <span dangerouslySetInnerHTML={{ __html: getIcon('file') }} />
-                        <span>Fix Project</span>
-                    </button>
-                    <button
-                        className={`fixer-tabs__item ${tab === 'batch' ? 'fixer-tabs__item--active' : ''}`}
-                        onClick={() => { setTab('batch'); setPhase('idle'); setAnalysis(null); setFixResult(null); }}
-                        disabled={isWorking}
-                    >
-                        <span dangerouslySetInnerHTML={{ __html: getIcon('folder') }} />
-                        <span>Batch Fix</span>
-                    </button>
-                </div>
-
-                {/* Body */}
-                <div className="modal__body" style={{ minHeight: '300px' }}>
-                    {tab === 'single' ? (
-                        <SingleFixTab
-                            projectPath={projectPath}
-                            setProjectPath={setProjectPath}
-                            phase={phase}
-                            statusMessage={statusMessage}
-                            analysis={analysis}
-                            fixResult={fixResult}
-                            selectedFixes={selectedFixes}
-                            toggleFix={toggleFix}
-                            onBrowse={handleBrowseProject}
-                            onScan={handleScanProject}
-                            onFix={handleFixProject}
-                            isWorking={isWorking}
-                            recentProjects={state.recentProjects}
-                        />
-                    ) : (
-                        <BatchFixTab
-                            batchPaths={batchPaths}
-                            phase={phase}
-                            statusMessage={statusMessage}
-                            batchResult={batchResult}
-                            onAdd={handleAddBatchProjects}
-                            onRemove={handleRemoveBatchPath}
-                            onFix={handleBatchFix}
-                            isWorking={isWorking}
-                            recentProjects={state.recentProjects}
-                            onAddPath={(p: string) => setBatchPaths(prev => [...new Set([...prev, p])])}
-                        />
-                    )}
-                </div>
-
-                {/* Footer */}
-                <div className="modal__footer">
-                    <button className="btn btn--ghost" onClick={closeModal} disabled={isWorking}>
-                        Close
-                    </button>
-                </div>
+            <div className="fixer-tabs">
+                <button
+                    className={`fixer-tabs__item ${tab === 'single' ? 'fixer-tabs__item--active' : ''}`}
+                    onClick={() => { setTab('single'); setPhase('idle'); setBatchResult(null); }}
+                    disabled={isWorking}
+                >
+                    <Icon name="file" />
+                    <span>Fix Project</span>
+                </button>
+                <button
+                    className={`fixer-tabs__item ${tab === 'batch' ? 'fixer-tabs__item--active' : ''}`}
+                    onClick={() => { setTab('batch'); setPhase('idle'); setAnalysis(null); setFixResult(null); }}
+                    disabled={isWorking}
+                >
+                    <Icon name="folder" />
+                    <span>Batch Fix</span>
+                </button>
             </div>
-        </div>
+
+            <ModalBody style={{ minHeight: 300 }}>
+                {tab === 'single' ? (
+                    <SingleFixTab
+                        projectPath={projectPath}
+                        setProjectPath={setProjectPath}
+                        phase={phase}
+                        statusMessage={statusMessage}
+                        analysis={analysis}
+                        fixResult={fixResult}
+                        selectedFixes={selectedFixes}
+                        toggleFix={toggleFix}
+                        onBrowse={handleBrowseProject}
+                        onScan={handleScanProject}
+                        onFix={handleFixProject}
+                        isWorking={isWorking}
+                        recentProjects={state.recentProjects}
+                    />
+                ) : (
+                    <BatchFixTab
+                        batchPaths={batchPaths}
+                        phase={phase}
+                        statusMessage={statusMessage}
+                        batchResult={batchResult}
+                        onAdd={handleAddBatchProjects}
+                        onRemove={handleRemoveBatchPath}
+                        onFix={handleBatchFix}
+                        isWorking={isWorking}
+                        recentProjects={state.recentProjects}
+                        onAddPath={(p: string) => setBatchPaths(prev => [...new Set([...prev, p])])}
+                    />
+                )}
+            </ModalBody>
+
+            <ModalFooter>
+                <Button variant="ghost" onClick={closeModal} disabled={isWorking}>
+                    Close
+                </Button>
+            </ModalFooter>
+        </Modal>
     );
 };
 
@@ -326,13 +313,11 @@ const SingleFixTab: React.FC<SingleFixTabProps> = ({
     onBrowse, onScan, onFix, isWorking, recentProjects,
 }) => (
     <div>
-        {/* Recent projects quick-select */}
         {recentProjects.length > 0 && (
-            <div className="form-group">
-                <label className="form-label">Recent Projects</label>
+            <FormGroup>
+                <FormLabel>Recent Projects</FormLabel>
                 <div className="fixer-recent-projects">
                     {recentProjects.map((p: RecentProject) => {
-                        // Strip trailing project.json to get the folder path
                         const folderPath = p.path.replace(/[\\/]project\.json$/, '');
                         const isSelected = projectPath === folderPath;
                         return (
@@ -341,7 +326,7 @@ const SingleFixTab: React.FC<SingleFixTabProps> = ({
                                 onClick={() => { if (!isWorking) setProjectPath(folderPath); }}
                                 className={`fixer-project-item ${isSelected ? 'fixer-project-item--selected' : ''}`}
                             >
-                                <span dangerouslySetInnerHTML={{ __html: getIcon('folder') }} />
+                                <Icon name="folder" />
                                 <span className="fixer-project-item__name">
                                     {p.champion} - {p.name}
                                 </span>
@@ -349,33 +334,27 @@ const SingleFixTab: React.FC<SingleFixTabProps> = ({
                         );
                     })}
                 </div>
-            </div>
+            </FormGroup>
         )}
 
-        {/* Project path input */}
-        <div className="form-group">
-            <label className="form-label">Project Path</label>
-            <div style={{ display: 'flex', gap: '8px' }}>
-                <input
-                    className="form-input"
+        <FormGroup>
+            <FormLabel>Project Path</FormLabel>
+            <div style={{ display: 'flex', gap: 8 }}>
+                <Input
                     value={projectPath}
-                    onChange={e => setProjectPath(e.target.value)}
+                    onChange={(e) => setProjectPath(e.target.value)}
                     placeholder="Select a Flint project folder..."
                     disabled={isWorking}
                     style={{ flex: 1 }}
                 />
-                <button className="btn btn--secondary" onClick={onBrowse} disabled={isWorking}>
+                <Button onClick={onBrowse} disabled={isWorking}>
                     Browse
-                </button>
-                <button
-                    className="btn btn--primary"
-                    onClick={onScan}
-                    disabled={!projectPath || isWorking}
-                >
+                </Button>
+                <Button variant="primary" onClick={onScan} disabled={!projectPath || isWorking}>
                     {phase === 'scanning' ? 'Scanning...' : 'Scan'}
-                </button>
+                </Button>
             </div>
-        </div>
+        </FormGroup>
 
         {/* Status */}
         {statusMessage && (
@@ -404,11 +383,11 @@ const SingleFixTab: React.FC<SingleFixTabProps> = ({
                                 style={{
                                     display: 'flex',
                                     alignItems: 'center',
-                                    gap: '8px',
+                                    gap: 8,
                                     padding: '8px 12px',
                                     borderBottom: '1px solid var(--border)',
                                     cursor: 'pointer',
-                                    fontSize: '13px',
+                                    fontSize: 13,
                                 }}
                             >
                                 <input
@@ -419,23 +398,23 @@ const SingleFixTab: React.FC<SingleFixTabProps> = ({
                                 <SeverityBadge severity={issue.severity} />
                                 <span style={{ flex: 1 }}>
                                     <strong>{issue.fix_name}</strong>
-                                    <span style={{ color: 'var(--text-muted)', marginLeft: '8px' }}>
+                                    <span style={{ color: 'var(--text-muted)', marginLeft: 8 }}>
                                         {issue.description}
                                     </span>
                                 </span>
                             </label>
-                        ))
+                        )),
                     )}
                 </div>
 
-                <button
-                    className="btn btn--primary"
+                <Button
+                    variant="primary"
                     onClick={onFix}
                     disabled={selectedFixes.size === 0 || isWorking}
-                    style={{ marginTop: '12px' }}
+                    style={{ marginTop: 12 }}
                 >
                     {isWorking ? 'Fixing...' : `Apply ${selectedFixes.size} Fix(es)`}
-                </button>
+                </Button>
             </div>
         )}
 
@@ -505,22 +484,22 @@ const BatchFixTab: React.FC<BatchFixTabProps> = ({
 
     return (
     <div>
-        <div className="form-group">
-            <label className="form-label">Project Folders</label>
-            <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+        <FormGroup>
+            <FormLabel>Project Folders</FormLabel>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
                 Select multiple Flint project directories to fix at once.
             </p>
-            <div style={{ display: 'flex', gap: '8px' }}>
-                <button className="btn btn--secondary" onClick={onAdd} disabled={isWorking}>
+            <div style={{ display: 'flex', gap: 8 }}>
+                <Button onClick={onAdd} disabled={isWorking}>
                     Browse
-                </button>
+                </Button>
                 {recentProjects.length > 0 && (
-                    <button className="btn btn--secondary" onClick={addAllRecent} disabled={isWorking}>
+                    <Button onClick={addAllRecent} disabled={isWorking}>
                         Add All Recent ({recentProjects.length})
-                    </button>
+                    </Button>
                 )}
             </div>
-        </div>
+        </FormGroup>
 
         {/* Path list */}
         {batchPaths.length > 0 && (
@@ -544,14 +523,14 @@ const BatchFixTab: React.FC<BatchFixTabProps> = ({
                         }}
                     >
                         <span style={{ wordBreak: 'break-all', flex: 1 }}>{p}</span>
-                        <button
-                            className="btn btn--ghost"
+                        <Button
+                            variant="ghost"
                             onClick={() => onRemove(p)}
                             disabled={isWorking}
-                            style={{ padding: '2px 6px', fontSize: '12px', color: '#f87171' }}
+                            style={{ padding: '2px 6px', fontSize: 12, color: '#f87171' }}
                         >
                             Remove
-                        </button>
+                        </Button>
                     </div>
                 ))}
             </div>
@@ -565,16 +544,15 @@ const BatchFixTab: React.FC<BatchFixTabProps> = ({
             </div>
         )}
 
-        {/* Fix button */}
         {batchPaths.length > 0 && phase !== 'done' && (
-            <button
-                className="btn btn--primary"
+            <Button
+                variant="primary"
                 onClick={onFix}
                 disabled={isWorking}
-                style={{ marginTop: '12px' }}
+                style={{ marginTop: 12 }}
             >
                 {isWorking ? 'Fixing...' : `Fix ${batchPaths.length} Project(s)`}
-            </button>
+            </Button>
         )}
 
         {/* Batch results */}

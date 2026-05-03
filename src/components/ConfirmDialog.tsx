@@ -1,33 +1,47 @@
 /**
  * Flint - Confirm Dialog Component
- * Custom in-app confirmation dialog (replaces window.confirm)
+ * Custom in-app confirmation dialog (replaces window.confirm).
+ * Uses the dedicated `.confirm-*` styles, not the generic modal shell.
  */
 
 import React, { useEffect, useRef } from 'react';
 import { useModalStore } from '../lib/stores';
+import { Button } from './ui';
+
+const DangerIcon = () => (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+        <path d="M12 9v4m0 4h.01" stroke="#F85149" strokeWidth="2" strokeLinecap="round" />
+        <path
+            d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
+            stroke="#F85149"
+            strokeWidth="1.5"
+            fill="none"
+        />
+    </svg>
+);
+
+const InfoIcon = () => (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="9" stroke="var(--accent-secondary)" strokeWidth="1.5" />
+        <path d="M12 8v5m0 3h.01" stroke="var(--accent-secondary)" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+);
 
 export const ConfirmDialog: React.FC = () => {
     const dialog = useModalStore((s) => s.confirmDialog);
     const closeConfirmDialog = useModalStore((s) => s.closeConfirmDialog);
-    const dialogRef = useRef<HTMLDivElement>(null);
     const confirmBtnRef = useRef<HTMLButtonElement>(null);
 
-    // Focus the confirm button when dialog opens, handle Escape key
     useEffect(() => {
         if (!dialog) return;
-
-        // Small delay to ensure animation has started
-        const timer = setTimeout(() => confirmBtnRef.current?.focus(), 50);
-
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') {
-                closeConfirmDialog();
-            }
+        const focusTimer = setTimeout(() => confirmBtnRef.current?.focus(), 50);
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') closeConfirmDialog();
         };
-        document.addEventListener('keydown', handleKeyDown);
+        document.addEventListener('keydown', onKey);
         return () => {
-            clearTimeout(timer);
-            document.removeEventListener('keydown', handleKeyDown);
+            clearTimeout(focusTimer);
+            document.removeEventListener('keydown', onKey);
         };
     }, [dialog, closeConfirmDialog]);
 
@@ -39,45 +53,28 @@ export const ConfirmDialog: React.FC = () => {
     };
 
     const handleOverlayClick = (e: React.MouseEvent) => {
-        if (e.target === e.currentTarget) {
-            closeConfirmDialog();
-        }
+        if (e.target === e.currentTarget) closeConfirmDialog();
     };
 
     return (
         <div className="confirm-overlay" onClick={handleOverlayClick}>
-            <div className="confirm-dialog" ref={dialogRef}>
-                <div className="confirm-dialog__icon">
-                    {dialog.danger ? (
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                            <path d="M12 9v4m0 4h.01" stroke="#F85149" strokeWidth="2" strokeLinecap="round"/>
-                            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" stroke="#F85149" strokeWidth="1.5" fill="none"/>
-                        </svg>
-                    ) : (
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                            <circle cx="12" cy="12" r="9" stroke="var(--accent-secondary)" strokeWidth="1.5"/>
-                            <path d="M12 8v5m0 3h.01" stroke="var(--accent-secondary)" strokeWidth="2" strokeLinecap="round"/>
-                        </svg>
-                    )}
-                </div>
+            <div className="confirm-dialog">
+                <div className="confirm-dialog__icon">{dialog.danger ? <DangerIcon /> : <InfoIcon />}</div>
                 <div className="confirm-dialog__content">
                     <h3 className="confirm-dialog__title">{dialog.title}</h3>
                     <p className="confirm-dialog__message">{dialog.message}</p>
                 </div>
                 <div className="confirm-dialog__actions">
-                    <button
-                        className="btn btn--secondary"
-                        onClick={closeConfirmDialog}
-                    >
+                    <Button variant="secondary" onClick={closeConfirmDialog}>
                         {dialog.cancelLabel || 'Cancel'}
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                         ref={confirmBtnRef}
-                        className={`btn ${dialog.danger ? 'btn--danger' : 'btn--primary'}`}
+                        variant={dialog.danger ? 'danger' : 'primary'}
                         onClick={handleConfirm}
                     >
                         {dialog.confirmLabel || 'Confirm'}
-                    </button>
+                    </Button>
                 </div>
             </div>
         </div>

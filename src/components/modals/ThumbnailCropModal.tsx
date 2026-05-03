@@ -7,6 +7,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAppState } from '../../lib/stores';
 import { open } from '@tauri-apps/plugin-dialog';
 import * as api from '../../lib/api';
+import { Button, Modal, ModalBody, ModalFooter, ModalHeader, Range } from '../ui';
 
 // Output: 1280x720 (16:9 HD)
 const THUMB_W = 1280;
@@ -274,17 +275,11 @@ export const ThumbnailCropModal: React.FC = () => {
         }
     }, [cropX, cropY, cropW, cropH, options, showToast, closeModal]);
 
-    if (!isVisible) return null;
-
     return (
-        <div className={`modal-overlay ${isVisible ? 'modal-overlay--visible' : ''}`}>
-            <div className="modal" style={{ width: '820px' }}>
-                <div className="modal__header">
-                    <h2 className="modal__title">Set Project Thumbnail</h2>
-                    <button className="modal__close" onClick={closeModal}>&times;</button>
-                </div>
+        <Modal open={isVisible} onClose={closeModal} size="wide" modifier="modal--thumbnail">
+                <ModalHeader title="Set Project Thumbnail" onClose={closeModal} />
 
-                <div className="modal__body" style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
+                <ModalBody style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
                     {!imageSrc ? (
                         <div style={{
                             display: 'flex',
@@ -364,41 +359,34 @@ export const ThumbnailCropModal: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* Zoom slider */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%', maxWidth: CANVAS_W + 'px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', maxWidth: CANVAS_W + 'px' }}>
                                 <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Zoom</span>
-                                <input
-                                    type="range"
-                                    min="0.5"
-                                    max="3"
-                                    step="0.1"
+                                <Range
+                                    min={0.5}
+                                    max={3}
+                                    step={0.1}
                                     value={zoom}
                                     onChange={(e) => setZoom(parseFloat(e.target.value))}
                                     style={{ flex: 1 }}
                                 />
-                                <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', width: '40px', textAlign: 'right' }}>
+                                <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', width: 40, textAlign: 'right' }}>
                                     {Math.round(zoom * 100)}%
                                 </span>
                             </div>
 
-                            <button className="btn btn--sm btn--secondary" onClick={handlePickImage}>
+                            <Button size="sm" onClick={handlePickImage}>
                                 Choose Different Image
-                            </button>
+                            </Button>
                         </>
                     )}
-                </div>
+                </ModalBody>
 
-                <div className="modal__footer">
-                    <button className="btn btn--secondary" onClick={closeModal}>Cancel</button>
-                    <button
-                        className="btn btn--primary"
-                        onClick={handleSave}
-                        disabled={!imageSrc}
-                    >
+                <ModalFooter>
+                    <Button variant="secondary" onClick={closeModal}>Cancel</Button>
+                    <Button variant="primary" onClick={handleSave} disabled={!imageSrc}>
                         Save Thumbnail
-                    </button>
-                </div>
-            </div>
-        </div>
+                    </Button>
+                </ModalFooter>
+        </Modal>
     );
 };

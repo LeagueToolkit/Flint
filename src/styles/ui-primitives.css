@@ -1,0 +1,674 @@
+/* =============================================================================
+   Flint UI primitives — modernized component layer (2026-05)
+
+   Loaded after styles/index.css. Overrides legacy ad-hoc styling for
+   buttons, checkboxes, radios, modals, dropdowns, toggles, and adds:
+   - Custom-appearance form controls (no native white boxes)
+   - Global focus-visible ring
+   - Hover lift + press feedback on interactive elements
+   - Smooth toggle thumb / checkbox tick animations
+   - Cleaner disabled states
+
+   Higher specificity is used sparingly — most rules just rely on this file
+   loading after index.css.
+   ============================================================================= */
+
+/* -----------------------------------------------------------------------------
+   1. Global focus ring — accessible, keyboard-only
+   ----------------------------------------------------------------------------- */
+
+button:focus,
+input:focus,
+textarea:focus,
+select:focus,
+a:focus,
+[role="button"]:focus,
+[tabindex]:focus {
+  outline: none;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+  border-radius: inherit;
+}
+
+/* -----------------------------------------------------------------------------
+   2. Buttons — soft-tinted style (matches the welcome screen "old" buttons)
+   Pattern: tinted accent fill (10% alpha) + accent text + accent border,
+   flips to filled accent on hover. Modern, restrained, theme-driven.
+   ----------------------------------------------------------------------------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--btn-gap);
+  height: var(--btn-h-md);
+  padding: 0 var(--btn-px-md);
+  font-size: var(--text-base);
+  font-weight: 500;
+  line-height: 1;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  transition:
+    background-color var(--motion-fast),
+    border-color var(--motion-fast),
+    color var(--motion-fast),
+    box-shadow var(--motion-fast),
+    opacity var(--motion-fast);
+}
+
+.btn:disabled,
+.btn[aria-disabled="true"] {
+  opacity: 0.45;
+  filter: saturate(0.55);
+  pointer-events: none;
+  cursor: not-allowed;
+}
+
+/* Reset legacy span wrappers — gap on .btn handles spacing now */
+.btn > span,
+.btn > svg {
+  display: inline-flex;
+  align-items: center;
+}
+
+.btn--sm {
+  height: var(--btn-h-sm);
+  padding: 0 var(--btn-px-sm);
+  font-size: var(--text-sm);
+  gap: 6px;
+  border-radius: 8px;
+}
+
+.btn--large,
+.btn--lg {
+  height: var(--btn-h-lg);
+  padding: 0 var(--btn-px-lg);
+  font-size: var(--text-lg);
+  border-radius: 12px;
+  font-weight: 500;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+/* Variant: primary — soft-tinted accent that fills on hover */
+.btn--primary {
+  background: color-mix(in oklab, var(--accent-primary) 12%, transparent);
+  border-color: color-mix(in oklab, var(--accent-primary) 35%, transparent);
+  color: var(--accent-secondary, var(--accent-primary));
+}
+.btn--primary:hover {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: #fff;
+}
+.btn--primary:active {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+/* Variant: secondary — neutral surface, accent border on hover */
+.btn--secondary {
+  background: var(--surface-3);
+  border-color: var(--border-default);
+  color: var(--text-primary);
+}
+.btn--secondary:hover {
+  background: var(--surface-hover);
+  border-color: color-mix(in oklab, var(--border-default) 40%, var(--accent-primary) 60%);
+}
+
+/* Variant: ghost — text-only with hover wash */
+.btn--ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-secondary);
+}
+.btn--ghost:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+/* Variant: danger — soft red tint, fills on hover */
+.btn--danger {
+  background: color-mix(in oklab, var(--color-danger) 12%, transparent);
+  border-color: color-mix(in oklab, var(--color-danger) 35%, transparent);
+  color: var(--color-danger);
+}
+.btn--danger:hover {
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+  color: #fff;
+}
+
+/* Active state — uses the "filled" look of primary */
+.btn--active {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: #fff;
+}
+
+/* Icon-only — square, no padding */
+.btn--icon {
+  width: var(--btn-h-md);
+  padding: 0;
+  aspect-ratio: 1;
+}
+.btn--icon.btn--sm { width: var(--btn-h-sm); }
+.btn--icon.btn--large,
+.btn--icon.btn--lg { width: var(--btn-h-lg); }
+
+/* Icon scale on primary/danger hover — picked up from old btn--large rule */
+.btn--primary:hover svg,
+.btn--danger:hover svg {
+  transform: scale(1.08);
+  transition: transform var(--motion-fast);
+}
+.btn svg {
+  transition: transform var(--motion-fast);
+}
+
+/* -----------------------------------------------------------------------------
+   3. Custom checkbox — replaces the native white box
+   ----------------------------------------------------------------------------- */
+
+/* Scope: any plain checkbox NOT inside a settings-toggle (toggle has its own) */
+input[type="checkbox"]:not(.settings-toggle input):not(.np-pbe-toggle__input) {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  display: inline-grid;
+  place-content: center;
+  border: 1.5px solid var(--border-default);
+  border-radius: 4px;
+  background: var(--surface-3);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background var(--motion-fast),
+    border-color var(--motion-fast),
+    transform var(--motion-fast),
+    box-shadow var(--motion-fast);
+}
+
+input[type="checkbox"]:not(.settings-toggle input):not(.np-pbe-toggle__input):hover {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent-primary) 12%, transparent);
+}
+
+input[type="checkbox"]:not(.settings-toggle input):not(.np-pbe-toggle__input):checked {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+/* Animated checkmark */
+input[type="checkbox"]:not(.settings-toggle input):not(.np-pbe-toggle__input)::before {
+  content: '';
+  width: 9px;
+  height: 9px;
+  background: #fff;
+  clip-path: polygon(14% 47%, 0 60%, 36% 96%, 100% 18%, 86% 6%, 36% 67%);
+  transform: scale(0);
+  transition: transform var(--motion-base) var(--ease-spring);
+}
+
+input[type="checkbox"]:not(.settings-toggle input):not(.np-pbe-toggle__input):checked::before {
+  transform: scale(1);
+}
+
+input[type="checkbox"]:not(.settings-toggle input):not(.np-pbe-toggle__input):disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+input[type="checkbox"]:not(.settings-toggle input):not(.np-pbe-toggle__input):disabled:hover {
+  box-shadow: none;
+  border-color: var(--border-default);
+}
+
+/* -----------------------------------------------------------------------------
+   4. Custom radio
+   ----------------------------------------------------------------------------- */
+
+input[type="radio"]:not(.np-pbe-toggle__input) {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  display: inline-grid;
+  place-content: center;
+  border: 1.5px solid var(--border-default);
+  border-radius: 50%;
+  background: var(--surface-3);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background var(--motion-fast),
+    border-color var(--motion-fast),
+    box-shadow var(--motion-fast);
+}
+
+input[type="radio"]:not(.np-pbe-toggle__input):hover {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent-primary) 12%, transparent);
+}
+
+input[type="radio"]:not(.np-pbe-toggle__input):checked {
+  border-color: var(--accent-primary);
+}
+
+input[type="radio"]:not(.np-pbe-toggle__input)::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  transform: scale(0);
+  transition: transform var(--motion-base) var(--ease-spring);
+}
+
+input[type="radio"]:not(.np-pbe-toggle__input):checked::before {
+  transform: scale(1);
+}
+
+input[type="radio"]:not(.np-pbe-toggle__input):disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* -----------------------------------------------------------------------------
+   5. Toggle switch — animated thumb, smooth track color
+   ----------------------------------------------------------------------------- */
+
+.settings-toggle input[type="checkbox"] {
+  width: 36px;
+  height: 20px;
+  background: var(--surface-3);
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  position: relative;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background var(--motion-base),
+    border-color var(--motion-base);
+}
+
+.settings-toggle input[type="checkbox"]::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  transition:
+    left var(--motion-base) var(--ease-spring),
+    background var(--motion-base),
+    transform 80ms ease;
+}
+
+.settings-toggle input[type="checkbox"]:hover {
+  border-color: var(--accent-primary);
+}
+.settings-toggle input[type="checkbox"]:hover::before {
+  transform: scale(1.05);
+}
+
+.settings-toggle input[type="checkbox"]:checked {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+.settings-toggle input[type="checkbox"]:checked::before {
+  left: 18px;
+  background: #fff;
+}
+
+.settings-toggle input[type="checkbox"]:active::before {
+  transform: scale(0.92);
+}
+
+/* Hover row background */
+.settings-toggle {
+  border-radius: var(--radius-md);
+  transition: background var(--motion-fast);
+}
+.settings-toggle:hover {
+  background: color-mix(in oklab, var(--surface-hover) 50%, transparent);
+}
+
+/* -----------------------------------------------------------------------------
+   6. Inputs / textareas / selects — consistent border-on-focus
+   ----------------------------------------------------------------------------- */
+
+.form-input,
+.form-textarea,
+.form-select {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--text-primary);
+  border-radius: var(--radius-md);
+  padding: 0 12px;
+  height: var(--btn-h-md);
+  font-size: var(--text-sm);
+  transition:
+    border-color var(--motion-fast),
+    box-shadow var(--motion-fast),
+    background var(--motion-fast);
+}
+
+.form-textarea {
+  height: auto;
+  padding: 8px 12px;
+  line-height: 1.5;
+}
+
+.form-input:hover:not(:disabled),
+.form-textarea:hover:not(:disabled),
+.form-select:hover:not(:disabled) {
+  border-color: color-mix(in oklab, var(--input-border) 50%, var(--accent-primary) 50%);
+}
+
+.form-input:focus-visible,
+.form-textarea:focus-visible,
+.form-select:focus-visible {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-primary) 22%, transparent);
+}
+
+.form-input--invalid,
+.form-textarea--invalid {
+  border-color: var(--color-danger);
+}
+.form-input--invalid:focus-visible,
+.form-textarea--invalid:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-danger) 22%, transparent);
+}
+
+/* Input + button group — seamless border, no double-border seam */
+.form-input--with-button {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
+}
+.form-input--with-button:focus-within {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-primary) 22%, transparent);
+}
+.form-input--with-button .form-input {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  flex: 1;
+  height: var(--btn-h-md);
+}
+.form-input--with-button .form-input:focus-visible {
+  box-shadow: none;
+}
+.form-input--with-button .btn {
+  border-radius: 0;
+  border: none;
+  border-left: 1px solid var(--input-border);
+  height: auto;
+}
+
+/* -----------------------------------------------------------------------------
+   7. Range — themed track + thumb
+   ----------------------------------------------------------------------------- */
+
+.form-range {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 4px;
+  background: var(--surface-3);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.form-range::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  border: 2px solid var(--surface-1);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  transition: transform var(--motion-fast), box-shadow var(--motion-fast);
+}
+
+.form-range::-webkit-slider-thumb:hover {
+  transform: scale(1.18);
+  box-shadow: 0 0 0 6px color-mix(in oklab, var(--accent-primary) 18%, transparent);
+}
+
+.form-range::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  border: 2px solid var(--surface-1);
+  cursor: pointer;
+}
+
+/* -----------------------------------------------------------------------------
+   8. Modal — smoother enter, custom close icon target
+   ----------------------------------------------------------------------------- */
+
+.modal-overlay {
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+
+.modal {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-default);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+  transform: translateY(8px) scale(0.97);
+  opacity: 0;
+  transition:
+    transform var(--motion-base) var(--ease-spring),
+    opacity var(--motion-base);
+}
+.modal-overlay--visible .modal {
+  transform: translateY(0) scale(1);
+  opacity: 1;
+}
+
+.modal__close {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  background: transparent;
+  font-size: 18px;
+  line-height: 1;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+.modal__close:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+/* Fullscreen modifier — used by the UI showcase preview */
+.modal--fullscreen {
+  width: 96vw;
+  max-width: none;
+  height: 92vh;
+  max-height: none;
+}
+
+/* -----------------------------------------------------------------------------
+   9. Dropdown menu — themed surface, animated open
+   ----------------------------------------------------------------------------- */
+
+.dropdown__menu {
+  background: var(--surface-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  padding: 4px;
+  min-width: 180px;
+  z-index: 100;
+  transform: translateY(-6px) scale(0.98);
+  transform-origin: top right;
+  transition:
+    opacity var(--motion-fast),
+    transform var(--motion-fast),
+    visibility 0s linear var(--motion-fast);
+}
+
+.dropdown--open .dropdown__menu {
+  transform: translateY(0) scale(1);
+  visibility: visible;
+  opacity: 1;
+  transition:
+    opacity var(--motion-fast),
+    transform var(--motion-fast) var(--ease-spring),
+    visibility 0s;
+}
+
+.dropdown__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  width: 100%;
+  text-align: left;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  background: transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+.dropdown__item:hover {
+  background: color-mix(in oklab, var(--accent-primary) 14%, var(--surface-hover));
+  color: var(--text-primary);
+}
+.dropdown__item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.dropdown__divider {
+  height: 1px;
+  background: var(--border-default);
+  margin: 4px 6px;
+}
+
+/* -----------------------------------------------------------------------------
+   10. Spinner — silky rotation
+   ----------------------------------------------------------------------------- */
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--surface-3);
+  border-top-color: var(--accent-primary);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  display: inline-block;
+}
+.spinner--sm { width: 12px; height: 12px; border-width: 1.5px; }
+.spinner--lg { width: 28px; height: 28px; border-width: 3px; }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* -----------------------------------------------------------------------------
+   11. Confirm dialog — match modern modal aesthetic
+   ----------------------------------------------------------------------------- */
+
+.confirm-overlay {
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+
+.confirm-dialog {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-default);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+  animation: dialogPop var(--motion-base) var(--ease-spring);
+}
+
+@keyframes dialogPop {
+  from { transform: translateY(8px) scale(0.97); opacity: 0; }
+  to   { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+/* -----------------------------------------------------------------------------
+   12. ProgressBar — gradient fill, subtle glow
+   ----------------------------------------------------------------------------- */
+
+.progress-bar > div:last-child {
+  background: var(--surface-3) !important;
+}
+.progress-bar > div:last-child > div {
+  background: linear-gradient(90deg,
+    var(--accent-primary),
+    color-mix(in oklab, var(--accent-primary) 70%, white 30%)) !important;
+  box-shadow: 0 0 8px color-mix(in oklab, var(--accent-primary) 50%, transparent);
+}
+
+/* -----------------------------------------------------------------------------
+   13. Status badges (used by toasts / settings)
+   ----------------------------------------------------------------------------- */
+
+[data-status] {
+  --status-bg: var(--surface-3);
+  --status-fg: var(--text-primary);
+  --status-border: var(--border-default);
+}
+[data-status="success"] {
+  --status-fg: var(--color-success);
+  --status-bg: color-mix(in oklab, var(--color-success) 12%, var(--surface-2));
+  --status-border: color-mix(in oklab, var(--color-success) 40%, transparent);
+}
+[data-status="warning"] {
+  --status-fg: var(--color-warning);
+  --status-bg: color-mix(in oklab, var(--color-warning) 12%, var(--surface-2));
+  --status-border: color-mix(in oklab, var(--color-warning) 40%, transparent);
+}
+[data-status="danger"],
+[data-status="error"] {
+  --status-fg: var(--color-danger);
+  --status-bg: color-mix(in oklab, var(--color-danger) 12%, var(--surface-2));
+  --status-border: color-mix(in oklab, var(--color-danger) 40%, transparent);
+}
+[data-status="info"] {
+  --status-fg: var(--color-info);
+  --status-bg: color-mix(in oklab, var(--color-info) 14%, var(--surface-2));
+  --status-border: color-mix(in oklab, var(--color-info) 40%, transparent);
+}

@@ -12,6 +12,8 @@ import { App } from './components/App';
 
 // Import styles
 import './styles/index.css';
+// Modernized component layer — must load AFTER index.css to override
+import './styles/ui-primitives.css';
 // Import default theme (can be swapped via custom theme import)
 import './themes/default.css';
 

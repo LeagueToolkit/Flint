@@ -6,7 +6,7 @@ import React, { useState } from 'react';
 import { useAppState } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { open } from '@tauri-apps/plugin-dialog';
-import { getIcon } from '../../lib/fileIcons';
+import { Button, Field, FormGroup, FormHint, FormLabel, Input, Modal, ModalBody, ModalFooter, ModalHeader } from '../ui';
 
 export const FirstTimeSetupModal: React.FC = () => {
     const { state, dispatch, closeModal, showToast } = useAppState();
@@ -37,9 +37,7 @@ export const FirstTimeSetupModal: React.FC = () => {
             title: 'Select League of Legends Game Folder',
             directory: true,
         });
-        if (selected) {
-            setLeaguePath(selected as string);
-        }
+        if (selected) setLeaguePath(selected as string);
     };
 
     const handleComplete = async () => {
@@ -48,7 +46,6 @@ export const FirstTimeSetupModal: React.FC = () => {
             return;
         }
 
-        // Validate League path if provided
         if (leaguePath) {
             try {
                 const result = await api.validateLeague(leaguePath);
@@ -74,66 +71,49 @@ export const FirstTimeSetupModal: React.FC = () => {
         showToast('success', 'Setup complete! Welcome to Flint.');
     };
 
-    if (!isVisible) return null;
-
     return (
-        <div className={`modal-overlay ${isVisible ? 'modal-overlay--visible' : ''}`}>
-            <div className="modal">
-                <div className="modal__header">
-                    <h2 className="modal__title">Welcome to Flint!</h2>
-                </div>
+        <Modal open={isVisible} closeOnOverlay={false} closeOnEscape={false}>
+            <ModalHeader title="Welcome to Flint!" />
+            <ModalBody>
+                <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
+                    Let's get you set up. This will only take a moment.
+                </p>
 
-                <div className="modal__body">
-                    <p style={{ marginBottom: '16px', color: 'var(--text-secondary)' }}>
-                        Let's get you set up. This will only take a moment.
-                    </p>
+                <Field
+                    label="Your Creator Name"
+                    required
+                    placeholder="e.g., SirDexal"
+                    value={creatorName}
+                    onChange={(e) => setCreatorName(e.target.value)}
+                    hint="This will be used in your mods for proper crediting."
+                />
 
-                    <div className="form-group">
-                        <label className="form-label">Your Creator Name *</label>
-                        <input
-                            type="text"
-                            className="form-input"
-                            placeholder="e.g., SirDexal"
-                            value={creatorName}
-                            onChange={(e) => setCreatorName(e.target.value)}
-                        />
-                        <small style={{ color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
-                            This will be used in your mods for proper crediting.
-                        </small>
-                    </div>
-
-                    <div className="form-group">
-                        <label className="form-label">League of Legends Path</label>
-                        <div className="form-input--with-button">
-                            <input
-                                type="text"
-                                className="form-input"
-                                placeholder="C:\Riot Games\League of Legends"
-                                value={leaguePath}
-                                onChange={(e) => setLeaguePath(e.target.value)}
-                            />
-                            <button className="btn btn--secondary" onClick={handleBrowseLeague}>
-                                Browse
-                            </button>
-                        </div>
-                        <button
-                            className="btn btn--ghost"
-                            style={{ marginTop: '8px' }}
-                            onClick={handleDetectLeague}
-                            disabled={isDetecting}
-                        >
-                            <span dangerouslySetInnerHTML={{ __html: getIcon('search') }} />
-                            <span>Auto-detect</span>
-                        </button>
-                    </div>
-                </div>
-
-                <div className="modal__footer">
-                    <button className="btn btn--primary" onClick={handleComplete}>
-                        Get Started
-                    </button>
-                </div>
-            </div>
-        </div>
+                <FormGroup>
+                    <FormLabel>League of Legends Path</FormLabel>
+                    <Input
+                        placeholder="C:\Riot Games\League of Legends"
+                        value={leaguePath}
+                        onChange={(e) => setLeaguePath(e.target.value)}
+                        buttonLabel="Browse"
+                        onButtonClick={handleBrowseLeague}
+                    />
+                    <Button
+                        variant="ghost"
+                        icon="search"
+                        style={{ marginTop: 8 }}
+                        onClick={handleDetectLeague}
+                        disabled={isDetecting}
+                    >
+                        Auto-detect
+                    </Button>
+                    <FormHint>Optional — needed for in-game tooling and validation.</FormHint>
+                </FormGroup>
+            </ModalBody>
+            <ModalFooter>
+                <Button variant="primary" onClick={handleComplete}>
+                    Get Started
+                </Button>
+            </ModalFooter>
+        </Modal>
     );
 };

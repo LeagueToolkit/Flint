@@ -1,11 +1,23 @@
 /**
  * Flint - Mod Config Editor Modal
- * Provides a form-based editor for mod.config.json fields
+ * Provides a form-based editor for mod.config.json fields.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAppState } from '../../lib/stores';
 import * as api from '../../lib/api';
+import {
+    Button,
+    Field,
+    FormGroup,
+    FormLabel,
+    Input,
+    Modal,
+    ModalBody,
+    ModalFooter,
+    ModalHeader,
+    Textarea,
+} from '../ui';
 
 interface ModConfig {
     name: string;
@@ -23,17 +35,13 @@ interface ModConfig {
 // ModProjectAuthor is serde(untagged):
 //   Name(String)    → serialized as plain "Author"
 //   Role {name,role} → serialized as {"name":"...","role":"..."}
-// So authors array can contain both strings and objects.
 type ModConfigAuthor = string | { name: string; role: string };
 
 function getAuthorName(author: ModConfigAuthor): string {
     if (typeof author === 'string') return author;
     if (author && typeof author === 'object') {
-        // Untagged Role variant: { name, role }
         if ('name' in author) return author.name;
-        // Legacy tagged format: { Name: "..." }
         if ('Name' in author) return (author as Record<string, unknown>).Name as string;
-        // Legacy tagged format: { NameAndRole: { name, role } }
         if ('NameAndRole' in author) {
             const inner = (author as Record<string, unknown>).NameAndRole as { name: string };
             return inner.name;
@@ -46,7 +54,6 @@ function getAuthorRole(author: ModConfigAuthor): string {
     if (typeof author === 'string') return '';
     if (author && typeof author === 'object') {
         if ('role' in author) return author.role;
-        // Legacy tagged format
         if ('NameAndRole' in author) {
             const inner = (author as Record<string, unknown>).NameAndRole as { role: string };
             return inner.role;
@@ -56,11 +63,65 @@ function getAuthorRole(author: ModConfigAuthor): string {
 }
 
 function buildAuthor(name: string, role: string): ModConfigAuthor {
-    if (role.trim()) {
-        return { name, role };
-    }
-    return name;
+    return role.trim() ? { name, role } : name;
 }
+
+interface AuthorRow {
+    name: string;
+    role: string;
+}
+
+const AuthorEditor: React.FC<{
+    authors: AuthorRow[];
+    onAdd: () => void;
+    onRemove: (i: number) => void;
+    onUpdate: (i: number, field: 'name' | 'role', value: string) => void;
+}> = ({ authors, onAdd, onRemove, onUpdate }) => (
+    <FormGroup>
+        <div
+            style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: 6,
+            }}
+        >
+            <FormLabel>Contributors</FormLabel>
+            <Button size="sm" onClick={onAdd}>
+                + Add
+            </Button>
+        </div>
+        {authors.length === 0 && (
+            <div style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)', padding: '8px 0' }}>
+                No contributors added yet
+            </div>
+        )}
+        {authors.map((author, i) => (
+            <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
+                <Input
+                    value={author.name}
+                    onChange={(e) => onUpdate(i, 'name', e.target.value)}
+                    placeholder="Name"
+                    style={{ flex: 2 }}
+                />
+                <Input
+                    value={author.role}
+                    onChange={(e) => onUpdate(i, 'role', e.target.value)}
+                    placeholder="Role (optional)"
+                    style={{ flex: 1 }}
+                />
+                <Button
+                    size="sm"
+                    onClick={() => onRemove(i)}
+                    title="Remove contributor"
+                    style={{ color: 'var(--error)', flexShrink: 0 }}
+                >
+                    ×
+                </Button>
+            </div>
+        ))}
+    </FormGroup>
+);
 
 export const ModConfigEditorModal: React.FC = () => {
     const { state, closeModal, showToast } = useAppState();
@@ -72,14 +133,13 @@ export const ModConfigEditorModal: React.FC = () => {
     const [displayName, setDisplayName] = useState('');
     const [version, setVersion] = useState('');
     const [description, setDescription] = useState('');
-    const [authors, setAuthors] = useState<{ name: string; role: string }[]>([]);
+    const [authors, setAuthors] = useState<AuthorRow[]>([]);
     const [dirty, setDirty] = useState(false);
 
-    // Load mod.config.json when modal opens
     useEffect(() => {
         if (!isVisible || !options?.filePath) return;
 
-        const loadConfig = async () => {
+        (async () => {
             try {
                 const text = await api.readTextFile(options.filePath);
                 const parsed = JSON.parse(text) as ModConfig;
@@ -88,10 +148,10 @@ export const ModConfigEditorModal: React.FC = () => {
                 setVersion(parsed.version || '');
                 setDescription(parsed.description || '');
                 setAuthors(
-                    (parsed.authors || []).map((a: ModConfigAuthor) => ({
+                    (parsed.authors || []).map((a) => ({
                         name: getAuthorName(a),
                         role: getAuthorRole(a),
-                    }))
+                    })),
                 );
                 setDirty(false);
             } catch (err) {
@@ -99,9 +159,7 @@ export const ModConfigEditorModal: React.FC = () => {
                 showToast('error', 'Failed to load mod.config.json');
                 closeModal();
             }
-        };
-
-        loadConfig();
+        })();
     }, [isVisible, options?.filePath, showToast, closeModal]);
 
     const handleSave = useCallback(async () => {
@@ -114,12 +172,11 @@ export const ModConfigEditorModal: React.FC = () => {
                 version,
                 description,
                 authors: authors
-                    .filter(a => a.name.trim())
-                    .map(a => buildAuthor(a.name.trim(), a.role.trim())),
+                    .filter((a) => a.name.trim())
+                    .map((a) => buildAuthor(a.name.trim(), a.role.trim())),
             };
 
-            const text = JSON.stringify(updated, null, 2);
-            await api.writeTextFile(options.filePath, text);
+            await api.writeTextFile(options.filePath, JSON.stringify(updated, null, 2));
             showToast('success', 'Project config saved');
             setDirty(false);
             closeModal();
@@ -130,115 +187,75 @@ export const ModConfigEditorModal: React.FC = () => {
     }, [config, options?.filePath, displayName, version, description, authors, showToast, closeModal]);
 
     const addAuthor = useCallback(() => {
-        setAuthors(prev => [...prev, { name: '', role: '' }]);
+        setAuthors((prev) => [...prev, { name: '', role: '' }]);
         setDirty(true);
     }, []);
 
     const removeAuthor = useCallback((index: number) => {
-        setAuthors(prev => prev.filter((_, i) => i !== index));
+        setAuthors((prev) => prev.filter((_, i) => i !== index));
         setDirty(true);
     }, []);
 
     const updateAuthor = useCallback((index: number, field: 'name' | 'role', value: string) => {
-        setAuthors(prev => prev.map((a, i) => (i === index ? { ...a, [field]: value } : a)));
+        setAuthors((prev) => prev.map((a, i) => (i === index ? { ...a, [field]: value } : a)));
         setDirty(true);
     }, []);
 
-    if (!isVisible) return null;
-
     return (
-        <div className={`modal-overlay ${isVisible ? 'modal-overlay--visible' : ''}`}>
-            <div className="modal" style={{ width: '480px' }}>
-                <div className="modal__header">
-                    <h2 className="modal__title">Edit Project Info</h2>
-                    <button className="modal__close" onClick={closeModal}>&times;</button>
-                </div>
+        <Modal open={isVisible} onClose={closeModal}>
+            <ModalHeader title="Edit Project Info" onClose={closeModal} />
 
-                <div className="modal__body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    {/* Display Name */}
-                    <div className="form-group">
-                        <label className="form-label">Display Name</label>
-                        <input
-                            className="form-input"
-                            type="text"
-                            value={displayName}
-                            onChange={e => { setDisplayName(e.target.value); setDirty(true); }}
-                            placeholder="My Awesome Mod"
-                        />
-                    </div>
+            <ModalBody className="mod-config-editor">
+                <Field
+                    label="Display Name"
+                    placeholder="My Awesome Mod"
+                    value={displayName}
+                    onChange={(e) => {
+                        setDisplayName(e.target.value);
+                        setDirty(true);
+                    }}
+                />
 
-                    {/* Version */}
-                    <div className="form-group">
-                        <label className="form-label">Version</label>
-                        <input
-                            className="form-input"
-                            type="text"
-                            value={version}
-                            onChange={e => { setVersion(e.target.value); setDirty(true); }}
-                            placeholder="1.0.0"
-                        />
-                    </div>
+                <Field
+                    label="Version"
+                    placeholder="1.0.0"
+                    value={version}
+                    onChange={(e) => {
+                        setVersion(e.target.value);
+                        setDirty(true);
+                    }}
+                />
 
-                    {/* Description */}
-                    <div className="form-group">
-                        <label className="form-label">Description</label>
-                        <textarea
-                            className="form-input"
-                            value={description}
-                            onChange={e => { setDescription(e.target.value); setDirty(true); }}
-                            placeholder="A brief description of your mod"
-                            rows={3}
-                            style={{ resize: 'vertical' }}
-                        />
-                    </div>
+                <FormGroup>
+                    <FormLabel>Description</FormLabel>
+                    <Textarea
+                        value={description}
+                        onChange={(e) => {
+                            setDescription(e.target.value);
+                            setDirty(true);
+                        }}
+                        placeholder="A brief description of your mod"
+                        rows={3}
+                        style={{ resize: 'vertical' }}
+                    />
+                </FormGroup>
 
-                    {/* Authors */}
-                    <div className="form-group">
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-                            <label className="form-label" style={{ margin: 0 }}>Contributors</label>
-                            <button className="btn btn--sm" onClick={addAuthor}>+ Add</button>
-                        </div>
-                        {authors.length === 0 && (
-                            <div style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)', padding: '8px 0' }}>
-                                No contributors added yet
-                            </div>
-                        )}
-                        {authors.map((author, index) => (
-                            <div key={index} style={{ display: 'flex', gap: '6px', marginBottom: '6px', alignItems: 'center' }}>
-                                <input
-                                    className="form-input"
-                                    type="text"
-                                    value={author.name}
-                                    onChange={e => updateAuthor(index, 'name', e.target.value)}
-                                    placeholder="Name"
-                                    style={{ flex: 2 }}
-                                />
-                                <input
-                                    className="form-input"
-                                    type="text"
-                                    value={author.role}
-                                    onChange={e => updateAuthor(index, 'role', e.target.value)}
-                                    placeholder="Role (optional)"
-                                    style={{ flex: 1 }}
-                                />
-                                <button
-                                    className="btn btn--sm"
-                                    onClick={() => removeAuthor(index)}
-                                    title="Remove contributor"
-                                    style={{ color: 'var(--error)', flexShrink: 0 }}
-                                >
-                                    &times;
-                                </button>
-                            </div>
-                        ))}
-                    </div>
-                </div>
+                <AuthorEditor
+                    authors={authors}
+                    onAdd={addAuthor}
+                    onRemove={removeAuthor}
+                    onUpdate={updateAuthor}
+                />
+            </ModalBody>
 
-                <div className="modal__footer">
-                    <button className="btn btn--secondary" onClick={closeModal}>Cancel</button>
-                    <button className="btn btn--primary" onClick={handleSave} disabled={!dirty}>Save</button>
-                </div>
-            </div>
-        </div>
+            <ModalFooter>
+                <Button variant="secondary" onClick={closeModal}>
+                    Cancel
+                </Button>
+                <Button variant="primary" onClick={handleSave} disabled={!dirty}>
+                    Save
+                </Button>
+            </ModalFooter>
+        </Modal>
     );
 };

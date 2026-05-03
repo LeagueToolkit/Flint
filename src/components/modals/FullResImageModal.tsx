@@ -13,6 +13,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useAppState } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { getCachedImage, cacheImage } from '../../lib/imageCache';
+import { Button, Modal, ModalHeader } from '../ui';
 
 interface FullResImageOptions {
     /** Absolute path of the image file to open. */
@@ -155,34 +156,18 @@ export const FullResImageModal: React.FC = () => {
     }, [naturalSize]);
 
     return (
-        <div
-            className={`modal-overlay ${isVisible ? 'modal-overlay--visible' : ''}`}
-            onClick={closeModal}
-        >
-            <div
-                className="modal modal--large"
-                onClick={(e) => e.stopPropagation()}
-                style={{ width: '92vw', maxWidth: 'none', height: '88vh', maxHeight: 'none', display: 'flex', flexDirection: 'column' }}
-            >
-                <div className="modal__header">
-                    <h2
-                        className="modal__title"
-                        style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                        title={options?.absPath}
-                    >
-                        {options?.fileName ?? 'Image'}
-                    </h2>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '12px', color: 'var(--text-muted)', minWidth: '120px', textAlign: 'right' }}>
+        <Modal open={isVisible} onClose={closeModal} size="large" modifier="modal--full-res-image">
+                <ModalHeader title={options?.fileName ?? 'Image'} onClose={closeModal}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 12, color: 'var(--text-muted)', minWidth: 120, textAlign: 'right' }}>
                             {naturalSize ? `${naturalSize.w} × ${naturalSize.h}` : ''}
                             {' · '}
                             {Math.round(zoom * 100)}%
                         </span>
-                        <button type="button" className="btn btn--ghost btn--small" onClick={fitToWindow} style={{ padding: '4px 10px' }}>Fit</button>
-                        <button type="button" className="btn btn--ghost btn--small" onClick={resetView} style={{ padding: '4px 10px' }}>1:1</button>
-                        <button className="modal__close" onClick={closeModal}>×</button>
+                        <Button variant="ghost" size="sm" onClick={fitToWindow} style={{ padding: '4px 10px' }}>Fit</Button>
+                        <Button variant="ghost" size="sm" onClick={resetView} style={{ padding: '4px 10px' }}>1:1</Button>
                     </div>
-                </div>
+                </ModalHeader>
 
                 <div
                     ref={viewportRef}
@@ -232,7 +217,6 @@ export const FullResImageModal: React.FC = () => {
                         />
                     )}
                 </div>
-            </div>
-        </div>
+        </Modal>
     );
 };
