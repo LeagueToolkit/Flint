@@ -7,6 +7,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { initializeLogger, initBackendLogListener } from './lib/logger';
+import { installButtonGlow } from './lib/buttonGlow';
 import { AppProvider } from './lib/stores';
 import { App } from './components/App';
 import { DesignLab } from './components/ui/DesignLab';
@@ -26,6 +27,8 @@ const isDesignLab =
 
 // Initialize logger BEFORE React mounts to capture early logs
 initializeLogger();
+// Cursor-following glow on .btn — delegated, zero per-button overhead
+installButtonGlow();
 
 // Initialize app
 const container = document.getElementById('app');

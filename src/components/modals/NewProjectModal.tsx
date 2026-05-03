@@ -594,13 +594,53 @@ export const NewProjectModal: React.FC = () => {
         // Don't migrate to <Modal> — it would change the containing block.
         <div className="modal-overlay modal-overlay--visible">
             <div className="modal modal--new-project">
-                {/* Loading overlay */}
+                {/* Loading overlay — skeleton workspace preview */}
                 {isCreating && (
                     <div className="np-loading-overlay">
-                        <div className="np-loading-content">
-                            <div className="np-loading-spinner" />
-                            <div className="np-loading-title">Creating Project</div>
-                            <div className="np-loading-progress">{progress}</div>
+                        <div className="np-skel">
+                            <div className="np-skel__topbar">
+                                <span className="np-skel__shimmer" style={{ width: 110 }} />
+                                <span className="np-skel__shimmer np-skel__shimmer--soft" style={{ width: 70 }} />
+                                <span className="np-skel__spacer" />
+                                <span className="np-skel__dot" />
+                                <span className="np-skel__dot" />
+                                <span className="np-skel__dot" />
+                            </div>
+                            <div className="np-skel__body">
+                                <aside className="np-skel__side">
+                                    <span className="np-skel__shimmer" style={{ width: 90 }} />
+                                    {Array.from({ length: 7 }).map((_, i) => (
+                                        <span
+                                            key={i}
+                                            className="np-skel__shimmer np-skel__shimmer--row"
+                                            style={{
+                                                width: `${60 + ((i * 13) % 35)}%`,
+                                                marginLeft: i % 3 === 0 ? 0 : 14,
+                                                animationDelay: `${i * 80}ms`,
+                                            }}
+                                        />
+                                    ))}
+                                </aside>
+                                <main className="np-skel__main">
+                                    <div className="np-skel__hero">
+                                        <span className="np-skel__shimmer" style={{ width: 200, height: 18 }} />
+                                        <span className="np-skel__shimmer np-skel__shimmer--soft" style={{ width: 320, height: 12 }} />
+                                    </div>
+                                    <div className="np-skel__grid">
+                                        {Array.from({ length: 6 }).map((_, i) => (
+                                            <div key={i} className="np-skel__tile" style={{ animationDelay: `${i * 90}ms` }}>
+                                                <span className="np-skel__shimmer np-skel__shimmer--block" />
+                                                <span className="np-skel__shimmer np-skel__shimmer--row" style={{ width: '70%' }} />
+                                            </div>
+                                        ))}
+                                    </div>
+                                </main>
+                            </div>
+                            <div className="np-skel__statusline">
+                                <span className="np-skel__pulse" />
+                                <span className="np-skel__title">Creating Project</span>
+                                <span className="np-skel__progress">{progress || 'Preparing workspace…'}</span>
+                            </div>
                         </div>
                     </div>
                 )}
