@@ -1,15 +1,12 @@
 /**
  * Flint - Browse WAD Modal
  *
- * Two-pane chooser for opening a single .wad / .wad.client file:
- *   - Left: drag-and-drop zone
- *   - Right: file picker via the system dialog
- *
- * After a file is loaded we read the chunk list, count chunks with no
- * resolved path (unknown hashes), and — if more than 3 — surface a callout
- * offering to scan the WAD's BIN/SKN chunks and write
- * `hashes.extracted.txt` / `hashes.binhashes.extracted.txt` into the user's
- * hash directory. Algorithm ported from Quartz's `bin_hashes.rs`.
+ * Single full-width drop zone (also clickable to open the file picker) for
+ * choosing a .wad / .wad.client. After the file is loaded we read the chunk
+ * list, count chunks with no resolved path (unknown hashes), and — if more
+ * than 3 — surface a callout offering to scan the WAD's BIN/SKN chunks and
+ * write `hashes.extracted.txt` / `hashes.binhashes.extracted.txt` into the
+ * user's hash directory. Algorithm ported from Quartz's `bin_hashes.rs`.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -35,7 +32,6 @@ export const BrowseWadModal: React.FC = () => {
     const [dragOver, setDragOver] = useState(false);
     const dragDepth = useRef(0);
 
-    // Reset on open
     useEffect(() => {
         if (!isVisible) return;
         setPhase('pick');
@@ -48,7 +44,6 @@ export const BrowseWadModal: React.FC = () => {
         dragDepth.current = 0;
     }, [isVisible]);
 
-    /** Validate the file extension and load chunks. */
     const loadWad = async (path: string) => {
         if (!/\.(wad|wad\.client)$/i.test(path) && !path.toLowerCase().endsWith('.client')) {
             setError(`Not a WAD file:\n${path}`);
@@ -83,7 +78,6 @@ export const BrowseWadModal: React.FC = () => {
         }
     };
 
-    /* ─── Drag & drop ─────────────────────────────────────────────────── */
     const onDragEnter = (e: React.DragEvent) => {
         e.preventDefault();
         dragDepth.current += 1;
@@ -103,15 +97,11 @@ export const BrowseWadModal: React.FC = () => {
         dragDepth.current = 0;
         setDragOver(false);
 
-        // Tauri's webview surfaces dropped files in `dataTransfer.files`. Each
-        // `File` doesn't expose an absolute path on Tauri 2 — use the dialog's
-        // `path` prop on the file object when present (Tauri's webview shim).
         const dropped = Array.from(e.dataTransfer.files);
         if (dropped.length === 0) {
             showToast('error', 'No file in the drop');
             return;
         }
-        // Tauri-webview adds a non-standard `path` property to dropped files
         const f = dropped[0] as File & { path?: string };
         const path = f.path ?? f.name;
         if (!path || path === f.name) {
@@ -124,12 +114,10 @@ export const BrowseWadModal: React.FC = () => {
         await loadWad(path);
     };
 
-    /* ─── Unknown-hash count ──────────────────────────────────────────── */
     const totalChunks = chunks?.length ?? 0;
     const unknownChunks = chunks?.filter((c) => !c.path).length ?? 0;
     const tooManyUnknown = unknownChunks > UNKNOWN_THRESHOLD;
 
-    /* ─── Extract hashes action ───────────────────────────────────────── */
     const handleExtractHashes = async () => {
         if (!wadPath) return;
         setExtracting(true);
@@ -152,7 +140,6 @@ export const BrowseWadModal: React.FC = () => {
         }
     };
 
-    /* ─── Open in WAD Explorer ────────────────────────────────────────── */
     const handleOpenInExplorer = () => {
         if (!wadPath || !chunks) return;
         const sessionId = `extract-${Date.now()}`;
@@ -169,7 +156,7 @@ export const BrowseWadModal: React.FC = () => {
                 title={
                     <span className="bw-title">
                         <span className="bw-title__icon"><Icon name="wad" /></span>
-                        <span>
+                        <span className="bw-title__text">
                             <span className="bw-title__name">Open WAD File</span>
                             <span className="bw-title__sub">
                                 {phase === 'pick' && 'Drag & drop or browse for a .wad / .wad.client'}
@@ -185,53 +172,58 @@ export const BrowseWadModal: React.FC = () => {
 
             <ModalBody className="bw-body">
                 {phase === 'pick' && (
-                    <div className="bw-picker">
-                        <button
-                            type="button"
+                    <>
+                        <div
+                            role="button"
+                            tabIndex={0}
                             className={`bw-drop ${dragOver ? 'bw-drop--over' : ''}`}
                             onDragEnter={onDragEnter}
                             onDragLeave={onDragLeave}
                             onDragOver={onDragOver}
                             onDrop={onDrop}
                             onClick={handleBrowse}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleBrowse(); }
+                            }}
+                            aria-label="Drop a WAD file here, or click to browse"
                         >
-                            <span className="bw-drop__icon"><Icon name="download" /></span>
-                            <strong className="bw-drop__title">Drop a WAD file here</strong>
-                            <span className="bw-drop__desc">
-                                .wad or .wad.client — release to load it instantly.
-                            </span>
-                            <span className="bw-drop__hint">Click to browse if drag isn't working</span>
-                        </button>
-
-                        <div className="bw-or"><span>or</span></div>
-
-                        <div className="bw-pick-pane">
-                            <span className="bw-pick-pane__icon"><Icon name="folder" /></span>
-                            <strong className="bw-pick-pane__title">Browse from disk</strong>
-                            <span className="bw-pick-pane__desc">
-                                Pick any WAD archive in your file explorer. We'll read the chunk
-                                list and route you straight into the WAD Explorer.
-                            </span>
-                            <Button variant="primary" icon="folder" onClick={handleBrowse}>
-                                Choose WAD…
-                            </Button>
+                            <div className="bw-drop__inner">
+                                <span className="bw-drop__icon">
+                                    <Icon name="download" />
+                                </span>
+                                <strong className="bw-drop__title">
+                                    {dragOver ? 'Release to load' : 'Drop a WAD file here'}
+                                </strong>
+                                <span className="bw-drop__desc">
+                                    .wad or .wad.client — drop one in or click to browse.
+                                </span>
+                                <span className="bw-drop__chip">
+                                    <Icon name="folder" />
+                                    <span>Browse from disk</span>
+                                </span>
+                            </div>
                         </div>
-                    </div>
+
+                        <p className="bw-hint">
+                            Drag from File Explorer (not the browser). Files dropped from the
+                            web have no path and will be rejected.
+                        </p>
+                    </>
                 )}
 
                 {phase === 'loading' && (
-                    <div className="bw-loading">
-                        <div className="spinner" />
-                        <strong>Reading chunks…</strong>
-                        <span>{wadPath}</span>
+                    <div className="bw-state">
+                        <div className="bw-state__spinner" />
+                        <strong className="bw-state__title">Reading chunks…</strong>
+                        <span className="bw-state__sub">{wadPath}</span>
                     </div>
                 )}
 
                 {phase === 'error' && (
-                    <div className="bw-loading bw-loading--error">
-                        <span className="bw-loading__icon"><Icon name="error" /></span>
-                        <strong>Failed to open WAD</strong>
-                        <span>{error}</span>
+                    <div className="bw-state bw-state--error">
+                        <span className="bw-state__icon"><Icon name="error" /></span>
+                        <strong className="bw-state__title">Failed to open WAD</strong>
+                        <span className="bw-state__sub">{error}</span>
                         <Button onClick={() => setPhase('pick')}>Try another file</Button>
                     </div>
                 )}
@@ -240,10 +232,10 @@ export const BrowseWadModal: React.FC = () => {
                     <div className="bw-summary">
                         <div className="bw-file">
                             <span className="bw-file__icon"><Icon name="wad" /></span>
-                            <div className="bw-file__body">
+                            <span className="bw-file__body">
                                 <span className="bw-file__name">{wadPath.split(/[\\/]/).pop()}</span>
                                 <span className="bw-file__path">{wadPath}</span>
-                            </div>
+                            </span>
                             <Button variant="ghost" size="sm" onClick={() => setPhase('pick')} icon="refresh">
                                 Change
                             </Button>
@@ -270,10 +262,9 @@ export const BrowseWadModal: React.FC = () => {
                                 <div className="bw-callout__body">
                                     <strong>Unknown hashes found</strong>
                                     <p>
-                                        {unknownChunks.toLocaleString()} chunks could not be resolved.
-                                        Want to scan this WAD's BIN/SKN files for asset paths and write a
-                                        <code> hashes.extracted.txt </code>
-                                        you can keep — and contribute upstream?
+                                        {unknownChunks.toLocaleString()} chunks couldn't be resolved.
+                                        Want to scan this WAD's BIN/SKN files for asset paths and
+                                        write a <code>hashes.extracted.txt</code> you can keep?
                                     </p>
                                 </div>
                                 <Button
@@ -297,9 +288,10 @@ export const BrowseWadModal: React.FC = () => {
                                             : 'No new hashes found'}
                                     </strong>
                                     <p>
-                                        Scanned {extractResult.scanned.toLocaleString()} BIN/SKN files.
-                                        {extractResult.game_hashes_added > 0 && ` ${extractResult.game_hashes_added} game · `}
-                                        {extractResult.bin_hashes_added > 0 && ` ${extractResult.bin_hashes_added} bin`}
+                                        Scanned <strong>{extractResult.scanned.toLocaleString()}</strong> BIN/SKN files.
+                                        {extractResult.game_hashes_added > 0 && <> {extractResult.game_hashes_added} game </>}
+                                        {extractResult.game_hashes_added > 0 && extractResult.bin_hashes_added > 0 && '· '}
+                                        {extractResult.bin_hashes_added > 0 && <>{extractResult.bin_hashes_added} bin</>}
                                     </p>
                                     {extractResult.output_files.length > 0 && (
                                         <ul className="bw-callout__files">
