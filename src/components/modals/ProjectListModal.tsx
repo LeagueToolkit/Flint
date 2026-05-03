@@ -49,6 +49,60 @@ function championSplashUrl(alias: string): string {
  *  every time the modal reopens. Keyed by absolute project path. */
 const thumbnailCache = new Map<string, string | null>();
 
+/** Module-level memo for extracted dominant colors. Keyed by image URL. */
+const colorCache = new Map<string, [number, number, number]>();
+
+/**
+ * Extract a dominant, vibrant color from an HTMLImageElement.
+ *
+ * Samples a 32×32 thumbnail of the image, weights each pixel by saturation
+ * (so vibrant pixels dominate over the background), and averages the result.
+ * Skips near-black/near-white pixels so murky backgrounds don't drag the
+ * result toward gray.
+ */
+function extractDominantColor(img: HTMLImageElement): [number, number, number] | null {
+    try {
+        const canvas = document.createElement('canvas');
+        canvas.width = 32;
+        canvas.height = 32;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) return null;
+        ctx.drawImage(img, 0, 0, 32, 32);
+        const { data } = ctx.getImageData(0, 0, 32, 32);
+
+        let totalR = 0, totalG = 0, totalB = 0, totalWeight = 0;
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+            const a = data[i + 3];
+            if (a < 128) continue;
+
+            const max = Math.max(r, g, b);
+            const min = Math.min(r, g, b);
+            // Skip near-black and near-white
+            if (max < 40 || min > 220) continue;
+            const sat = max === 0 ? 0 : (max - min) / max;       // 0–1
+            const lum = (r + g + b) / 3;
+            // Heavily favour saturated, mid-bright pixels
+            const weight = sat * sat * (lum > 30 && lum < 230 ? 1 : 0.3);
+
+            totalR += r * weight;
+            totalG += g * weight;
+            totalB += b * weight;
+            totalWeight += weight;
+        }
+        if (totalWeight < 0.5) return null;
+        return [
+            Math.round(totalR / totalWeight),
+            Math.round(totalG / totalWeight),
+            Math.round(totalB / totalWeight),
+        ];
+    } catch {
+        return null; // CORS taint, etc.
+    }
+}
+
 /**
  * Resolve a project's tile artwork URL:
  *   1. Try `{project.path}/thumbnail.webp` via Tauri read.
@@ -92,37 +146,9 @@ function useProjectArtUrl(project: SavedProject) {
     };
 }
 
-/** Tile renderer — image when we have a URL, monogram otherwise. */
-const ProjectThumb: React.FC<{
-    project: SavedProject;
-    url: string | null;
-    isLoading: boolean;
-    onSplashFail: () => void;
-    showMonogramFallback: boolean;
-}> = ({ project, url, isLoading, onSplashFail, showMonogramFallback }) => {
-    if (showMonogramFallback) {
-        return (
-            <span className="pl-card__tile">
-                <span className="pl-card__monogram">{monogram(project.champion)}</span>
-            </span>
-        );
-    }
-    if (isLoading) return <span className="pl-card__tile pl-card__tile--loading" />;
-    if (!url) {
-        return (
-            <span className="pl-card__tile">
-                <span className="pl-card__monogram">{monogram(project.champion)}</span>
-            </span>
-        );
-    }
-    return (
-        <span className="pl-card__tile pl-card__tile--art">
-            <img src={url} alt="" className="pl-card__art" loading="lazy" onError={onSplashFail} />
-        </span>
-    );
-};
-
-/** Card row — owns the URL state so the splash glow can share it with the tile. */
+/** Card row — owns the URL state and dominant-color extraction so the
+ *  whole card (border, hover halo, champion text, monogram fallback) is
+ *  tinted to match the tile artwork. */
 const ProjectCard: React.FC<{
     project: SavedProject;
     index: number;
@@ -132,35 +158,66 @@ const ProjectCard: React.FC<{
 }> = ({ project, index, removing, onOpen, onRemove }) => {
     const { url, isLoading } = useProjectArtUrl(project);
     const [splashFailed, setSplashFailed] = useState(false);
+    const [tint, setTint] = useState<[number, number, number] | null>(() =>
+        url && colorCache.has(url) ? colorCache.get(url)! : null);
 
-    const showMonogram = splashFailed;
-    const glowUrl = !showMonogram && url ? url : null;
+    const showMonogram = splashFailed || (!url && !isLoading);
+
+    // Try cached color when URL changes
+    useEffect(() => {
+        if (!url) return;
+        const cached = colorCache.get(url);
+        if (cached) setTint(cached);
+        else setTint(null);
+    }, [url]);
+
+    const handleImgLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+        const img = e.currentTarget;
+        if (!url || colorCache.has(url)) return;
+        const color = extractDominantColor(img);
+        if (color) {
+            colorCache.set(url, color);
+            setTint(color);
+        }
+    };
+
+    // CSS vars for the per-card tint
+    const [r, g, b] = tint ?? [120, 130, 150];
+    const cssVars: React.CSSProperties = {
+        animationDelay: `${Math.min(index, 12) * 28}ms`,
+        ['--pl-r' as never]: r,
+        ['--pl-g' as never]: g,
+        ['--pl-b' as never]: b,
+        ['--pl-hue' as never]: hueFor(project.champion),
+    };
 
     return (
         <button
             type="button"
-            className={`pl-card ${removing ? 'pl-card--removing' : ''} ${glowUrl ? 'pl-card--has-glow' : ''}`}
+            className={`pl-card ${removing ? 'pl-card--removing' : ''}`}
             onClick={onOpen}
-            style={{
-                animationDelay: `${Math.min(index, 12) * 28}ms`,
-                ['--pl-hue' as never]: hueFor(project.champion),
-            }}
+            style={cssVars}
             title={`Open ${project.champion} — ${project.name}`}
         >
-            {glowUrl && (
-                <span
-                    className="pl-card__glow"
-                    style={{ backgroundImage: `url(${JSON.stringify(glowUrl).slice(1, -1)})` }}
-                    aria-hidden="true"
-                />
+            {showMonogram ? (
+                <span className="pl-card__tile">
+                    <span className="pl-card__monogram">{monogram(project.champion)}</span>
+                </span>
+            ) : isLoading || !url ? (
+                <span className="pl-card__tile pl-card__tile--loading" />
+            ) : (
+                <span className="pl-card__tile pl-card__tile--art">
+                    <img
+                        src={url}
+                        alt=""
+                        className="pl-card__art"
+                        loading="lazy"
+                        crossOrigin="anonymous"
+                        onLoad={handleImgLoad}
+                        onError={() => setSplashFailed(true)}
+                    />
+                </span>
             )}
-            <ProjectThumb
-                project={project}
-                url={url}
-                isLoading={isLoading}
-                onSplashFail={() => setSplashFailed(true)}
-                showMonogramFallback={showMonogram}
-            />
             <span className="pl-card__body">
                 <span className="pl-card__name">{project.name}</span>
                 <span className="pl-card__champ">{project.champion}</span>
