@@ -11,6 +11,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useAppState } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { Button, Icon, Modal, ModalBody, ModalFooter, ModalHeader } from '../ui';
@@ -22,6 +23,7 @@ type Phase = 'pick' | 'loading' | 'loaded' | 'error';
 export const BrowseWadModal: React.FC = () => {
     const { state, dispatch, closeModal, showToast } = useAppState();
     const isVisible = state.activeModal === 'browseWad';
+    const leaguePath = state.leaguePath || state.leaguePathPbe || null;
 
     const [phase, setPhase] = useState<Phase>('pick');
     const [wadPath, setWadPath] = useState<string | null>(null);
@@ -30,7 +32,9 @@ export const BrowseWadModal: React.FC = () => {
     const [extracting, setExtracting] = useState(false);
     const [extractResult, setExtractResult] = useState<api.ExtractHashesResult | null>(null);
     const [dragOver, setDragOver] = useState(false);
-    const dragDepth = useRef(0);
+    const dropZoneRef = useRef<HTMLDivElement | null>(null);
+    /** Latest loadWad ref so the webview listener (mounted once) sees fresh state. */
+    const loadWadRef = useRef<(p: string) => Promise<void>>(() => Promise.resolve());
 
     useEffect(() => {
         if (!isVisible) return;
@@ -41,7 +45,6 @@ export const BrowseWadModal: React.FC = () => {
         setExtracting(false);
         setExtractResult(null);
         setDragOver(false);
-        dragDepth.current = 0;
     }, [isVisible]);
 
     const loadWad = async (path: string) => {
@@ -78,41 +81,106 @@ export const BrowseWadModal: React.FC = () => {
         }
     };
 
-    const onDragEnter = (e: React.DragEvent) => {
-        e.preventDefault();
-        dragDepth.current += 1;
-        setDragOver(true);
+    /** Open the file picker rooted at League's `Game/DATA/FINAL` (where the
+        client WADs live — same root the champion-schema scanner uses).
+        Handles whether `leaguePath` points at the install root, the Game
+        folder, or already deeper inside DATA/FINAL. */
+    const handleBrowseLeague = async () => {
+        if (!leaguePath) {
+            showToast('error', 'League path not set — configure it in Settings');
+            return;
+        }
+        const sep = leaguePath.includes('\\') ? '\\' : '/';
+        // Normalize: strip trailing slashes, split into segments.
+        const norm = leaguePath.replace(/[\\/]+$/, '');
+        const lower = norm.toLowerCase().replace(/\\/g, '/');
+        let dataFinal: string;
+        if (lower.includes('/data/final')) {
+            // Already inside DATA/FINAL — use as-is.
+            dataFinal = norm;
+        } else if (lower.endsWith('/data')) {
+            // Sitting at DATA — append FINAL.
+            dataFinal = `${norm}${sep}FINAL`;
+        } else if (lower.endsWith('/game')) {
+            // "Game" folder — append DATA/FINAL.
+            dataFinal = `${norm}${sep}DATA${sep}FINAL`;
+        } else {
+            // Install root (e.g. ".../League of Legends") — append Game/DATA/FINAL.
+            dataFinal = `${norm}${sep}Game${sep}DATA${sep}FINAL`;
+        }
+        try {
+            const selected = await open({
+                title: 'Open WAD File from League',
+                defaultPath: dataFinal,
+                filters: [{ name: 'WAD Archive', extensions: ['wad', 'client'] }],
+                multiple: false,
+            });
+            if (!selected) return;
+            await loadWad(selected as string);
+        } catch (err) {
+            console.error('[BrowseWad] league picker failed', err);
+        }
     };
-    const onDragLeave = (e: React.DragEvent) => {
-        e.preventDefault();
-        dragDepth.current = Math.max(0, dragDepth.current - 1);
-        if (dragDepth.current === 0) setDragOver(false);
-    };
-    const onDragOver = (e: React.DragEvent) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'copy';
-    };
-    const onDrop = async (e: React.DragEvent) => {
-        e.preventDefault();
-        dragDepth.current = 0;
-        setDragOver(false);
 
-        const dropped = Array.from(e.dataTransfer.files);
-        if (dropped.length === 0) {
-            showToast('error', 'No file in the drop');
-            return;
-        }
-        const f = dropped[0] as File & { path?: string };
-        const path = f.path ?? f.name;
-        if (!path || path === f.name) {
-            showToast(
-                'error',
-                'Drag-and-drop needs absolute paths. Use Browse instead, or drop from File Explorer (not the browser).',
-            );
-            return;
-        }
-        await loadWad(path);
-    };
+    /* Tauri's webview drag-drop pipeline (same approach FileTree uses): the
+       OS-level drop event delivers absolute paths via `event.payload.paths`.
+       We hit-test the drop position against the drop-zone's bounding rect to
+       know whether the user actually dropped inside our target. */
+    useEffect(() => {
+        loadWadRef.current = loadWad;
+    });
+
+    useEffect(() => {
+        if (!isVisible) return;
+        let unlisten: (() => void) | null = null;
+        let cancelled = false;
+
+        const cssCoords = (pos: { x: number; y: number }) => ({
+            x: pos.x / window.devicePixelRatio,
+            y: pos.y / window.devicePixelRatio,
+        });
+        const insideDropZone = (x: number, y: number) => {
+            const el = dropZoneRef.current;
+            if (!el) return false;
+            const r = el.getBoundingClientRect();
+            return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+        };
+
+        getCurrentWebview()
+            .onDragDropEvent((event) => {
+                if (cancelled) return;
+                const { type } = event.payload as { type: string };
+
+                if (type === 'over') {
+                    const { x, y } = cssCoords((event.payload as any).position);
+                    setDragOver(insideDropZone(x, y));
+                } else if (type === 'drop') {
+                    const payload = event.payload as { position: { x: number; y: number }; paths: string[] };
+                    const { x, y } = cssCoords(payload.position);
+                    setDragOver(false);
+                    if (!insideDropZone(x, y)) return;
+                    if (!payload.paths?.length) {
+                        showToast('error', 'No file path in the drop');
+                        return;
+                    }
+                    // Pick the first path that looks like a WAD; fall back to the first.
+                    const wad = payload.paths.find((p) => /\.(wad|wad\.client|client)$/i.test(p)) ?? payload.paths[0];
+                    void loadWadRef.current(wad);
+                } else {
+                    setDragOver(false);
+                }
+            })
+            .then((fn) => {
+                if (cancelled) fn();
+                else unlisten = fn;
+            })
+            .catch((err) => console.error('[BrowseWad] drag listener failed', err));
+
+        return () => {
+            cancelled = true;
+            if (unlisten) unlisten();
+        };
+    }, [isVisible, showToast]);
 
     const totalChunks = chunks?.length ?? 0;
     const unknownChunks = chunks?.filter((c) => !c.path).length ?? 0;
@@ -126,12 +194,32 @@ export const BrowseWadModal: React.FC = () => {
             const result = await api.extractHashesFromWad(wadPath);
             setExtractResult(result);
             const total = result.game_hashes_added + result.bin_hashes_added;
-            showToast(
-                total > 0 ? 'success' : 'info',
-                total > 0
-                    ? `Extracted ${total} new hash${total === 1 ? '' : 'es'} from ${result.scanned} files`
-                    : `Scanned ${result.scanned} BIN/SKN files — no new hashes found`,
-            );
+
+            // Re-resolve the chunk list so the "Resolved / Unknown" stats reflect
+            // the freshly-merged hashes (the backend writes them straight to LMDB).
+            const beforeUnknown = chunks?.filter((c) => !c.path).length ?? 0;
+            try {
+                const refreshed = await api.getWadChunks(wadPath);
+                setChunks(refreshed);
+                const afterUnknown = refreshed.filter((c) => !c.path).length;
+                const newlyResolved = Math.max(0, beforeUnknown - afterUnknown);
+                showToast(
+                    newlyResolved > 0 ? 'success' : total > 0 ? 'info' : 'info',
+                    newlyResolved > 0
+                        ? `Resolved ${newlyResolved} new path${newlyResolved === 1 ? '' : 's'} (+${total} hashes from ${result.scanned} files)`
+                        : total > 0
+                            ? `Extracted ${total} hash${total === 1 ? '' : 'es'} — none matched chunks in this WAD`
+                            : `Scanned ${result.scanned} BIN/SKN files — no new hashes found`,
+                );
+            } catch (refreshErr) {
+                console.error('[BrowseWad] failed to refresh chunks after extract', refreshErr);
+                showToast(
+                    total > 0 ? 'success' : 'info',
+                    total > 0
+                        ? `Extracted ${total} new hash${total === 1 ? '' : 'es'} from ${result.scanned} files`
+                        : `Scanned ${result.scanned} BIN/SKN files — no new hashes found`,
+                );
+            }
         } catch (err) {
             const msg = err instanceof api.FlintError ? err.getUserMessage() : String(err);
             showToast('error', `Extract failed: ${msg}`);
@@ -150,12 +238,60 @@ export const BrowseWadModal: React.FC = () => {
 
     if (!isVisible) return null;
 
-    /* Picker phase has its own headless layout (heading + subtitle inside body
-       to match the reference); other phases keep a compact ModalHeader. */
+    /* Picker phase is fully headless — heading + drop zone + manual button live
+       inside the body. Other phases keep a compact ModalHeader for context. */
     const showHeader = phase !== 'pick';
 
     return (
         <Modal open={isVisible} onClose={closeModal} size="wide" modifier="modal--browse-wad">
+            <style>{`
+                .modal--browse-wad { max-width: 720px !important; width: 90vw !important; }
+                .bwm-pick .bwm-code {
+                    background: var(--bg-tertiary);
+                    border: 1px solid var(--border);
+                    border-radius: 4px;
+                    padding: 1px 6px;
+                    margin: 0 1px;
+                    font-family: var(--font-mono);
+                    font-size: 11px;
+                    color: color-mix(in oklab, var(--accent-primary) 25%, var(--text-primary));
+                }
+                .bwm-drop:hover {
+                    background: color-mix(in oklab, var(--accent-primary) 8%, var(--bg-tertiary)) !important;
+                    border-color: color-mix(in oklab, var(--accent-primary) 55%, var(--border)) !important;
+                    box-shadow: 0 8px 24px -10px color-mix(in oklab, var(--accent-primary) 35%, transparent);
+                }
+                .bwm-drop:hover .bwm-drop__icon {
+                    color: var(--accent-primary) !important;
+                    border-color: color-mix(in oklab, var(--accent-primary) 50%, var(--border)) !important;
+                    transform: translateY(-3px);
+                    transition: transform 320ms cubic-bezier(.34,1.56,.64,1), color 220ms, border-color 220ms;
+                }
+                .bwm-drop:active { transform: scale(0.995); }
+                .bwm-drop:focus-visible {
+                    outline: none;
+                    border-color: var(--accent-primary) !important;
+                    box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-primary) 30%, transparent);
+                }
+                .bwm-drop--over {
+                    animation: bwmPulse 1.6s ease-in-out infinite;
+                }
+                @keyframes bwmPulse {
+                    0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent-primary) 35%, transparent); }
+                    50%      { box-shadow: 0 0 0 12px color-mix(in oklab, var(--accent-primary) 8%, transparent); }
+                }
+                .bwm-manual:hover {
+                    background: color-mix(in oklab, var(--accent-primary) 8%, transparent) !important;
+                    border-color: color-mix(in oklab, var(--accent-primary) 50%, var(--border)) !important;
+                    color: var(--text-primary) !important;
+                }
+                .bwm-manual:active { transform: scale(0.99); }
+                .bwm-manual:focus-visible {
+                    outline: none;
+                    border-color: var(--accent-primary) !important;
+                    box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent-primary) 30%, transparent);
+                }
+            `}</style>
             {showHeader && (
                 <ModalHeader
                     title={
@@ -171,78 +307,202 @@ export const BrowseWadModal: React.FC = () => {
                             </span>
                         </span>
                     }
-                    onClose={closeModal}
                 />
             )}
 
-            <ModalBody className="bw-body">
+            <ModalBody className="bw-body" style={{ padding: 0, display: 'flex', flexDirection: 'column' }}>
                 {phase === 'pick' && (
-                    <div className="bw-pick">
-                        {/* Inline X close (since we hid the header for this phase) */}
-                        <button
-                            type="button"
-                            className="modal__close bw-pick__close"
-                            onClick={closeModal}
-                            aria-label="Close"
-                        >
-                            <Icon name="close" />
-                        </button>
-
-                        <h2 className="bw-pick__title">Open Your WAD File</h2>
-                        <p className="bw-pick__sub">
-                            Load a League of Legends WAD archive (<code>.wad</code> or
-                            {' '}<code>.wad.client</code>) to scan its contents and detect
-                            missing path hashes.
-                        </p>
+                    <div
+                        className="bwm-pick"
+                        style={{
+                            padding: '32px 36px 28px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 18,
+                            boxSizing: 'border-box',
+                        }}
+                    >
+                        <header style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <h2
+                                className="bwm-pick__title"
+                                style={{
+                                    margin: 0,
+                                    fontSize: 26,
+                                    fontWeight: 700,
+                                    letterSpacing: '-0.02em',
+                                    lineHeight: 1.15,
+                                    color: 'var(--text-primary)',
+                                }}
+                            >
+                                Open Your WAD File
+                            </h2>
+                            <p
+                                style={{
+                                    margin: 0,
+                                    fontSize: 14,
+                                    color: 'var(--text-secondary)',
+                                    lineHeight: 1.5,
+                                    maxWidth: 560,
+                                }}
+                            >
+                                Load a League of Legends WAD archive (<code className="bwm-code">.wad</code> or{' '}
+                                <code className="bwm-code">.wad.client</code>) to scan its contents and detect
+                                missing path hashes.
+                            </p>
+                        </header>
 
                         <div
+                            ref={dropZoneRef}
                             role="button"
                             tabIndex={0}
-                            className={`bw-drop ${dragOver ? 'bw-drop--over' : ''}`}
-                            onDragEnter={onDragEnter}
-                            onDragLeave={onDragLeave}
-                            onDragOver={onDragOver}
-                            onDrop={onDrop}
+                            className={`bwm-drop ${dragOver ? 'bwm-drop--over' : ''}`}
                             onClick={handleBrowse}
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleBrowse(); }
                             }}
                             aria-label="Drop a WAD file here, or click to browse"
+                            style={{
+                                boxSizing: 'border-box',
+                                width: '100%',
+                                minHeight: 220,
+                                padding: '36px 24px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 14,
+                                background: dragOver
+                                    ? 'color-mix(in oklab, var(--accent-primary) 18%, var(--bg-tertiary))'
+                                    : 'color-mix(in oklab, var(--bg-primary) 80%, transparent)',
+                                border: `2px ${dragOver ? 'solid' : 'dashed'} ${dragOver ? 'var(--accent-primary)' : 'color-mix(in oklab, var(--border) 90%, transparent)'}`,
+                                borderRadius: 16,
+                                color: 'var(--text-primary)',
+                                cursor: 'pointer',
+                                textAlign: 'center',
+                                transition: 'background 220ms, border-color 220ms, transform 120ms, box-shadow 220ms',
+                            }}
                         >
-                            <div className="bw-drop__inner">
-                                <span className="bw-drop__icon" aria-hidden="true">
-                                    <svg
-                                        width="36"
-                                        height="36"
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        strokeWidth="2"
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                    >
-                                        <path d="M12 4v12" />
-                                        <path d="M6 10l6-6 6 6" />
-                                        <path d="M5 19h14" />
-                                    </svg>
+                            <span
+                                className="bwm-drop__icon"
+                                aria-hidden="true"
+                                style={{
+                                    boxSizing: 'border-box',
+                                    width: 72,
+                                    height: 72,
+                                    minWidth: 72,
+                                    flex: '0 0 72px',
+                                    display: 'grid',
+                                    placeItems: 'center',
+                                    background: 'color-mix(in oklab, var(--bg-tertiary) 70%, transparent)',
+                                    border: '1px solid color-mix(in oklab, var(--border) 80%, transparent)',
+                                    borderRadius: '50%',
+                                    color: dragOver ? '#fff' : 'var(--text-secondary)',
+                                    overflow: 'hidden',
+                                    pointerEvents: 'none',
+                                }}
+                            >
+                                <svg
+                                    width="32"
+                                    height="32"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    style={{ display: 'block', flexShrink: 0 }}
+                                >
+                                    <path d="M12 4v12" />
+                                    <path d="M6 10l6-6 6 6" />
+                                    <path d="M5 19h14" />
+                                </svg>
+                            </span>
+                            <strong
+                                style={{
+                                    display: 'block',
+                                    margin: 0,
+                                    fontSize: 18,
+                                    fontWeight: 700,
+                                    color: 'var(--text-primary)',
+                                    letterSpacing: '-0.01em',
+                                    lineHeight: 1.2,
+                                    pointerEvents: 'none',
+                                }}
+                            >
+                                {dragOver ? 'Release to load' : 'Drag & drop your WAD file'}
+                            </strong>
+                            <span
+                                style={{
+                                    display: 'block',
+                                    margin: 0,
+                                    fontSize: 13,
+                                    color: 'var(--text-muted)',
+                                    lineHeight: 1.5,
+                                    pointerEvents: 'none',
+                                }}
+                            >
+                                or{' '}
+                                <span
+                                    style={{
+                                        color: 'var(--accent-primary)',
+                                        fontWeight: 500,
+                                        borderBottom: '1px dashed color-mix(in oklab, var(--accent-primary) 50%, transparent)',
+                                    }}
+                                >
+                                    browse to upload
                                 </span>
-                                <strong className="bw-drop__title">
-                                    {dragOver ? 'Release to load' : 'Drag & drop your WAD file'}
-                                </strong>
-                                <span className="bw-drop__desc">
-                                    or{' '}
-                                    <span className="bw-drop__link">browse to upload</span>
-                                </span>
-                            </div>
+                            </span>
                         </div>
 
                         <button
                             type="button"
-                            className="bw-manual-btn"
-                            onClick={handleBrowse}
+                            className="bwm-manual"
+                            onClick={(e) => { e.stopPropagation(); handleBrowseLeague(); }}
+                            disabled={!leaguePath}
+                            title={leaguePath ?? 'League path not set in Settings'}
+                            style={{
+                                boxSizing: 'border-box',
+                                width: '100%',
+                                height: 56,
+                                appearance: 'none',
+                                WebkitAppearance: 'none',
+                                fontFamily: 'inherit',
+                                margin: 0,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 10,
+                                padding: '0 20px',
+                                background: 'transparent',
+                                border: '1px solid var(--border)',
+                                borderRadius: 14,
+                                color: leaguePath ? 'var(--text-secondary)' : 'var(--text-muted)',
+                                fontSize: 14,
+                                fontWeight: 500,
+                                cursor: leaguePath ? 'pointer' : 'not-allowed',
+                                opacity: leaguePath ? 1 : 0.55,
+                                textAlign: 'center',
+                                transition: 'background 120ms, border-color 120ms, color 120ms, transform 120ms',
+                            }}
                         >
-                            <Icon name="folder" />
-                            <span>Select manually from disk</span>
+                            <span
+                                aria-hidden="true"
+                                style={{
+                                    display: 'inline-grid',
+                                    placeItems: 'center',
+                                    width: 18,
+                                    height: 18,
+                                    color: 'var(--accent-primary)',
+                                    flexShrink: 0,
+                                }}
+                            >
+                                {/* Compass-style icon hinting at the League install dir */}
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
+                                    <circle cx="12" cy="12" r="9" />
+                                    <path d="M15.5 8.5l-2 5-5 2 2-5z" />
+                                </svg>
+                            </span>
+                            <span>{leaguePath ? 'Browse League directory' : 'League path not set'}</span>
                         </button>
                     </div>
                 )}

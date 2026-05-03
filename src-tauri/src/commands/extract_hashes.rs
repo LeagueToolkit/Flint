@@ -22,6 +22,9 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
+use flint_ltk::heed::types::{Bytes, Str};
+use flint_ltk::heed::Database;
+
 // ─── Scanners (port of Quartz's bin_hashes.rs) ──────────────────────────────
 
 const PATH_PREFIXES: &[&[u8]] = &[
@@ -207,6 +210,56 @@ fn write_merged(
     Ok((added_game, added_bin))
 }
 
+// ─── LMDB merge helpers ─────────────────────────────────────────────────────
+
+/// Insert (or overwrite) freshly-extracted (xxhash64 → path) entries into the
+/// already-cached WAD LMDB. Single write txn, single commit. Idempotent.
+fn merge_into_wad_lmdb(
+    hash_dir: &str,
+    entries: &BTreeMap<u64, String>,
+) -> Result<usize, String> {
+    let env = flint_ltk::hash::get_wad_env(hash_dir)
+        .ok_or_else(|| "WAD LMDB not present (run hash download first)".to_string())?;
+    let mut wtxn = env.write_txn().map_err(|e| format!("write_txn: {}", e))?;
+    let db: Database<Bytes, Str> = env
+        .create_database(&mut wtxn, Some("wad"))
+        .map_err(|e| format!("create_database wad: {}", e))?;
+    let mut written = 0usize;
+    for (h, p) in entries {
+        let key = h.to_be_bytes();
+        if db.put(&mut wtxn, &key[..], p).is_ok() {
+            written += 1;
+        }
+    }
+    wtxn.commit().map_err(|e| format!("commit wad: {}", e))?;
+    tracing::info!("Merged {} entries into WAD LMDB", written);
+    Ok(written)
+}
+
+/// Insert (or overwrite) freshly-extracted (fnv1a32 → name) entries into the
+/// already-cached BIN LMDB.
+fn merge_into_bin_lmdb(
+    hash_dir: &str,
+    entries: &BTreeMap<u32, String>,
+) -> Result<usize, String> {
+    let env = flint_ltk::hash::get_bin_env(hash_dir)
+        .ok_or_else(|| "BIN LMDB not present (run hash download first)".to_string())?;
+    let mut wtxn = env.write_txn().map_err(|e| format!("write_txn: {}", e))?;
+    let db: Database<Bytes, Str> = env
+        .create_database(&mut wtxn, Some("bin"))
+        .map_err(|e| format!("create_database bin: {}", e))?;
+    let mut written = 0usize;
+    for (h, n) in entries {
+        let key = h.to_be_bytes();
+        if db.put(&mut wtxn, &key[..], n).is_ok() {
+            written += 1;
+        }
+    }
+    wtxn.commit().map_err(|e| format!("commit bin: {}", e))?;
+    tracing::info!("Merged {} entries into BIN LMDB", written);
+    Ok(written)
+}
+
 // ─── Tauri commands ─────────────────────────────────────────────────────────
 
 /// Result of an extract_hashes operation, returned to the frontend.
@@ -274,7 +327,23 @@ pub async fn extract_hashes_from_wad(
 
     let game_count = game.len();
     let bin_count = bin.len();
+    let game_for_lmdb = game.clone();
+    let bin_for_lmdb = bin.clone();
     let (added_game, added_bin) = write_merged(&hash_dir, game, bin)?;
+
+    // Insert the freshly-scanned hashes into the live LMDB caches so the very
+    // next `getWadChunks` call resolves them without a process restart.
+    let hash_dir_str = hash_dir.to_string_lossy().to_string();
+    if !game_for_lmdb.is_empty() {
+        if let Err(e) = merge_into_wad_lmdb(&hash_dir_str, &game_for_lmdb) {
+            tracing::warn!("Failed to merge extracted game hashes into LMDB: {}", e);
+        }
+    }
+    if !bin_for_lmdb.is_empty() {
+        if let Err(e) = merge_into_bin_lmdb(&hash_dir_str, &bin_for_lmdb) {
+            tracing::warn!("Failed to merge extracted bin hashes into LMDB: {}", e);
+        }
+    }
 
     tracing::info!(
         "Extracted hashes: scanned={} game_total={} bin_total={} game_new={} bin_new={}",
