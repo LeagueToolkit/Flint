@@ -72,25 +72,39 @@
     gap: 14px !important;
 }
 
+/* Lead paragraph above the drop zone */
+.modal--browse-wad .bw-lead {
+    margin: 0 0 4px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+.modal--browse-wad .bw-lead code {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    margin: 0 1px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: color-mix(in oklab, var(--accent-primary) 25%, var(--text-primary));
+}
+
 /* --------------------------------------------------------------------------
-   DROP ZONE — full-width, tall, click-to-browse, drag-to-load.
-   Resets the native <button>-ish defaults that fought the previous build.
+   DROP ZONE — large, dashed, circular icon tile, "browse to upload" link
    -------------------------------------------------------------------------- */
 .modal--browse-wad .bw-drop {
-    /* hard reset — these inherit from button/native styles */
     all: unset;
-
     position: relative;
     display: block;
     width: 100%;
-    min-height: 260px;
-    padding: 0;
+    min-height: 280px;
     background:
         radial-gradient(ellipse at center,
             color-mix(in oklab, var(--accent-primary) 4%, var(--bg-tertiary)) 0%,
             var(--bg-tertiary) 70%);
-    border: 2px dashed color-mix(in oklab, var(--border) 80%, transparent);
-    border-radius: 16px;
+    border: 2px dashed color-mix(in oklab, var(--border) 90%, transparent);
+    border-radius: 18px;
     cursor: pointer;
     text-align: center;
     box-sizing: border-box;
@@ -105,11 +119,10 @@
         radial-gradient(ellipse at center,
             color-mix(in oklab, var(--accent-primary) 8%, var(--bg-tertiary)) 0%,
             var(--bg-tertiary) 70%);
-    border-color: color-mix(in oklab, var(--accent-primary) 50%, var(--border));
-    transform: translateY(-1px);
-    box-shadow: 0 6px 18px -8px color-mix(in oklab, var(--accent-primary) 30%, transparent);
+    border-color: color-mix(in oklab, var(--accent-primary) 55%, var(--border));
+    box-shadow: 0 8px 24px -10px color-mix(in oklab, var(--accent-primary) 35%, transparent);
 }
-.modal--browse-wad .bw-drop:active { transform: translateY(0) scale(0.99); }
+.modal--browse-wad .bw-drop:active { transform: scale(0.995); }
 .modal--browse-wad .bw-drop:focus-visible {
     outline: none;
     border-color: var(--accent-primary);
@@ -119,77 +132,88 @@
 .modal--browse-wad .bw-drop--over {
     background:
         radial-gradient(ellipse at center,
-            color-mix(in oklab, var(--accent-primary) 18%, var(--bg-tertiary)) 0%,
-            var(--bg-tertiary) 70%);
+            color-mix(in oklab, var(--accent-primary) 22%, var(--bg-tertiary)) 0%,
+            var(--bg-tertiary) 75%);
     border-style: solid;
     border-color: var(--accent-primary);
-    transform: scale(1.005);
     animation: bwPulse 1.6s ease-in-out infinite;
 }
 @keyframes bwPulse {
     0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent-primary) 35%, transparent); }
-    50%      { box-shadow: 0 0 0 10px color-mix(in oklab, var(--accent-primary) 8%, transparent); }
+    50%      { box-shadow: 0 0 0 12px color-mix(in oklab, var(--accent-primary) 8%, transparent); }
 }
 
-/* Inner stack — flex column, well-spaced */
+/* Inner stack — flex column, generously spaced */
 .modal--browse-wad .bw-drop__inner {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 14px;
-    padding: 36px 28px;
+    gap: 18px;
+    padding: 44px 28px;
     pointer-events: none; /* drop events fire on the parent */
-    min-height: 260px;
+    min-height: 280px;
     box-sizing: border-box;
 }
 
-/* Big animated icon tile */
+/* Big CIRCULAR icon tile */
 .modal--browse-wad .bw-drop__icon {
-    width: 72px;
-    height: 72px;
+    width: 96px;
+    height: 96px;
     display: grid;
     place-items: center;
     background:
-        linear-gradient(135deg,
-            color-mix(in oklab, var(--accent-primary) 28%, var(--bg-primary)),
-            var(--bg-primary));
-    border: 1px solid color-mix(in oklab, var(--accent-primary) 45%, var(--border));
-    border-radius: 18px;
-    color: var(--accent-primary);
+        radial-gradient(circle at 30% 30%,
+            color-mix(in oklab, var(--accent-primary) 14%, var(--bg-primary)),
+            color-mix(in oklab, var(--accent-primary) 4%, var(--bg-primary)) 70%);
+    border: 1px solid color-mix(in oklab, var(--accent-primary) 30%, var(--border));
+    border-radius: 50%;
+    color: color-mix(in oklab, var(--accent-primary) 30%, var(--text-primary));
     box-shadow:
         inset 0 1px 0 rgba(255,255,255,0.04),
-        0 8px 24px -8px color-mix(in oklab, var(--accent-primary) 50%, transparent);
-    transition: transform var(--motion-base), box-shadow var(--motion-base);
+        0 12px 28px -10px color-mix(in oklab, var(--accent-primary) 35%, transparent);
+    transition:
+        transform 320ms cubic-bezier(.34,1.56,.64,1),
+        background var(--motion-base),
+        color var(--motion-base),
+        border-color var(--motion-base);
 }
 .modal--browse-wad .bw-drop__icon svg {
-    width: 32px;
-    height: 32px;
+    width: 38px;
+    height: 38px;
     display: block;
+    stroke: currentColor;
     transition: transform var(--motion-base);
 }
-.modal--browse-wad .bw-drop:hover .bw-drop__icon { transform: translateY(-2px); }
-.modal--browse-wad .bw-drop:hover .bw-drop__icon svg { transform: scale(1.05); }
+.modal--browse-wad .bw-drop:hover .bw-drop__icon {
+    transform: translateY(-3px);
+    color: var(--accent-primary);
+    border-color: color-mix(in oklab, var(--accent-primary) 50%, var(--border));
+}
+.modal--browse-wad .bw-drop:hover .bw-drop__icon svg { transform: translateY(-2px); }
+
 .modal--browse-wad .bw-drop--over .bw-drop__icon {
-    background: var(--accent-primary);
+    background:
+        radial-gradient(circle at 30% 30%,
+            color-mix(in oklab, var(--accent-primary) 100%, white 12%),
+            var(--accent-primary) 70%);
     color: #fff;
     border-color: var(--accent-primary);
-    transform: translateY(-2px) scale(1.06);
+    transform: translateY(-4px) scale(1.05);
 }
 .modal--browse-wad .bw-drop--over .bw-drop__icon svg {
-    transform: translateY(-2px);
-    animation: bwBounce 1s ease-in-out infinite;
+    animation: bwBounce 1.1s ease-in-out infinite;
 }
 @keyframes bwBounce {
-    0%, 100% { transform: translateY(-2px); }
-    50%      { transform: translateY(2px); }
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-4px); }
 }
 
-/* Title + description */
+/* Title + "or browse to upload" */
 .modal--browse-wad .bw-drop__title {
     display: block;
     margin: 0;
-    font-size: 17px;
+    font-size: 20px;
     font-weight: 600;
     color: var(--text-primary);
     letter-spacing: -0.01em;
@@ -201,38 +225,68 @@
     font-size: 13px;
     color: var(--text-muted);
     line-height: 1.5;
-    max-width: 360px;
+}
+.modal--browse-wad .bw-drop__link {
+    color: var(--accent-primary);
+    font-weight: 500;
+    border-bottom: 1px dashed color-mix(in oklab, var(--accent-primary) 50%, transparent);
+    transition: border-color var(--motion-fast), color var(--motion-fast);
+}
+.modal--browse-wad .bw-drop:hover .bw-drop__link {
+    color: color-mix(in oklab, var(--accent-primary) 80%, white);
+    border-bottom-color: currentColor;
 }
 
-/* "Browse from disk" chip — secondary CTA */
-.modal--browse-wad .bw-drop__chip {
+/* --------------------------------------------------------------------------
+   Big "Select manually" ghost button
+   -------------------------------------------------------------------------- */
+.modal--browse-wad .bw-manual-btn {
+    all: unset;
+    box-sizing: border-box;
+    width: 100%;
+    height: 56px;
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    margin-top: 6px;
-    padding: 8px 16px;
-    background: var(--bg-primary);
-    border: 1px solid color-mix(in oklab, var(--accent-primary) 35%, var(--border));
-    border-radius: 999px;
-    color: var(--text-primary);
-    font-size: 12px;
+    justify-content: center;
+    gap: 10px;
+    padding: 0 20px;
+    background: transparent;
+    border: 1px solid color-mix(in oklab, var(--border) 90%, transparent);
+    border-radius: 14px;
+    color: var(--text-secondary);
+    font-size: 14px;
     font-weight: 500;
-    transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast);
+    cursor: pointer;
+    text-align: center;
+    transition:
+        background var(--motion-fast),
+        border-color var(--motion-fast),
+        color var(--motion-fast),
+        transform var(--motion-fast);
 }
-.modal--browse-wad .bw-drop__chip svg {
-    width: 13px;
-    height: 13px;
+.modal--browse-wad .bw-manual-btn svg {
+    width: 16px;
+    height: 16px;
     display: block;
     color: var(--accent-primary);
+    transition: transform var(--motion-fast);
 }
-.modal--browse-wad .bw-drop:hover .bw-drop__chip {
-    background: color-mix(in oklab, var(--accent-primary) 18%, var(--bg-primary));
+.modal--browse-wad .bw-manual-btn:hover {
+    background: color-mix(in oklab, var(--accent-primary) 8%, transparent);
+    border-color: color-mix(in oklab, var(--accent-primary) 35%, var(--border));
+    color: var(--text-primary);
+}
+.modal--browse-wad .bw-manual-btn:hover svg { transform: scale(1.1); }
+.modal--browse-wad .bw-manual-btn:active { transform: scale(0.99); }
+.modal--browse-wad .bw-manual-btn:focus-visible {
+    outline: none;
     border-color: var(--accent-primary);
+    box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent-primary) 30%, transparent);
 }
 
-/* Hint line under the drop zone */
+/* Hint line under everything */
 .modal--browse-wad .bw-hint {
-    margin: 0;
+    margin: 4px 0 0;
     text-align: center;
     font-size: 11px;
     color: color-mix(in oklab, var(--text-muted) 80%, transparent);

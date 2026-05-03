@@ -173,6 +173,12 @@ export const BrowseWadModal: React.FC = () => {
             <ModalBody className="bw-body">
                 {phase === 'pick' && (
                     <>
+                        <p className="bw-lead">
+                            Drop a League of Legends WAD file ({' '}
+                            <code>.wad</code> or <code>.wad.client</code> ) to scan its contents
+                            and detect missing path hashes.
+                        </p>
+
                         <div
                             role="button"
                             tabIndex={0}
@@ -188,21 +194,31 @@ export const BrowseWadModal: React.FC = () => {
                             aria-label="Drop a WAD file here, or click to browse"
                         >
                             <div className="bw-drop__inner">
-                                <span className="bw-drop__icon">
-                                    <Icon name="download" />
+                                <span className="bw-drop__icon" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M12 4v12" />
+                                        <path d="M6 10l6-6 6 6" />
+                                        <path d="M5 19h14" />
+                                    </svg>
                                 </span>
                                 <strong className="bw-drop__title">
-                                    {dragOver ? 'Release to load' : 'Drop a WAD file here'}
+                                    {dragOver ? 'Release to load' : 'Drag & drop your WAD file'}
                                 </strong>
                                 <span className="bw-drop__desc">
-                                    .wad or .wad.client — drop one in or click to browse.
-                                </span>
-                                <span className="bw-drop__chip">
-                                    <Icon name="folder" />
-                                    <span>Browse from disk</span>
+                                    or{' '}
+                                    <span className="bw-drop__link">browse to upload</span>
                                 </span>
                             </div>
                         </div>
+
+                        <button
+                            type="button"
+                            className="bw-manual-btn"
+                            onClick={handleBrowse}
+                        >
+                            <Icon name="folder" />
+                            <span>Select manually from disk</span>
+                        </button>
 
                         <p className="bw-hint">
                             Drag from File Explorer (not the browser). Files dropped from the
