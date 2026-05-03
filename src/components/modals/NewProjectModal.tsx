@@ -18,7 +18,40 @@ import {
     type VideoMeta,
     type BudgetResult,
 } from '../../lib/spritesheet';
-import { Button } from '../ui';
+import { Button, Icon, Input, Picker } from '../ui';
+
+// ─── Local helpers ───────────────────────────────────────────────────────────
+
+/** Project name + folder location row, shared across all project types. */
+const NameAndPathRow: React.FC<{
+    namePlaceholder: string;
+    name: string;
+    onNameChange: (v: string) => void;
+    path: string;
+    onPathChange: (v: string) => void;
+    onBrowse: () => void;
+}> = ({ namePlaceholder, name, onNameChange, path, onPathChange, onBrowse }) => (
+    <div className="np-fields-row">
+        <div className="np-field np-field--grow">
+            <label className="np-label">Project Name</label>
+            <Input
+                placeholder={namePlaceholder}
+                value={name}
+                onChange={(e) => onNameChange(e.target.value)}
+            />
+        </div>
+        <div className="np-field np-field--grow">
+            <label className="np-label">Location</label>
+            <Input
+                placeholder="Select folder…"
+                value={path}
+                onChange={(e) => onPathChange(e.target.value)}
+                buttonLabel="Browse"
+                onButtonClick={onBrowse}
+            />
+        </div>
+    </div>
+);
 
 type ProjectType = 'skin' | 'loading-screen' | 'hud-editor';
 
@@ -651,10 +684,8 @@ export const NewProjectModal: React.FC = () => {
                         <h2 className="np-header__title">New Project</h2>
                         <span className="np-header__subtitle">Choose a project type and configure it</span>
                     </div>
-                    <button className="np-close" onClick={closeModal}>
-                        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                            <path d="M4.5 4.5L13.5 13.5M13.5 4.5L4.5 13.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                        </svg>
+                    <button className="modal__close" onClick={closeModal} aria-label="Close">
+                        <Icon name="close" />
                     </button>
                 </div>
 
@@ -746,58 +777,31 @@ export const NewProjectModal: React.FC = () => {
                                     onClick={() => { setSkinSearch(''); setSkinPickerOpen(true); }}
                                     title="Change skin"
                                 >
-                                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                                        <path d="M11.5 1.5l3 3L5 14H2v-3L11.5 1.5z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" fill="none"/>
-                                        <path d="M9.5 3.5l3 3" stroke="currentColor" strokeWidth="1.5"/>
-                                    </svg>
+                                    <Icon name="file-edit" />
                                 </button>
                             </div>
                         )}
 
                         {/* Project details row */}
-                        <div className="np-fields-row">
-                            <div className="np-field np-field--grow">
-                                <label className="np-label">Project Name</label>
-                                <input
-                                    type="text"
-                                    className="np-input"
-                                    placeholder="e.g., Ahri Base Rework"
-                                    value={projectName}
-                                    onChange={(e) => setProjectName(e.target.value)}
-                                />
-                            </div>
-                            <div className="np-field np-field--grow">
-                                <label className="np-label">Location</label>
-                                <div className="np-input-group">
-                                    <input
-                                        type="text"
-                                        className="np-input"
-                                        placeholder="Select folder..."
-                                        value={projectPath}
-                                        onChange={(e) => setProjectPath(e.target.value)}
-                                    />
-                                    <button className="np-btn-browse" onClick={handleBrowsePath}>
-                                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                                            <path d="M2 3.5A1.5 1.5 0 013.5 2h2.879a1.5 1.5 0 011.06.44l.622.62a.5.5 0 00.353.147H12.5A1.5 1.5 0 0114 4.707V12.5a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 12.5v-9z" stroke="currentColor" strokeWidth="1.3" fill="none"/>
-                                        </svg>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
+                        <NameAndPathRow
+                            namePlaceholder="e.g., Ahri Base Rework"
+                            name={projectName}
+                            onNameChange={setProjectName}
+                            path={projectPath}
+                            onPathChange={setProjectPath}
+                            onBrowse={handleBrowsePath}
+                        />
 
                         {/* Champion Selection */}
                         <div className="np-section">
                             <div className="np-section__header">
                                 <label className="np-label">Champion</label>
                                 <div className="np-search-wrap">
-                                    <svg className="np-search-icon" width="13" height="13" viewBox="0 0 16 16" fill="none">
-                                        <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.5"/>
-                                        <path d="M11 11l3.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                                    </svg>
+                                    <span className="np-search-icon"><Icon name="search" /></span>
                                     <input
                                         type="text"
                                         className="np-search"
-                                        placeholder="Search..."
+                                        placeholder="Search…"
                                         value={championSearch}
                                         onChange={(e) => setChampionSearch(e.target.value)}
                                     />
@@ -829,35 +833,14 @@ export const NewProjectModal: React.FC = () => {
 
                     {/* ════════════ Loading Screen Form ════════════ */}
                     <div className={`np-form${projectType === 'loading-screen' ? ' np-form--active' : ''}`}>
-                        <div className="np-fields-row">
-                            <div className="np-field np-field--grow">
-                                <label className="np-label">Project Name</label>
-                                <input
-                                    type="text"
-                                    className="np-input"
-                                    placeholder="e.g., My Animated Loadscreen"
-                                    value={projectName}
-                                    onChange={(e) => setProjectName(e.target.value)}
-                                />
-                            </div>
-                            <div className="np-field np-field--grow">
-                                <label className="np-label">Location</label>
-                                <div className="np-input-group">
-                                    <input
-                                        type="text"
-                                        className="np-input"
-                                        placeholder="Select folder..."
-                                        value={projectPath}
-                                        onChange={(e) => setProjectPath(e.target.value)}
-                                    />
-                                    <button className="np-btn-browse" onClick={handleBrowsePath}>
-                                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                                            <path d="M2 3.5A1.5 1.5 0 013.5 2h2.879a1.5 1.5 0 011.06.44l.622.62a.5.5 0 00.353.147H12.5A1.5 1.5 0 0114 4.707V12.5a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 12.5v-9z" stroke="currentColor" strokeWidth="1.3" fill="none"/>
-                                        </svg>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
+                        <NameAndPathRow
+                            namePlaceholder="e.g., My Animated Loadscreen"
+                            name={projectName}
+                            onNameChange={setProjectName}
+                            path={projectPath}
+                            onPathChange={setProjectPath}
+                            onBrowse={handleBrowsePath}
+                        />
 
                         {/* Video Selection */}
                         <input
@@ -933,12 +916,9 @@ export const NewProjectModal: React.FC = () => {
                                             <Button
                                                 variant="primary"
                                                 size="sm"
+                                                icon="file-edit"
                                                 onClick={() => setVideoEditorOpen(true)}
                                             >
-                                                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" style={{ marginRight: 4 }}>
-                                                    <path d="M11.5 1.5l3 3L5 14H2v-3L11.5 1.5z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" fill="none"/>
-                                                    <path d="M9.5 3.5l3 3" stroke="currentColor" strokeWidth="1.5"/>
-                                                </svg>
                                                 Edit
                                             </Button>
                                         </div>
@@ -951,35 +931,14 @@ export const NewProjectModal: React.FC = () => {
                     {/* ════════════ HUD Editor Form (Dev Only) ════════════ */}
                     {import.meta.env.DEV && (
                     <div className={`np-form${projectType === 'hud-editor' ? ' np-form--active' : ''}`}>
-                        <div className="np-fields-row">
-                            <div className="np-field np-field--grow">
-                                <label className="np-label">Project Name</label>
-                                <input
-                                    type="text"
-                                    className="np-input"
-                                    placeholder="e.g., My Custom HUD"
-                                    value={projectName}
-                                    onChange={(e) => setProjectName(e.target.value)}
-                                />
-                            </div>
-                            <div className="np-field np-field--grow">
-                                <label className="np-label">Location</label>
-                                <div className="np-input-group">
-                                    <input
-                                        type="text"
-                                        className="np-input"
-                                        placeholder="Select folder..."
-                                        value={projectPath}
-                                        onChange={(e) => setProjectPath(e.target.value)}
-                                    />
-                                    <button className="np-btn-browse" onClick={handleBrowsePath}>
-                                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                                            <path d="M2 3.5A1.5 1.5 0 013.5 2h2.879a1.5 1.5 0 011.06.44l.622.62a.5.5 0 00.353.147H12.5A1.5 1.5 0 0114 4.707V12.5a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 12.5v-9z" stroke="currentColor" strokeWidth="1.3" fill="none"/>
-                                        </svg>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
+                        <NameAndPathRow
+                            namePlaceholder="e.g., My Custom HUD"
+                            name={projectName}
+                            onNameChange={setProjectName}
+                            path={projectPath}
+                            onPathChange={setProjectPath}
+                            onBrowse={handleBrowsePath}
+                        />
 
                         <div className="np-hint">
                             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{marginRight: '8px', flexShrink: 0}}>
@@ -1023,17 +982,14 @@ export const NewProjectModal: React.FC = () => {
                         </label>
                     )}
                     <div className="np-footer__spacer" />
-                    <button className="np-btn np-btn--ghost" onClick={closeModal}>Cancel</button>
-                    <button
-                        className="np-btn np-btn--create"
+                    <Button
+                        variant="success"
+                        icon="success"
                         onClick={handleCreate}
                         disabled={!canCreate}
                     >
-                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                            <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                        </svg>
                         Create Project
-                    </button>
+                    </Button>
                 </div>
             </div>
 
@@ -1050,10 +1006,8 @@ export const NewProjectModal: React.FC = () => {
                         {/* Header */}
                         <div className="np-ve-header">
                             <span className="np-ve-header__title">Edit Video</span>
-                            <button className="np-close" onClick={() => setVideoEditorOpen(false)}>
-                                <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                                    <path d="M4.5 4.5L13.5 13.5M13.5 4.5L4.5 13.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                                </svg>
+                            <button className="modal__close" onClick={() => setVideoEditorOpen(false)} aria-label="Close">
+                                <Icon name="close" />
                             </button>
                         </div>
 
@@ -1155,29 +1109,28 @@ export const NewProjectModal: React.FC = () => {
                                 <div className="np-ve-row">
                                     <div className="np-field np-field--grow">
                                         <label className="np-label">Resolution</label>
-                                        <select
-                                            className="np-input"
-                                            value={scaleFactor}
-                                            onChange={(e) => setScaleFactor(parseFloat(e.target.value))}
-                                        >
-                                            {SCALE_OPTIONS.map(opt => (
-                                                <option key={opt.value} value={opt.value}>
-                                                    {opt.label} ({Math.floor(videoMeta.width * opt.value)}&times;{Math.floor(videoMeta.height * opt.value)})
-                                                </option>
-                                            ))}
-                                        </select>
+                                        <Picker<string>
+                                            fullWidth
+                                            value={String(scaleFactor)}
+                                            onChange={(v) => setScaleFactor(parseFloat(v))}
+                                            options={SCALE_OPTIONS.map((opt) => ({
+                                                value: String(opt.value),
+                                                label: opt.label,
+                                                hint: `${Math.floor(videoMeta.width * opt.value)}×${Math.floor(videoMeta.height * opt.value)}`,
+                                            }))}
+                                        />
                                     </div>
                                     <div className="np-field np-field--grow">
                                         <label className="np-label">FPS</label>
-                                        <select
-                                            className="np-input"
-                                            value={customFps}
-                                            onChange={(e) => setCustomFps(parseInt(e.target.value, 10))}
-                                        >
-                                            {FPS_OPTIONS.map(fps => (
-                                                <option key={fps} value={fps}>{fps} fps</option>
-                                            ))}
-                                        </select>
+                                        <Picker<string>
+                                            fullWidth
+                                            value={String(customFps)}
+                                            onChange={(v) => setCustomFps(parseInt(v, 10))}
+                                            options={FPS_OPTIONS.map((fps) => ({
+                                                value: String(fps),
+                                                label: `${fps} fps`,
+                                            }))}
+                                        />
                                     </div>
                                 </div>
 
@@ -1245,11 +1198,15 @@ export const NewProjectModal: React.FC = () => {
                                 disabled={isGeneratingPreview || !budget?.fits}
                                 title="Generate a preview with current settings"
                             >
-                                {isGeneratingPreview ? 'Generating...' : 'Preview'}
+                                {isGeneratingPreview ? 'Generating…' : 'Preview'}
                             </Button>
-                            <button className="np-btn np-btn--create" onClick={() => setVideoEditorOpen(false)}>
+                            <Button
+                                variant="success"
+                                icon="success"
+                                onClick={() => setVideoEditorOpen(false)}
+                            >
                                 Done
-                            </button>
+                            </Button>
                         </div>
                     </div>
                 </div>
@@ -1262,23 +1219,18 @@ export const NewProjectModal: React.FC = () => {
                         <div className="np-skin-picker__header">
                             <h3 className="np-skin-picker__title">Choose Skin</h3>
                             <div className="np-search-wrap np-search-wrap--picker">
-                                <svg className="np-search-icon" width="13" height="13" viewBox="0 0 16 16" fill="none">
-                                    <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.5"/>
-                                    <path d="M11 11l3.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                                </svg>
+                                <span className="np-search-icon"><Icon name="search" /></span>
                                 <input
                                     type="text"
                                     className="np-search"
-                                    placeholder="Search skins..."
+                                    placeholder="Search skins…"
                                     value={skinSearch}
                                     onChange={(e) => setSkinSearch(e.target.value)}
                                     autoFocus
                                 />
                             </div>
-                            <button className="np-close" onClick={() => setSkinPickerOpen(false)}>
-                                <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                                    <path d="M4.5 4.5L13.5 13.5M13.5 4.5L4.5 13.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                                </svg>
+                            <button className="modal__close" onClick={() => setSkinPickerOpen(false)} aria-label="Close">
+                                <Icon name="close" />
                             </button>
                         </div>
                         <div className="np-skin-picker__grid">
