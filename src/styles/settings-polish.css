@@ -66,7 +66,7 @@
     border-color: color-mix(in oklab, var(--color-danger) 35%, transparent);
     color: color-mix(in oklab, var(--color-danger) 12%, var(--text-primary));
 }
-/* Pulse-dot indicator on the active tab */
+/* Vertical bar indicator on the active tab — slides in from the left */
 .modal--settings .settings-sidebar__item--active::before {
     content: '';
     position: absolute;
@@ -77,6 +77,23 @@
     border-radius: 2px;
     background: var(--color-danger);
     box-shadow: 0 0 8px color-mix(in oklab, var(--color-danger) 50%, transparent);
+    animation: sidebarBarSlide 360ms cubic-bezier(.34,1.56,.64,1);
+}
+@keyframes sidebarBarSlide {
+    from { transform: translateY(-50%) translateX(-8px) scaleY(0.4); opacity: 0; }
+    to   { transform: translateY(-50%) translateX(0)   scaleY(1);   opacity: 1; }
+}
+/* Subtle red glow that follows the active item */
+.modal--settings .settings-sidebar__item--active::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: radial-gradient(
+        circle at 0% 50%,
+        color-mix(in oklab, var(--color-danger) 18%, transparent) 0%,
+        transparent 60%);
+    pointer-events: none;
 }
 .modal--settings .settings-sidebar__item:active { transform: scale(0.985); }
 
@@ -141,6 +158,35 @@
     background: transparent;
 }
 .modal--settings .settings-toggle:hover { background: transparent; }
+
+/* Spring-snap toggle thumb (overrides the linear --transition-base in index.css) */
+.settings-toggle input[type="checkbox"] {
+    transition:
+        background-color var(--motion-base),
+        border-color var(--motion-base),
+        box-shadow var(--motion-base) !important;
+}
+.settings-toggle input[type="checkbox"]::before {
+    transition:
+        left 320ms cubic-bezier(.34,1.56,.64,1),
+        background-color var(--motion-base),
+        transform var(--motion-fast) !important;
+}
+.settings-toggle:hover input[type="checkbox"]:not(:checked)::before {
+    background-color: var(--text-primary);
+}
+.settings-toggle input[type="checkbox"]:active::before {
+    transform: scale(1.1);
+}
+.settings-toggle input[type="checkbox"]:checked {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent-primary) 40%, transparent);
+    animation: toggleGlow 480ms ease-out;
+}
+@keyframes toggleGlow {
+    0%   { box-shadow: 0 0 0 0   color-mix(in oklab, var(--accent-primary) 40%, transparent); }
+    50%  { box-shadow: 0 0 0 6px color-mix(in oklab, var(--accent-primary) 20%, transparent); }
+    100% { box-shadow: 0 0 0 0   color-mix(in oklab, var(--accent-primary) 0%,  transparent); }
+}
 
 /* Version card — featured surface with accent edge */
 .modal--settings .version-card {
@@ -209,7 +255,11 @@
     color: var(--text-muted);
     transition: transform var(--motion-fast);
 }
-.pkr--open .pkr__chev { transform: rotate(180deg); color: var(--accent-primary); }
+.pkr--open .pkr__chev {
+    transform: rotate(180deg);
+    color: var(--color-danger);
+    transition: transform 320ms cubic-bezier(.34,1.56,.64,1), color var(--motion-fast);
+}
 
 /* Portal menu */
 .pkr-menu {
@@ -239,6 +289,7 @@
 }
 
 .pkr-item {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 10px;
@@ -250,17 +301,54 @@
     border-radius: 9px;
     cursor: pointer;
     text-align: left;
+    overflow: hidden;
+    opacity: 0;
+    transform: translateX(-8px);
+    animation: pkrItemIn 320ms cubic-bezier(.22,1,.36,1) forwards;
     transition:
         background var(--motion-fast),
         color var(--motion-fast),
         border-color var(--motion-fast),
-        transform var(--motion-fast);
+        transform var(--motion-fast),
+        padding var(--motion-fast);
+}
+/* Stagger items — each delays a little longer than the prior one */
+.pkr-item:nth-child(1) { animation-delay: 0ms; }
+.pkr-item:nth-child(2) { animation-delay: 30ms; }
+.pkr-item:nth-child(3) { animation-delay: 60ms; }
+.pkr-item:nth-child(4) { animation-delay: 90ms; }
+.pkr-item:nth-child(5) { animation-delay: 120ms; }
+.pkr-item:nth-child(6) { animation-delay: 150ms; }
+.pkr-item:nth-child(7) { animation-delay: 180ms; }
+.pkr-item:nth-child(n+8) { animation-delay: 210ms; }
+@keyframes pkrItemIn {
+    to { opacity: 1; transform: translateX(0); }
+}
+
+/* Sliding red wash behind the item on hover (left-to-right reveal) */
+.pkr-item::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg,
+        color-mix(in oklab, var(--color-danger) 22%, transparent) 0%,
+        color-mix(in oklab, var(--color-danger) 8%, transparent) 100%);
+    transform: translateX(-100%);
+    transition: transform 280ms cubic-bezier(.22,1,.36,1);
+    z-index: 0;
+    border-radius: inherit;
+}
+.pkr-item > * { position: relative; z-index: 1; }
+
+.pkr-item:hover:not(:disabled)::before,
+.pkr-item:focus-visible::before {
+    transform: translateX(0);
 }
 .pkr-item:hover:not(:disabled),
 .pkr-item:focus-visible {
-    background: color-mix(in oklab, var(--color-danger) 14%, transparent);
-    border-color: color-mix(in oklab, var(--color-danger) 30%, transparent);
+    border-color: color-mix(in oklab, var(--color-danger) 35%, transparent);
     color: color-mix(in oklab, var(--color-danger) 10%, var(--text-primary));
+    padding-left: 14px;
     outline: none;
 }
 .pkr-item--selected {
@@ -268,8 +356,18 @@
     border-color: color-mix(in oklab, var(--color-danger) 35%, transparent);
     color: color-mix(in oklab, var(--color-danger) 8%, var(--text-primary));
 }
+.pkr-item--selected::before { transform: translateX(0); }
 .pkr-item--disabled { opacity: 0.45; pointer-events: none; }
-.pkr-item:active:not(:disabled) { transform: scale(0.985); }
+.pkr-item:active:not(:disabled) { transform: scale(0.97); }
+
+/* Selected check pop-in */
+.pkr-item__check {
+    animation: pkrCheckPop 320ms cubic-bezier(.34,1.56,.64,1);
+}
+@keyframes pkrCheckPop {
+    from { opacity: 0; transform: scale(0.4) rotate(-15deg); }
+    to   { opacity: 1; transform: scale(1) rotate(0); }
+}
 
 .pkr-item__icon {
     width: 16px; height: 16px;

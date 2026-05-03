@@ -625,26 +625,6 @@ export const SettingsModal: React.FC = () => {
                             </div>
 
                             <div className="settings-item">
-                                <label className="settings-label">Test Logging</label>
-                                <Button
-                                    onClick={async () => {
-                                        try {
-                                            await api.testLogging();
-                                            showToast('info', 'Test logs emitted - check the output panel');
-                                        } catch (err) {
-                                            console.error('Test logging failed:', err);
-                                            showToast('error', 'Failed to emit test logs');
-                                        }
-                                    }}
-                                >
-                                    Emit Test Logs
-                                </Button>
-                                <p className="settings-description">
-                                    Emit test logs at all levels to verify logging is working
-                                </p>
-                            </div>
-
-                            <div className="settings-item">
                                 <Checkbox
                                     toggle
                                     checked={autoUpdateEnabled}
