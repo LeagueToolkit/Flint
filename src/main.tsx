@@ -32,6 +32,8 @@ import './styles/wad-explorer-polish.css';
 import './styles/cheat-sheet-polish.css';
 // Browse-WAD modal
 import './styles/browse-wad-polish.css';
+// Design lab primitives — usable in the main app via .dl-root scope
+import './styles/design-lab.css';
 // Import default theme (can be swapped via custom theme import)
 import './themes/default.css';
 

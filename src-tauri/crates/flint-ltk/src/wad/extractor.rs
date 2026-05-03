@@ -538,10 +538,195 @@ fn resolve_chunk_path(path: &str, chunk_data: &[u8]) -> PathBuf {
     chunk_path
 }
 
+/// Extract every chunk from a WAD into `output_dir`, preserving the resolved
+/// path layout (`data/...`, `assets/...`). Used for non-champion WADs (maps,
+/// UI, common) where there's no `skinN` filtering to apply.
+///
+/// Mirrors `extract_skin_assets` (mmap + bulk hash resolve + rayon decompress),
+/// but writes directly under `output_dir` instead of nesting under a
+/// `<champion>.wad.client/` subfolder. The caller is responsible for passing
+/// the right output dir (typically `<project>/content/base/<wad_name>.wad.client/`).
+pub fn extract_full_wad(
+    wad_path: impl AsRef<Path>,
+    output_dir: impl AsRef<Path>,
+    resolve_paths: impl Fn(&[u64]) -> HashMap<u64, String>,
+) -> Result<ExtractionResult> {
+    extract_full_wad_filtered(wad_path, output_dir, resolve_paths, |_| false)
+}
+
+/// Like `extract_full_wad` but lets the caller drop chunks by their resolved
+/// (lowercased) path. The predicate returns `true` to skip the chunk. Used by
+/// the map flow to filter out localized files like `data/.../en_us/...`.
+pub fn extract_full_wad_filtered(
+    wad_path: impl AsRef<Path>,
+    output_dir: impl AsRef<Path>,
+    resolve_paths: impl Fn(&[u64]) -> HashMap<u64, String>,
+    skip_path: impl Fn(&str) -> bool,
+) -> Result<ExtractionResult> {
+    let wad_path   = wad_path.as_ref();
+    let output_dir = output_dir.as_ref();
+
+    tracing::info!("Extracting full WAD '{}' → '{}'", wad_path.display(), output_dir.display());
+
+    let file = File::open(wad_path)
+        .map_err(|e| Error::io_with_path(e, wad_path))?;
+    let mmap = unsafe { Mmap::map(&file) }
+        .map_err(|e| Error::Wad {
+            message: format!("Failed to mmap WAD: {}", e),
+            path: Some(wad_path.to_path_buf()),
+        })?;
+
+    let wad_toc = Wad::mount(Cursor::new(&mmap[..]))
+        .map_err(|e| Error::Wad {
+            message: format!("Failed to mount WAD: {}", e),
+            path: Some(wad_path.to_path_buf()),
+        })?;
+
+    let chunks: Vec<WadChunk> = wad_toc.chunks().iter().copied().collect();
+    let total_chunks = chunks.len();
+    tracing::info!("Total chunks in WAD: {}", total_chunks);
+
+    let all_hashes: Vec<u64> = chunks.iter().map(|c| c.path_hash()).collect();
+    let resolved_map = resolve_paths(&all_hashes);
+
+    let mut extraction_plan: Vec<(WadChunk, PathBuf)> = Vec::with_capacity(total_chunks);
+    let mut path_mappings:   HashMap<String, String>  = HashMap::new();
+    let mut parents:         HashSet<PathBuf>          = HashSet::new();
+    let mut skipped_unknown = 0usize;
+
+    fs::create_dir_all(output_dir)
+        .map_err(|e| Error::io_with_path(e, output_dir))?;
+
+    for chunk in &chunks {
+        let path_hash = chunk.path_hash();
+        let resolved = resolved_map.get(&path_hash)
+            .cloned()
+            .unwrap_or_else(|| format!("{:016x}", path_hash));
+        let path_lower = resolved.to_lowercase();
+        let is_unresolved = resolved.chars().all(|c| c.is_ascii_hexdigit());
+
+        // Same allowlist as extract_skin_assets — these are the only prefixes
+        // a sane WAD chunk should resolve to. Unresolved hashes get skipped.
+        if !path_lower.starts_with("assets/") && !path_lower.starts_with("data/") {
+            if is_unresolved { skipped_unknown += 1; }
+            continue;
+        }
+
+        // Caller-supplied skip filter (e.g. drop localized files for map projects).
+        if skip_path(&path_lower) { continue; }
+
+        let final_path = PathBuf::from(&resolved);
+        let filename_len = final_path.to_string_lossy().len();
+
+        let out_path = if filename_len > 200 {
+            let parent = final_path.parent().unwrap_or_else(|| Path::new("data"));
+            let ext = final_path.extension().and_then(|e| e.to_str()).unwrap_or("bin");
+            let hash_name = format!("{:016x}.{}", path_hash, ext);
+            let hash_path = parent.join(&hash_name);
+
+            let orig = final_path.to_string_lossy().to_lowercase().replace('\\', "/");
+            let act  = hash_path.to_string_lossy().to_lowercase().replace('\\', "/");
+            path_mappings.insert(orig, act);
+
+            output_dir.join(hash_path)
+        } else {
+            output_dir.join(&final_path)
+        };
+
+        if let Some(p) = out_path.parent() { parents.insert(p.to_path_buf()); }
+        extraction_plan.push((*chunk, out_path));
+    }
+
+    if skipped_unknown > 0 {
+        tracing::warn!("Skipped {} unresolved hashes (not in hash DB)", skipped_unknown);
+    }
+
+    for parent in parents { let _ = fs::create_dir_all(parent); }
+
+    tracing::info!(
+        "Map WAD extraction plan: {} files — launching parallel workers",
+        extraction_plan.len()
+    );
+
+    let mmap_ref = &mmap;
+    let chunk_size = (extraction_plan.len() / rayon::current_num_threads().max(1)).max(1);
+
+    let thread_results: Vec<(usize, usize)> = extraction_plan
+        .par_chunks(chunk_size)
+        .map(|slice| {
+            let mut extracted = 0usize;
+            let mut skipped = 0usize;
+            let mut local_wad = match Wad::mount(Cursor::new(&mmap_ref[..])) {
+                Ok(w) => w,
+                Err(_) => return (0, slice.len()),
+            };
+            for (chunk, out_path) in slice {
+                match local_wad.load_chunk_decompressed(chunk) {
+                    Err(_) => { skipped += 1; }
+                    Ok(data) => {
+                        let final_path = resolve_chunk_path(&out_path.to_string_lossy(), &data);
+                        let actual_path = if final_path == *out_path {
+                            out_path.clone()
+                        } else {
+                            // resolve_chunk_path returned a relative path with extension fix —
+                            // join under output_dir so we still write into the project.
+                            let joined = output_dir.join(&final_path);
+                            if let Some(p) = joined.parent() { let _ = fs::create_dir_all(p); }
+                            joined
+                        };
+                        let write_path = if actual_path.exists() || actual_path == *out_path {
+                            out_path.clone()
+                        } else {
+                            actual_path
+                        };
+                        if fs::write(&write_path, &data).is_ok() { extracted += 1; }
+                        else { skipped += 1; }
+                    }
+                }
+            }
+            (extracted, skipped)
+        })
+        .collect();
+
+    let (extracted_count, skipped_count) = thread_results
+        .iter()
+        .fold((0usize, 0usize), |(e, s), (te, ts)| (e + te, s + ts));
+
+    tracing::info!(
+        "Full WAD extracted: {}/{} chunks ({} skipped, {} path mappings)",
+        extracted_count, total_chunks, skipped_count, path_mappings.len()
+    );
+
+    Ok(ExtractionResult { extracted_count, path_mappings })
+}
+
+/// Read a WAD's chunk list and bulk-resolve every path hash, without extracting
+/// anything to disk. Used by map variant discovery.
+pub fn resolve_wad_paths(
+    wad_path: impl AsRef<Path>,
+    resolve_paths: impl Fn(&[u64]) -> HashMap<u64, String>,
+) -> Result<HashMap<u64, String>> {
+    let wad_path = wad_path.as_ref();
+    let file = File::open(wad_path)
+        .map_err(|e| Error::io_with_path(e, wad_path))?;
+    let mmap = unsafe { Mmap::map(&file) }
+        .map_err(|e| Error::Wad {
+            message: format!("Failed to mmap WAD: {}", e),
+            path: Some(wad_path.to_path_buf()),
+        })?;
+    let wad_toc = Wad::mount(Cursor::new(&mmap[..]))
+        .map_err(|e| Error::Wad {
+            message: format!("Failed to mount WAD: {}", e),
+            path: Some(wad_path.to_path_buf()),
+        })?;
+    let hashes: Vec<u64> = wad_toc.chunks().iter().map(|c| c.path_hash()).collect();
+    Ok(resolve_paths(&hashes))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_resolve_chunk_path_with_extension() {
         let path = "characters/aatrox/aatrox.bin";

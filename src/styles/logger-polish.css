@@ -36,10 +36,13 @@
     50%      { opacity: 1; transform: scale(1.15); }
 }
 
-/* Level color on the inline last-log text */
-.log-panel--collapsed .log-panel__entry--info    { color: var(--text-secondary); }
-.log-panel--collapsed .log-panel__entry--warning { color: var(--color-warning); }
-.log-panel--collapsed .log-panel__entry--error   { color: var(--color-danger); }
+/* Level color on the inline last-log text — uses __text--* (NOT __entry--*) so
+   the absolute-positioned ::before severity bar and grid layout from the
+   expanded entry rules don't bleed into the collapsed footer and shove the
+   text past the panel's right edge. */
+.log-panel--collapsed .log-panel__text--info    { color: var(--text-secondary); }
+.log-panel--collapsed .log-panel__text--warning { color: var(--color-warning); }
+.log-panel--collapsed .log-panel__text--error   { color: var(--color-danger); }
 
 .log-panel__hint {
     display: inline-flex;

@@ -36,6 +36,8 @@ export interface PickerProps<V extends string = string> {
     fullWidth?: boolean;
     /** Width of the trigger in px (or 'auto'). Defaults to 'auto'. */
     width?: number | 'auto';
+    /** Cap the dropdown's visible height in px. Overrides the default 320px. */
+    menuMaxHeight?: number;
     className?: string;
     'aria-label'?: string;
 }
@@ -48,6 +50,7 @@ export function Picker<V extends string = string>({
     disabled,
     fullWidth,
     width = 'auto',
+    menuMaxHeight,
     className = '',
     'aria-label': ariaLabel,
 }: PickerProps<V>) {
@@ -120,7 +123,13 @@ export function Picker<V extends string = string>({
                 <div
                     ref={menuRef}
                     className="pkr-menu"
-                    style={{ position: 'fixed', top: pos.top, left: pos.left, minWidth: pos.width }}
+                    style={{
+                        position: 'fixed',
+                        top: pos.top,
+                        left: pos.left,
+                        minWidth: pos.width,
+                        ...(menuMaxHeight ? { maxHeight: menuMaxHeight } : {}),
+                    }}
                     role="listbox"
                 >
                     {options.map((opt) => {

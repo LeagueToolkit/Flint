@@ -315,3 +315,4 @@ input.np-search:focus {
     gap: 8px !important;
     border-top-color: color-mix(in oklab, var(--border) 70%, transparent) !important;
 }
+

@@ -11,6 +11,7 @@ pub mod league;
 pub mod repath;
 pub mod validation;
 pub mod project;
+pub mod map;
 pub mod export;
 pub mod checkpoint;
 pub mod hud;

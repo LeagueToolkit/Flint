@@ -53,7 +53,7 @@ const NameAndPathRow: React.FC<{
     </div>
 );
 
-type ProjectType = 'skin' | 'loading-screen' | 'hud-editor';
+type ProjectType = 'skin' | 'loading-screen' | 'map';
 
 const SCALE_OPTIONS = [
     { label: '100%', value: 1.0 },
@@ -88,6 +88,12 @@ export const NewProjectModal: React.FC = () => {
     const [usePbe, setUsePbe] = useState(false);
     const cdragonBranch: 'pbe' | 'latest' = usePbe ? 'pbe' : 'latest';
     const effectiveLeaguePath = usePbe ? configStore.leaguePathPbe : state.leaguePath;
+
+    // ─── Map project state ───────────────────────────────────────────────
+    const [availableMaps, setAvailableMaps] = useState<api.MapEntry[]>([]);
+    const [selectedMapId, setSelectedMapId] = useState<string>('');
+    const [includeLevels, setIncludeLevels] = useState<boolean>(true);
+    const [mapsLoading, setMapsLoading] = useState<boolean>(false);
 
     // ─── Loading screen state ────────────────────────────────────────────
     const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -140,6 +146,32 @@ export const NewProjectModal: React.FC = () => {
     useEffect(() => {
         setSplashLoaded(false);
     }, [selectedSkin, selectedChampion]);
+
+    useEffect(() => {
+        if (!isVisible || projectType !== 'map' || !effectiveLeaguePath) {
+            return;
+        }
+        let cancelled = false;
+        (async () => {
+            setMapsLoading(true);
+            try {
+                const maps = await api.listAvailableMaps(effectiveLeaguePath);
+                if (cancelled) return;
+                setAvailableMaps(maps);
+                // Default to the first map (usually map11 / Summoner's Rift) if nothing selected
+                if (maps.length > 0 && !selectedMapId) {
+                    setSelectedMapId(maps[0].id);
+                }
+            } catch (err) {
+                console.error('[NewProject] listAvailableMaps failed:', err);
+                showToast('error', 'Failed to scan League maps folder — see log panel');
+            } finally {
+                if (!cancelled) setMapsLoading(false);
+            }
+        })();
+        return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isVisible, projectType, effectiveLeaguePath, usePbe]);
 
     // Recalculate budget whenever video params change
     useEffect(() => {
@@ -506,28 +538,37 @@ export const NewProjectModal: React.FC = () => {
         }
     };
 
-    const handleCreateHudEditor = async () => {
-        if (!projectName || !projectPath) {
+    const handleCreateMap = async () => {
+        if (!projectName || !projectPath || !selectedMapId) {
             showToast('error', 'Please fill in all required fields');
+            return;
+        }
+        if (!effectiveLeaguePath) {
+            showToast('error', 'League path is not configured. Open Settings (Ctrl+,) and set the LoL folder.');
             return;
         }
 
         setIsCreating(true);
-        setProgress('Creating HUD editor project...');
+        setProgress('Creating map project...');
+        console.info(
+            `[NewProject] Creating map project: map=${selectedMapId}, levels=${includeLevels}, leaguePath=${effectiveLeaguePath}`
+        );
 
         try {
-            const projectPathStr = await api.createHudProject({
-                projectName,
-                creatorName: state.creatorName || 'UnknownCreator',
-                description: 'HUD Editor Project',
-                projectsDir: projectPath,
+            const project = await api.createMapProject({
+                name: projectName,
+                mapId: selectedMapId,
+                includeLevels,
+                projectPath,
+                leaguePath: effectiveLeaguePath,
+                creatorName: state.creatorName || undefined,
             });
-
-            const project = await api.openProject(projectPathStr);
-            await finishProjectCreation(project, 'HUD Editor', 0);
+            const mapEntry = availableMaps.find(m => m.id === selectedMapId);
+            await finishProjectCreation(project, mapEntry?.displayName || selectedMapId, 0);
         } catch (err) {
             const flintError = err as api.FlintError;
-            showToast('error', flintError.getUserMessage?.() || 'Failed to create HUD editor project');
+            const userMsg = flintError.getUserMessage?.() || 'Failed to create map project';
+            showToast('error', `${userMsg} — see log panel for full error`);
         } finally {
             setIsCreating(false);
             setProgress('');
@@ -536,7 +577,7 @@ export const NewProjectModal: React.FC = () => {
 
     const handleCreate = () => {
         if (projectType === 'skin') return handleCreateSkin();
-        if (projectType === 'hud-editor') return handleCreateHudEditor();
+        if (projectType === 'map') return handleCreateMap();
         return handleCreateLoadingScreen();
     };
 
@@ -581,10 +622,10 @@ export const NewProjectModal: React.FC = () => {
     const canCreateLoadingScreen = projectType === 'loading-screen'
         && !!projectName && !!projectPath && !!videoFile && !!budget?.fits && !isCreating;
 
-    const canCreateHudEditor = projectType === 'hud-editor'
-        && !!projectName && !!projectPath && !isCreating;
+    const canCreateMap = projectType === 'map'
+        && !!projectName && !!projectPath && !!selectedMapId && !!effectiveLeaguePath && !isCreating;
 
-    const canCreate = canCreateSkin || canCreateLoadingScreen || canCreateHudEditor;
+    const canCreate = canCreateSkin || canCreateLoadingScreen || canCreateMap;
 
     const budgetMaxDim = budget ? Math.max(budget.grid?.sheetWidth ?? 0, budget.grid?.sheetHeight ?? 0) : 0;
     const budgetPercent = Math.min(100, (budgetMaxDim / 16384) * 100);
@@ -703,6 +744,22 @@ export const NewProjectModal: React.FC = () => {
                             <span className="np-type-card__label">Skin</span>
                         </button>
 
+                        {import.meta.env.DEV && (
+                            <button
+                                className={`np-type-card${projectType === 'map' ? ' np-type-card--active' : ''}`}
+                                onClick={() => setProjectType('map')}
+                            >
+                                <div className="np-type-card__glow" />
+                                <div className="np-type-card__icon">
+                                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                                        <path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2z" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinejoin="round"/>
+                                        <path d="M9 4v14M15 6v14" stroke="currentColor" strokeWidth="1.5"/>
+                                    </svg>
+                                </div>
+                                <span className="np-type-card__label">Map</span>
+                            </button>
+                        )}
+
                         <button
                             className={`np-type-card${projectType === 'loading-screen' ? ' np-type-card--active' : ''}`}
                             onClick={() => setProjectType('loading-screen')}
@@ -716,26 +773,6 @@ export const NewProjectModal: React.FC = () => {
                             </div>
                             <span className="np-type-card__label">Loading Screen</span>
                         </button>
-
-                        {import.meta.env.DEV && (
-                            <button
-                                className={`np-type-card${projectType === 'hud-editor' ? ' np-type-card--active' : ''}`}
-                                onClick={() => setProjectType('hud-editor')}
-                            >
-                                <div className="np-type-card__glow" />
-                                <div className="np-type-card__icon">
-                                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-                                        <rect x="2" y="3" width="20" height="18" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-                                        <circle cx="6" cy="7" r="1" fill="currentColor"/>
-                                        <circle cx="18" cy="7" r="1" fill="currentColor"/>
-                                        <circle cx="6" cy="17" r="1" fill="currentColor"/>
-                                        <circle cx="18" cy="17" r="1" fill="currentColor"/>
-                                        <rect x="10" y="10" width="4" height="4" rx="0.5" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-                                    </svg>
-                                </div>
-                                <span className="np-type-card__label">HUD Editor</span>
-                            </button>
-                        )}
                     </div>
 
                     {/* ════════════ Skin Project Form ════════════ */}
@@ -931,11 +968,11 @@ export const NewProjectModal: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* ════════════ HUD Editor Form (Dev Only) ════════════ */}
+                    {/* ════════════ Map Project Form (Dev Only) ════════════ */}
                     {import.meta.env.DEV && (
-                    <div className={`np-form${projectType === 'hud-editor' ? ' np-form--active' : ''}`}>
+                    <div className={`np-form${projectType === 'map' ? ' np-form--active' : ''}`}>
                         <NameAndPathRow
-                            namePlaceholder="e.g., My Custom HUD"
+                            namePlaceholder="e.g., My Custom Map"
                             name={projectName}
                             onNameChange={setProjectName}
                             path={projectPath}
@@ -943,12 +980,44 @@ export const NewProjectModal: React.FC = () => {
                             onBrowse={handleBrowsePath}
                         />
 
+                        <div className="np-fields-row">
+                            <div className="np-field np-field--grow">
+                                <label className="np-label">Map</label>
+                                <Picker
+                                    fullWidth
+                                    menuMaxHeight={210}
+                                    value={selectedMapId}
+                                    onChange={setSelectedMapId}
+                                    disabled={mapsLoading || availableMaps.length === 0}
+                                    placeholder={
+                                        mapsLoading ? 'Scanning maps…'
+                                        : availableMaps.length === 0 ? 'No maps found in League folder'
+                                        : 'Select a map…'
+                                    }
+                                    options={availableMaps.map(m => ({
+                                        value: m.id,
+                                        label: m.displayName,
+                                        hint: `${m.id}${m.hasLevels ? ' · +LEVELS' : ''}`,
+                                    }))}
+                                />
+                            </div>
+                        </div>
+
+                        <label className="np-checkbox-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <input
+                                type="checkbox"
+                                checked={includeLevels}
+                                onChange={(e) => setIncludeLevels(e.target.checked)}
+                            />
+                            <span>Include LEVELS WAD (lightmaps, grass tints)</span>
+                        </label>
+
                         <div className="np-hint">
                             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{marginRight: '8px', flexShrink: 0}}>
                                 <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" fill="none"/>
                                 <path d="M8 5v3M8 10v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
                             </svg>
-                            The HUD editor allows you to visually edit League of Legends HUD files. After creating the project, you can import an existing HUD BIN file to edit.
+                            Extracts the map's WAD directly into your project so you can edit mapgeo, materials, textures and lightmaps in Flint. No skin repathing is applied.
                         </div>
                     </div>
                     )}
@@ -956,7 +1025,7 @@ export const NewProjectModal: React.FC = () => {
 
                 {/* Footer */}
                 <div className="np-footer">
-                    {projectType !== 'hud-editor' && (
+                    {(projectType === 'skin' || projectType === 'loading-screen') && (
                         <label
                             className={`np-pbe-toggle${usePbe ? ' np-pbe-toggle--on' : ''}`}
                             title={configStore.leaguePathPbe

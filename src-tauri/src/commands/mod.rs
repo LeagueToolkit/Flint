@@ -7,6 +7,7 @@ pub mod bin_split;
 pub mod league;
 pub mod external_apps;
 pub mod project;
+pub mod map_project;
 pub mod champion;
 pub mod validation;
 pub mod file;

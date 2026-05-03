@@ -243,7 +243,7 @@ export const LogPanel: React.FC = () => {
         <footer className="log-panel log-panel--collapsed" onClick={toggleLogPanel}>
             <div className="log-panel__left">
                 <span className={`log-panel__indicator ${indicatorClass}`} />
-                <span className={`log-panel__text log-panel__entry--${displayLevel}`}>
+                <span className={`log-panel__text log-panel__text--${displayLevel}`}>
                     {displayMessage.length > 100 ? displayMessage.substring(0, 100) + '…' : displayMessage}
                 </span>
             </div>

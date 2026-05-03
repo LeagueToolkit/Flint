@@ -168,6 +168,10 @@ fn main() {
             commands::project::delete_project,
             commands::project::list_project_files,
             commands::project::preconvert_project_bins,
+            // Map project commands
+            commands::map_project::list_available_maps,
+            commands::map_project::list_map_variants,
+            commands::map_project::create_map_project,
             // Champion discovery commands
             commands::champion::discover_champions,
             commands::champion::get_champion_skins,
