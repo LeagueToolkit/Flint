@@ -53,3 +53,5 @@ export type { SpinnerProps } from './Spinner';
 
 export { UIShowcase } from './UIShowcase';
 export { DesignLab } from './DesignLab';
+export { Picker } from './Picker';
+export type { PickerOption, PickerProps } from './Picker';

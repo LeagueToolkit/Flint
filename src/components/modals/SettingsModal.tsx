@@ -21,7 +21,7 @@ import {
     ModalFooter,
     ModalHeader,
     ProgressBar,
-    Select,
+    Picker,
     DesignLab,
 } from '../ui';
 
@@ -563,16 +563,17 @@ export const SettingsModal: React.FC = () => {
                             <div className="settings-item">
                                 <label className="settings-item__label">Theme</label>
                                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                                    <Select
-                                        style={{ flex: 1 }}
-                                        value={selectedTheme}
-                                        onChange={(e) => setSelectedTheme(e.target.value || '')}
-                                    >
-                                        <option value="">Default (Red)</option>
-                                        {availableThemes.map((t) => (
-                                            <option key={t.id} value={t.id}>{t.name}</option>
-                                        ))}
-                                    </Select>
+                                    <div style={{ flex: 1 }}>
+                                        <Picker
+                                            fullWidth
+                                            value={selectedTheme}
+                                            onChange={(v) => setSelectedTheme(v)}
+                                            options={[
+                                                { value: '', label: 'Default (Red)' },
+                                                ...availableThemes.map((t) => ({ value: t.id, label: t.name })),
+                                            ]}
+                                        />
+                                    </div>
                                     <Button
                                         size="sm"
                                         onClick={async () => {
@@ -599,13 +600,15 @@ export const SettingsModal: React.FC = () => {
                                     BIN Conversion Engine
                                     <span className="settings-item__badge">Advanced</span>
                                 </label>
-                                <Select
+                                <Picker
+                                    fullWidth
                                     value={binConverterEngine}
-                                    onChange={(e) => setBinConverterEngine(e.target.value as 'ltk' | 'jade')}
-                                >
-                                    <option value="ltk">LTK (Default)</option>
-                                    <option value="jade">Jade Custom</option>
-                                </Select>
+                                    onChange={(v) => setBinConverterEngine(v as 'ltk' | 'jade')}
+                                    options={[
+                                        { value: 'ltk',  label: 'LTK (Default)',  hint: 'Standard converter, ships with Flint' },
+                                        { value: 'jade', label: 'Jade Custom', hint: 'Alt converter, handles edge-case BINs better' },
+                                    ]}
+                                />
                                 <div className="settings-item__hint">
                                     Jade Custom converter may handle certain BIN files better than LTK
                                 </div>
