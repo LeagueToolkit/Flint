@@ -26,6 +26,8 @@ import './styles/project-list-polish.css';
 import './styles/new-project-polish.css';
 // Logger / status-bar polish
 import './styles/logger-polish.css';
+// WAD Explorer polish
+import './styles/wad-explorer-polish.css';
 // Import default theme (can be swapped via custom theme import)
 import './themes/default.css';
 

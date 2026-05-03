@@ -2193,25 +2193,36 @@ export const WadExplorer: React.FC = () => {
                 {/* Tree / scan states */}
                 <div className="file-tree" style={{ flex: 1, overflow: 'hidden', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                     {wadExplorer.scanStatus === 'idle' && effectiveLeagueRoot && (
-                        <div style={{ padding: '16px', color: 'var(--text-muted)', fontSize: '12px' }}>Preparing scan…</div>
+                        <div className="wad-empty">
+                            <span className="wad-empty__icon" dangerouslySetInnerHTML={{ __html: getIcon('refresh') }} />
+                            <strong className="wad-empty__title">Preparing scan…</strong>
+                            <span className="wad-empty__desc">Indexing the game directory.</span>
+                        </div>
                     )}
                     {wadExplorer.scanStatus === 'scanning' && (
-                        <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                            <div className="spinner" style={{ margin: '0 auto 8px' }} />
-                            <div style={{ fontSize: '12px' }}>Scanning game directory…</div>
+                        <div className="wad-empty">
+                            <div className="spinner wad-empty__spinner" />
+                            <strong className="wad-empty__title">Scanning game directory</strong>
+                            <span className="wad-empty__desc">Locating WAD archives…</span>
                         </div>
                     )}
                     {wadExplorer.scanStatus === 'error' && (
-                        <div style={{ padding: '16px' }}>
-                            <div style={{ fontSize: '12px', color: 'var(--error, #f44)', marginBottom: '8px' }}>{wadExplorer.scanError}</div>
+                        <div className="wad-empty wad-empty--error">
+                            <span className="wad-empty__icon" dangerouslySetInnerHTML={{ __html: getIcon('error') }} />
+                            <strong className="wad-empty__title">Scan failed</strong>
+                            <span className="wad-empty__desc">{wadExplorer.scanError}</span>
                             <button className="btn btn--sm" onClick={handlePickGamePath}>Pick game folder</button>
                         </div>
                     )}
                     {wadExplorer.scanStatus === 'idle' && !effectiveLeagueRoot && (
-                        <div style={{ padding: '16px' }}>
-                            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                                {branch === 'pbe' ? 'No PBE League path configured.' : 'No League path configured.'}
-                            </div>
+                        <div className="wad-empty">
+                            <span className="wad-empty__icon" dangerouslySetInnerHTML={{ __html: getIcon('folder') }} />
+                            <strong className="wad-empty__title">
+                                No {branch === 'pbe' ? 'PBE ' : ''}League path
+                            </strong>
+                            <span className="wad-empty__desc">
+                                Point Flint at your {branch === 'pbe' ? 'PBE ' : ''}League of Legends folder to start exploring WADs.
+                            </span>
                             <button className="btn btn--sm btn--primary" onClick={handlePickGamePath}>
                                 Select {branch === 'pbe' ? 'PBE ' : ''}Game Folder
                             </button>
