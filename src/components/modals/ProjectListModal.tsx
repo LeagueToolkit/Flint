@@ -7,7 +7,7 @@
  * primary action.
  */
 
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useAppState, useConfigStore } from '../../lib/stores';
 import { formatRelativeTime } from '../../lib/utils';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -30,17 +30,92 @@ function monogram(champion: string): string {
     const c = (champion || '?').trim();
     if (!c) return '?';
     if (c.length <= 2) return c.toUpperCase();
-    // Use first two letters
     return (c[0] + c[1]).toUpperCase();
 }
 
-/** Stable hue 0–360 derived from the champion name — gives each tile its own
- *  color without persistence. */
+/** Stable hue 0–360 derived from the champion name. */
 function hueFor(champion: string): number {
     let h = 0;
     for (let i = 0; i < champion.length; i++) h = (h * 31 + champion.charCodeAt(i)) >>> 0;
     return h % 360;
 }
+
+/** DDragon centered loading splash for the base skin (skin 0). */
+function championSplashUrl(alias: string): string {
+    return `https://ddragon.leagueoflegends.com/cdn/img/champion/loading/${alias}_0.jpg`;
+}
+
+/** Module-level memo for thumbnail blob URLs — avoids re-reading bytes
+ *  every time the modal reopens. Keyed by absolute project path. */
+const thumbnailCache = new Map<string, string | null>();
+
+/**
+ * Project tile artwork:
+ *   1. Try `{project.path}/thumbnail.webp` via Tauri read.
+ *   2. Fall back to the champion's centered splash from DDragon.
+ *   3. Fall back to the gradient monogram tile.
+ */
+const ProjectThumb: React.FC<{ project: SavedProject }> = ({ project }) => {
+    const [thumb, setThumb] = useState<string | null>(() => thumbnailCache.get(project.path) ?? null);
+    const [thumbFailed, setThumbFailed] = useState(thumbnailCache.get(project.path) === null);
+    const [splashFailed, setSplashFailed] = useState(false);
+    const cancelled = useRef(false);
+
+    useEffect(() => {
+        cancelled.current = false;
+        if (thumbnailCache.has(project.path)) return;
+
+        (async () => {
+            try {
+                const folder = project.path.replace(/[\\/](mod\.config|flint|project)\.json$/, '');
+                const thumbPath = `${folder.replace(/\\/g, '/')}/thumbnail.webp`;
+                const bytes = await api.readFileBytes(thumbPath);
+                if (cancelled.current) return;
+                const blob = new Blob([new Uint8Array(bytes)], { type: 'image/webp' });
+                const url = URL.createObjectURL(blob);
+                thumbnailCache.set(project.path, url);
+                setThumb(url);
+            } catch {
+                if (cancelled.current) return;
+                thumbnailCache.set(project.path, null);
+                setThumbFailed(true);
+            }
+        })();
+
+        return () => { cancelled.current = true; };
+    }, [project.path]);
+
+    if (thumb) {
+        return (
+            <span className="pl-card__tile pl-card__tile--art">
+                <img src={thumb} alt="" className="pl-card__art" loading="lazy" />
+            </span>
+        );
+    }
+    if (!thumbFailed) {
+        // Still loading the local thumbnail — render a placeholder tile
+        return <span className="pl-card__tile pl-card__tile--loading" />;
+    }
+    if (!splashFailed) {
+        return (
+            <span className="pl-card__tile pl-card__tile--art">
+                <img
+                    src={championSplashUrl(project.champion)}
+                    alt=""
+                    className="pl-card__art"
+                    loading="lazy"
+                    onError={() => setSplashFailed(true)}
+                />
+            </span>
+        );
+    }
+    // Final fallback: monogram
+    return (
+        <span className="pl-card__tile">
+            <span className="pl-card__monogram">{monogram(project.champion)}</span>
+        </span>
+    );
+};
 
 export const ProjectListModal: React.FC = () => {
     const { state, dispatch, closeModal, setWorking, setReady, setError, openConfirmDialog } = useAppState();
@@ -351,9 +426,7 @@ export const ProjectListModal: React.FC = () => {
                                 }}
                                 title={`Open ${project.champion} — ${project.name}`}
                             >
-                                <span className="pl-card__tile">
-                                    <span className="pl-card__monogram">{monogram(project.champion)}</span>
-                                </span>
+                                <ProjectThumb project={project} />
                                 <span className="pl-card__body">
                                     <span className="pl-card__name">{project.name}</span>
                                     <span className="pl-card__champ">{project.champion}</span>

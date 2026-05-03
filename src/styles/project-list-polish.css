@@ -197,6 +197,46 @@
     text-shadow: 0 1px 2px rgba(0,0,0,0.4);
 }
 
+/* Image tile — thumbnail.webp or champion centered splash */
+.pl-card__tile--art {
+    background: var(--bg-primary);
+    border-color: color-mix(in oklab, hsl(var(--pl-hue) 60% 45%) 50%, var(--border));
+    padding: 0;
+}
+.pl-card__tile--art::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, transparent 50%, rgba(0,0,0,0.35));
+    pointer-events: none;
+    z-index: 1;
+}
+.pl-card__art {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transition: transform var(--motion-base);
+}
+.pl-card:hover .pl-card__art { transform: scale(1.06); }
+
+/* Loading placeholder while we read thumbnail.webp from disk */
+.pl-card__tile--loading {
+    background:
+        linear-gradient(90deg,
+            rgba(255,255,255,0.04) 0%,
+            rgba(255,255,255,0.10) 50%,
+            rgba(255,255,255,0.04) 100%),
+        var(--bg-primary);
+    background-size: 200% 100%;
+    animation: plThumbShimmer 1.4s ease-in-out infinite;
+    border-color: var(--border);
+}
+@keyframes plThumbShimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
 /* Body */
 .pl-card__body {
     display: flex;
