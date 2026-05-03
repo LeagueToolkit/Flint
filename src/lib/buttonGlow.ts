@@ -10,10 +10,12 @@ export function installButtonGlow() {
     if (installed || typeof document === 'undefined') return;
     installed = true;
     document.addEventListener('mousemove', (e) => {
-        const btn = (e.target as HTMLElement | null)?.closest<HTMLElement>('.btn');
-        if (!btn) return;
-        const r = btn.getBoundingClientRect();
-        btn.style.setProperty('--mx', `${e.clientX - r.left}px`);
-        btn.style.setProperty('--my', `${e.clientY - r.top}px`);
+        const target = (e.target as HTMLElement | null)?.closest<HTMLElement>(
+            '.btn, .np-champ-card',
+        );
+        if (!target) return;
+        const r = target.getBoundingClientRect();
+        target.style.setProperty('--mx', `${e.clientX - r.left}px`);
+        target.style.setProperty('--my', `${e.clientY - r.top}px`);
     }, { passive: true });
 }

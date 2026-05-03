@@ -22,6 +22,8 @@ import './styles/settings-polish.css';
 import './styles/fixer-polish.css';
 // Project list modal polish
 import './styles/project-list-polish.css';
+// New project modal polish
+import './styles/new-project-polish.css';
 // Import default theme (can be swapped via custom theme import)
 import './themes/default.css';
 

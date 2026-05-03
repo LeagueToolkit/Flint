@@ -678,15 +678,10 @@ export const NewProjectModal: React.FC = () => {
                     </div>
                 )}
 
-                {/* Header */}
+                {/* Header — compact: title left, subtitle on the right */}
                 <div className="np-header">
-                    <div className="np-header__text">
-                        <h2 className="np-header__title">New Project</h2>
-                        <span className="np-header__subtitle">Choose a project type and configure it</span>
-                    </div>
-                    <button className="modal__close" onClick={closeModal} aria-label="Close">
-                        <Icon name="close" />
-                    </button>
+                    <h2 className="np-header__title">New Project</h2>
+                    <span className="np-header__subtitle">Choose a project type and configure it</span>
                 </div>
 
                 {/* Body */}
@@ -745,40 +740,48 @@ export const NewProjectModal: React.FC = () => {
 
                     {/* ════════════ Skin Project Form ════════════ */}
                     <div className={`np-form${projectType === 'skin' ? ' np-form--active' : ''}`}>
-                        {/* Hero splash preview */}
+                        {/* Hero splash preview with splash-tinted glow behind it */}
                         {selectedChampion && selectedSkin && (
-                            <div className="np-hero-splash">
-                                <img
-                                    key={`${selectedChampion.id}-${selectedSkin.id}-${cdragonBranch}`}
-                                    src={getHeroSplashUrl()}
-                                    alt={selectedSkin.name}
-                                    className={`np-hero-splash__img${splashLoaded ? ' np-hero-splash__img--loaded' : ''}`}
-                                    onLoad={() => setSplashLoaded(true)}
-                                    onError={(e) => {
-                                        const img = e.target as HTMLImageElement;
-                                        const fb1 = getHeroSplashFallback();
-                                        const fb2 = getHeroSplashFinalFallback();
-                                        if (img.src !== fb1 && fb1) {
-                                            img.src = fb1;
-                                        } else if (img.src !== fb2 && fb2) {
-                                            img.src = fb2;
-                                        } else {
-                                            setSplashLoaded(true);
-                                        }
-                                    }}
+                            <div className="np-hero-wrap">
+                                <div
+                                    className="np-hero-glow"
+                                    style={{ backgroundImage: `url(${JSON.stringify(getHeroSplashUrl()).slice(1, -1)})` }}
+                                    aria-hidden="true"
                                 />
-                                <div className="np-hero-splash__overlay" />
-                                <div className="np-hero-splash__info">
-                                    <span className="np-hero-splash__champion">{selectedChampion.name}</span>
-                                    <span className="np-hero-splash__skin">{selectedSkin.name}</span>
+                                <div className="np-hero-splash">
+                                    <img
+                                        key={`${selectedChampion.id}-${selectedSkin.id}-${cdragonBranch}`}
+                                        src={getHeroSplashUrl()}
+                                        alt={selectedSkin.name}
+                                        className={`np-hero-splash__img${splashLoaded ? ' np-hero-splash__img--loaded' : ''}`}
+                                        onLoad={() => setSplashLoaded(true)}
+                                        onError={(e) => {
+                                            const img = e.target as HTMLImageElement;
+                                            const fb1 = getHeroSplashFallback();
+                                            const fb2 = getHeroSplashFinalFallback();
+                                            if (img.src !== fb1 && fb1) {
+                                                img.src = fb1;
+                                            } else if (img.src !== fb2 && fb2) {
+                                                img.src = fb2;
+                                            } else {
+                                                setSplashLoaded(true);
+                                            }
+                                        }}
+                                    />
+                                    <div className="np-hero-splash__overlay" />
+                                    <div className="np-hero-splash__info">
+                                        <span className="np-hero-splash__champion">{selectedChampion.name}</span>
+                                        <span className="np-hero-splash__skin">{selectedSkin.name}</span>
+                                    </div>
+                                    <button
+                                        className="np-hero-splash__edit"
+                                        onClick={() => { setSkinSearch(''); setSkinPickerOpen(true); }}
+                                        title="Change skin"
+                                    >
+                                        <Icon name="file-edit" />
+                                        <span>Change skin</span>
+                                    </button>
                                 </div>
-                                <button
-                                    className="np-hero-splash__edit"
-                                    onClick={() => { setSkinSearch(''); setSkinPickerOpen(true); }}
-                                    title="Change skin"
-                                >
-                                    <Icon name="file-edit" />
-                                </button>
                             </div>
                         )}
 
@@ -982,6 +985,9 @@ export const NewProjectModal: React.FC = () => {
                         </label>
                     )}
                     <div className="np-footer__spacer" />
+                    <Button variant="ghost" onClick={closeModal}>
+                        Cancel
+                    </Button>
                     <Button
                         variant="success"
                         icon="success"
